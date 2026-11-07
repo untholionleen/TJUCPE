@@ -1,0 +1,18 @@
+# Private student / teaching data — never commit
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.pdf
+*.docx
+*.doc
+*.zip
+private/
+student-data/
+reports/
+exports/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
