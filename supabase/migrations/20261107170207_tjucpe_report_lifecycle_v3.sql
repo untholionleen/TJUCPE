@@ -117,7 +117,7 @@ drop policy if exists reports_delete_admin_only on public.report_submissions;
 drop policy if exists reports_delete_student_or_class_staff_v3 on public.report_submissions;
 create policy reports_delete_student_or_class_staff_v3 on public.report_submissions for delete to authenticated
 using (private.is_admin() or private.is_class_teacher(class_id)
-  or (student_id=(select auth.uid()) and status in ('draft','returned','withdrawn')));
+  or (student_id=(select auth.uid()) and status in ('draft','submitted','returned','withdrawn')));
 drop policy if exists report_objects_delete_orphan_owner_admin_v3 on storage.objects;
 create policy report_objects_delete_orphan_owner_admin_v3 on storage.objects for delete to authenticated
 using (bucket_id='lab-reports' and (private.is_admin() or (
