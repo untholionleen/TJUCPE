@@ -7,7 +7,9 @@
   "use strict";
   const R = 8.31446261815324, F = 96485.33212, EPS0 = 8.8541878128e-12, NA = 6.02214076e23;
   const num = (v, fallback = NaN) => {
-    const n = Number(String(v ?? "").trim().replace(/,/g, ""));
+    const raw = String(v ?? "").trim().replace(/,/g, "");
+    if (!raw) return fallback;
+    const n = Number(raw);
     return Number.isFinite(n) ? n : fallback;
   };
   const rowsOf = (text) => {
@@ -77,7 +79,7 @@
     if(c.length<4) throw new Error("Szyszkowski 三参数拟合至少需要 4 个有效浓度点。");
     const fn=(x,p)=>p[0]-p[1]*Math.log(1+p[2]*x);
     const g0=Math.max(...gamma), amp=Math.max(0.1,g0-Math.min(...gamma));
-    const opt=lm3(c,gamma,fn,[g0,amp,1/Math.max(0.01,...c)],[ [0.01,1e-6,1e-8],[200,1e4,1e8] ]);
+    const opt=lm3(c,gamma,fn,[g0,20,5],[ [50,0.1,1e-4],[100,200,1000] ]);
     const p=opt.params, mean=gamma.reduce((s,x)=>s+x,0)/gamma.length;
     const sst=gamma.reduce((s,x)=>s+(x-mean)**2,0), r2=sst?1-opt.sse/sst:1;
     return {gamma0:p[0],a:p[1],b:p[2],r2,sse:opt.sse,predict:x=>fn(x,p)};
@@ -105,10 +107,9 @@
         if(r.length<4) throw new Error("至少输入 4 个浓度点（含平行压力读数）。");
         if(!(s.dp_water>0)) throw new Error("请填写同一仪器、同温度下纯水最大泡压 Δp水。");
         const c=r.map(x=>x[0]), dp=r.map(x=>x.slice(1).filter(v=>v>0).reduce((a,b)=>a+b,0)/x.slice(1).filter(v=>v>0).length);
-        const gamma=dp.map(v=>s.water_gamma*v/s.dp_water), selected=selectPoints(c.map((x,i)=>({x,y:gamma[i],i})),sel);
-        const fi=fitSzyszkowski(selected.map(p=>p.x),selected.map(p=>p.y));
-        const gPts=c.map((x,i)=>({x,y:gamma[i],i}));
-        const allGamma=fitSzyszkowski(c,gamma);
+        const gamma=dp.map(v=>s.water_gamma*v/s.dp_water), gPts=c.map((x,i)=>({x,y:gamma[i],i}));
+        const selected=selectPoints(gPts,sel);
+        const allGamma=fitSzyszkowski(selected.map(p=>p.x),selected.map(p=>p.y));
         const smooth=curve(allGamma.predict?{predict:allGamma.predict}:null,Math.min(...c),Math.max(...c));
         const gValues=c.map(x=> (x/(R*T))*(allGamma.a*allGamma.b/(1+allGamma.b*x))*1e-3);
         const cOver=gValues.map((g,i)=>({x:c[i],y:g>0?c[i]/g:NaN,i})).filter(p=>p.x>0&&Number.isFinite(p.y));
@@ -143,20 +144,20 @@
       slug:"rectorite-adsorption",code:"PC-03",name:"累托石吸附亚甲基蓝",workflow:"adsorption",
       tables:[
         {key:"calibration",title:"吸光度工作曲线",columns:["c_std_mg_L","absorbance"],headers:["标准浓度 / mg·L⁻¹","吸光度 A"],example:"0\t0\n1\t0.129\n2\t0.345\n3\t0.489\n4\t0.740\n5\t0.939\n6\t1.082"},
-        {key:"samples",title:"吸附平衡样品数据",columns:["C0_mg_L","m_REC_g","A_eq","dilution","V_mL"],headers:["初始浓度 C0 / mg·L⁻¹","REC 质量 / g","平衡吸光度 A","稀释倍数","溶液体积 / mL"],example:"40\t0.0270\t0.014\t1\t25\n80\t0.0265\t0.016\t1\t25\n120\t0.0271\t0.620\t1\t25\n160\t0.0273\t0.327\t10\t25"}
+        {key:"samples",title:"吸附平衡样品数据",columns:["C0_mg_L","m_REC_g","A_eq","dilution"],headers:["初始浓度 C0 / mg·L⁻¹","REC 质量 / g","平衡吸光度 A","稀释倍数"],example:"40\t0.0270\t0.014\t1\n80\t0.0265\t0.016\t1\n120\t0.0271\t0.620\t1\n160\t0.0273\t0.327\t10"}
       ],
-      settings:[{key:"calibrationIntercept",label:"工作曲线截距（自动拟合可留空）",defaultValue:""}],
+      settings:[{key:"V_mL",label:"每组吸附液体积 V (mL；按实验指导书填写)",defaultValue:""}],
       note:"按上传 Excel：先拟合 A-c 工作曲线，再按稀释倍数求平衡浓度。Excel 的 qe 列实际表现为 C0−Ce（mg/L）；本工作区同时输出该原表口径，以及按 V/m 换算的常规 qe（mg/g）。Langmuir：Ce/qe 对 Ce；Freundlich：ln qe 对 ln Ce。",
       analyze:(tables,s,sel)=>{
-        const cal=matrix(tables.calibration,2),sam=matrix(tables.samples,5);
+        const cal=matrix(tables.calibration,2),sam=matrix(tables.samples,4);
         if(cal.length<3||sam.length<2)throw new Error("请分别录入工作曲线（至少 3 点）和吸附平衡样品（至少 2 组）。");
         const cf=linear(cal.map((r,i)=>({x:r[0],y:r[1],i})));if(cf.slope<=0)throw new Error("工作曲线斜率应为正值，请检查浓度和吸光度列。");
         const data=sam.map((r,i)=>{
           const ceDil=(r[2]-cf.intercept)/cf.slope, ce=ceDil*r[3];
-          const delta=r[0]-ce, qe=r[4]>0&&r[1]>0?delta*(r[4]/1000)/r[1]:NaN;
+          const delta=r[0]-ce, qe=s.V_mL>0&&r[1]>0?delta*(s.V_mL/1000)/r[1]:NaN;
           return {C0:r[0],m:r[1],A:r[2],dil:r[3],Ce:ce,deltaC:delta,qe,i};
         });
-        const qPts=data.filter(x=>x.Ce>0&&x.qe>0).map(x=>({x:x.Ce,y:x.qe,i:x.i}));
+        const qPts=data.filter(x=>x.Ce>0&&x.deltaC>0).map(x=>({x:x.Ce,y:x.deltaC,i:x.i}));
         const langPts=qPts.map(p=>({x:p.x,y:p.x/p.y,i:p.i})).filter(p=>p.x>0);
         const lang=linearRange(langPts,sel),qm=1/lang.slope,K=lang.slope/lang.intercept;
         const frPts=qPts.map(p=>({x:Math.log(p.x),y:Math.log(p.y),i:p.i}));
@@ -164,10 +165,10 @@
         const allPts=data.map(x=>({x:x.Ce,y:x.deltaC,i:x.i}));
         return {series:[
           makeSeries("标准工作曲线 A-c",cal.map((r,i)=>({x:r[0],y:r[1],i})),cf,{x:"C / mg·L⁻¹",y:"A"}),
-          makeSeries("吸附等温线 qe-Ce",qPts,null,{x:"Ce / mg·L⁻¹",y:"qe / mg·g⁻¹"}),
+          makeSeries("吸附等温线（原表口径 C0−Ce）",qPts,null,{x:"Ce / mg·L⁻¹",y:"C0−Ce / mg·L⁻¹"}),
           makeSeries("Langmuir Ce/qe-Ce",langPts,lang,{x:"Ce / mg·L⁻¹",y:"Ce/qe"}),
           makeSeries("Freundlich ln qe-ln Ce",frPts,fr,{x:"ln Ce",y:"ln qe"})
-        ],fit:lang,metrics:[["工作曲线斜率",cf.slope,"A·L/mg"],["工作曲线截距",cf.intercept,"A"],["Langmuir qm",qm,"mg/g"],["Langmuir KL",K,"L/mg"],["Freundlich KF",Kf,""],["Freundlich n",n,""],["Langmuir R²",lang.r2,""],["Freundlich R²",fr.r2,""]],warnings:["当溶液体积 V 未按每组样品实际填写时，qe（mg/g）不可信；请核对实验报告的固液比。","您上传的 Excel 将 qe 命名为 mg/L，数值等于 C0−Ce；此处保留 deltaC，同时另算标准 qe=deltaC·V/m。"],rawRows:sam,headers:["C0_mg_L","m_REC_g","A_eq","dilution","V_mL"],resultRows:data.map(x=>[x.C0,x.m,x.A,x.dil,x.Ce,x.deltaC,x.qe])};
+        ],fit:lang,metrics:[["工作曲线斜率",cf.slope,"A·L/mg"],["工作曲线截距",cf.intercept,"A"],["Langmuir qm",qm,"mg/g"],["Langmuir KL",K,"L/mg"],["Freundlich KF",Kf,""],["Freundlich n",n,""],["Langmuir R²",lang.r2,""],["Freundlich R²",fr.r2,""]],warnings:["上传 Excel 的 qe 列标题为 mg/L，数值实际为 C0−Ce；Langmuir/Freundlich 按原表口径拟合。","原始工作表未提供吸附液体积 V；只有填写 V 后才计算标准 qe=ΔC·V/m（mg/g）。"],rawRows:sam,headers:["C0_mg_L","m_REC_g","A_eq","dilution"],resultRows:data.map(x=>[x.C0,x.m,x.A,x.dil,x.Ce,x.deltaC,x.qe])};
       }
     },
     {
