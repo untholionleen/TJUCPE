@@ -65,7 +65,7 @@ select
   p.proconfig as function_settings
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
-where n.nspname = 'public'
+where n.nspname = 'private'
   and p.proname in ('is_admin','is_staff','handle_new_user','log_profile_role_change')
 order by p.proname;
 
