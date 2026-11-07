@@ -61,7 +61,7 @@ const sapReport = [
 ].join("\n");
 const r2Report = run("saponification",{main:sapReport},{T1_C:25,T2_C:30,kappa0_1:2.15,kappaInf_1:.68,kappa0_2:2.28,kappaInf_2:.75,c0:.00999});
 assert.ok(r2Report.metrics.some(x => x[0] === "Ea"));
-const phase = [
+const phaseData = [
 "10\t243.7\t260.8\t204.8\t218.2\t351.3",
 "20\t238.1\t257.0\t202.2\t214.9\t345.7",
 "30\t235.7\t253.4\t199.3\t211.3\t338.3",
@@ -70,7 +70,7 @@ const phase = [
 "60\t233.4\t244.5\t192.3\t203.4\t",
 "70\t233.0\t241.6\t190.5\t201.4\t"
 ].join("\n");
-const phaseResult = run("phase-diagram",{main:phase},{eutectic_C:183,eutecticSn_pct:61.9});
+const phaseResult = run("phase-diagram",{main:phaseData},{eutectic_C:183,eutecticSn_pct:61.9});
 assert.equal(phaseResult.series.find(x=>x.name==="Pb（纯）").points.length,3,
   "phase diagram should retain valid points for shorter Pb cooling curve");
 assert.equal(phaseResult.series.find(x=>x.name==="Sn（纯）").points.length,7,
