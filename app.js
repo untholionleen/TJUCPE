@@ -28,6 +28,7 @@
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
+  let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.add("show");
@@ -83,14 +84,25 @@
     if(page==="overview") loadOverview();
     window.scrollTo({top:0,behavior:"smooth"});
   }
-  function renderCatalog(){
-    $("experimentCatalog").innerHTML=experiments.map(e=>`
+  async function renderCatalog(){
+    const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,config,is_active").order("code");
+    if(!error&&Array.isArray(data)){
+      const rows=data.filter(x=>x.is_active||["teacher","admin"].includes(profile?.role));
+      const merged=rows.map(row=>{
+        const base=experiments.find(x=>x.slug===row.slug)||{slug:row.slug,code:row.code,x:"X",y:"Y",xu:"",yu:"",note:"该项目尚无专属计算模板。可使用通用数据表；由教师审核后再发布专属算法。"};
+        return {...base,slug:row.slug,code:row.code,name:row.name,group:row.category||"其他",desc:row.description||"",active:row.is_active,catalogId:row.id,config:row.config||{}};
+      });
+      experiments.splice(0,experiments.length,...merged);
+    }
+    const shown=experiments.filter(e=>e.active!==false);
+    $("experimentCatalog").innerHTML=shown.map(e=>`
       <article class="experiment-card">
-        <div class="experiment-top"><span class="experiment-code">${e.code}</span><span class="experiment-type">${e.group}</span></div>
-        <h3>${e.name}</h3><p>${e.desc}</p>
-        <button data-open-experiment="${e.slug}">打开数据工作区　→</button>
+        <div class="experiment-top"><span class="experiment-code">${escapeHtml(e.code)}</span><span class="experiment-type">${escapeHtml(e.group)}</span></div>
+        <h3>${escapeHtml(e.name)}</h3><p>${escapeHtml(e.desc)}</p>
+        <button data-open-experiment="${escapeHtml(e.slug)}">打开数据工作区　→</button>
       </article>`).join("");
-    // Report experiment is now derived from the selected class assignment; no duplicate selector is required.
+    $("taskExperiment").innerHTML=shown.map(e=>'<option value="'+escapeHtml(e.slug)+'">'+escapeHtml(e.code+" · "+e.name)+'</option>').join("");
+    if(["teacher","admin"].includes(profile?.role)) await loadExperimentCatalogManager();
   }
   function openExperiment(slug){
     currentExperiment=experiments.find(e=>e.slug===slug)||experiments[0];
@@ -510,7 +522,110 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function downloadReviewFile(id){const row=reviewRows.find(r=>r.id===id);if(row)await openGrading(id);}
   let gradingPreviewUrl=null;
+  function annotationCanvasRedraw(canvas,pageNo){
+    const dpr=window.devicePixelRatio||1,ctx=canvas.getContext("2d"),w=canvas.clientWidth,h=canvas.clientHeight;
+    ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+    (gradingStrokes[pageNo]||[]).forEach(stroke=>{
+      const pts=stroke.points||[];if(!pts.length)return;
+      ctx.strokeStyle=stroke.color||"#d7263d";ctx.fillStyle=stroke.color||"#d7263d";
+      ctx.lineWidth=stroke.width||2.2;ctx.lineCap="round";ctx.lineJoin="round";
+      if(pts.length===1){ctx.beginPath();ctx.arc(pts[0].x*w,pts[0].y*h,2,0,Math.PI*2);ctx.fill();return;}
+      ctx.beginPath();ctx.moveTo(pts[0].x*w,pts[0].y*h);
+      for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x*w,pts[i].y*h);
+      ctx.stroke();
+    });
+  }
+  async function renderPdfAnnotation(bytes){
+    const host=$("gradingPreviewContent");
+    if(!window.pdfjsLib){host.textContent="PDF.js 未能加载，当前可预览但暂不可进行页面标注。请刷新后重试。";return;}
+    pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const task=pdfjsLib.getDocument({data:new Uint8Array(bytes)}),pdf=await task.promise;
+    host.innerHTML='<div id="pdfAnnotationPages" class="pdf-annotation-pages"></div>';
+    const pages=$("pdfAnnotationPages");
+    for(let pageNo=1;pageNo<=pdf.numPages;pageNo++){
+      const page=await pdf.getPage(pageNo),viewport=page.getViewport({scale:1.25}),dpr=window.devicePixelRatio||1;
+      const wrap=document.createElement("div");wrap.className="pdf-review-page";wrap.dataset.page=String(pageNo);
+      const paper=document.createElement("div");paper.className="pdf-review-paper";
+      const base=document.createElement("canvas");base.className="pdf-review-base";
+      base.width=Math.floor(viewport.width*dpr);base.height=Math.floor(viewport.height*dpr);
+      base.style.width=viewport.width+"px";base.style.height=viewport.height+"px";
+      const overlay=document.createElement("canvas");overlay.className="pdf-review-overlay";
+      overlay.width=base.width;overlay.height=base.height;overlay.style.width=viewport.width+"px";overlay.style.height=viewport.height+"px";
+      paper.append(base,overlay);wrap.appendChild(paper);pages.appendChild(wrap);
+      const ctx=base.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);
+      await page.render({canvasContext:ctx,viewport}).promise;
+      annotationCanvasRedraw(overlay,pageNo);
+      overlay.addEventListener("pointerdown",e=>{
+        if(e.button!==0)return;overlay.setPointerCapture(e.pointerId);
+        const rect=overlay.getBoundingClientRect(),point={x:(e.clientX-rect.left)/rect.width,y:(e.clientY-rect.top)/rect.height};
+        const stroke={color:"#d7263d",width:2.2,points:[point]};
+        (gradingStrokes[pageNo] ||= []).push(stroke);overlay.dataset.drawing="1";annotationCanvasRedraw(overlay,pageNo);
+      });
+      overlay.addEventListener("pointermove",e=>{
+        if(overlay.dataset.drawing!=="1")return;
+        const rect=overlay.getBoundingClientRect(),point={x:(e.clientX-rect.left)/rect.width,y:(e.clientY-rect.top)/rect.height};
+        const list=gradingStrokes[pageNo]||[],stroke=list[list.length-1];if(stroke)stroke.points.push(point);
+        annotationCanvasRedraw(overlay,pageNo);
+      });
+      const stop=()=>{overlay.dataset.drawing="0";};
+      overlay.addEventListener("pointerup",stop);overlay.addEventListener("pointercancel",stop);overlay.addEventListener("lostpointercapture",stop);
+    }
+  }
+  async function buildAnnotatedPdf(){
+    if(!gradingPdfBytes||!window.PDFLib)throw new Error("PDF 批注组件尚未就绪。");
+    const pdf=await PDFLib.PDFDocument.load(gradingPdfBytes),pages=pdf.getPages();
+    for(const [pageKey,strokes] of Object.entries(gradingStrokes)){
+      const page=pages[Number(pageKey)-1];if(!page)continue;
+      const {width,height}=page.getSize();
+      for(const stroke of strokes||[]){
+        const pts=stroke.points||[];if(!pts.length)continue;
+        const points=pts.map(p=>({x:p.x*width,y:height-p.y*height}));
+        if(points.length===1){
+          page.drawCircle({x:points[0].x,y:points[0].y,size:1.4,color:PDFLib.rgb(0.84,0.10,0.18)});
+        }else for(let i=1;i<points.length;i++){
+          page.drawLine({start:points[i-1],end:points[i],thickness:stroke.width||2.2,color:PDFLib.rgb(0.84,0.10,0.18),opacity:0.92});
+        }
+      }
+    }
+    return await pdf.save();
+  }
+  function undoPdfAnnotation(){
+    const keys=Object.keys(gradingStrokes).sort((a,b)=>Number(b)-Number(a));
+    const key=keys.find(k=>(gradingStrokes[k]||[]).length);
+    if(!key)return;
+    gradingStrokes[key].pop();
+    const canvas=document.querySelector('.pdf-review-page[data-page="'+key+'"] .pdf-review-overlay');
+    if(canvas)annotationCanvasRedraw(canvas,Number(key));
+  }
+  function clearPdfAnnotations(){
+    if(!confirm("清除本次尚未保存的全部 PDF 批注？"))return;
+    gradingStrokes={};
+    document.querySelectorAll(".pdf-review-overlay").forEach(canvas=>annotationCanvasRedraw(canvas,Number(canvas.closest(".pdf-review-page")?.dataset.page||1)));
+  }
   async function loadGradingPreview(row){
+    const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
+    gradingPdfBytes=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
+    const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
+    if(error){host.textContent="报告读取失败："+error.message;return;}
+    if((row.file_name||"").toLowerCase().endsWith(".pdf")){
+      gradingPdfBytes=await data.arrayBuffer();
+      if(!window.PDFLib){host.textContent="PDF 编辑组件未加载，暂时不能保存页面批注。";return;}
+      $("pdfAnnotationToolbar")?.classList.remove("hidden");
+      try{await renderPdfAnnotation(gradingPdfBytes);}
+      catch(err){host.textContent="PDF 页面渲染失败："+err.message+"。请重新加载文件或检查 PDF 是否损坏。";$("pdfAnnotationToolbar")?.classList.add("hidden");}
+    }else if((row.file_name||"").toLowerCase().endsWith(".docx")){
+      if(!window.mammoth){host.textContent="Word 预览组件未加载。";return;}
+      const result=await mammoth.convertToHtml({arrayBuffer:await data.arrayBuffer()});
+      host.innerHTML='<article class="docx-preview grading-docx"></article>';host.querySelector("article").innerHTML=result.value;
+      host.insertAdjacentHTML("afterbegin",'<p class="tiny muted">DOCX 可在线查看并填写批阅意见；页面手写批注目前仅支持 PDF。</p>');
+    }else host.textContent="不支持该文件格式。";
+  }
+  function closeGradingPreview(){
+    if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
+    gradingPdfBytes=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
+    $("gradingPreviewContent").innerHTML="点击“打开批阅”后在此处预览 PDF / DOCX。";
+  }
+
     const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
     if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
     const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
@@ -532,9 +647,31 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!gradingRecord)return;
     const score=$("gradeScore").value===""?null:Number($("gradeScore").value);
     if(score!==null&&(score<0||score>100||!Number.isFinite(score))){toast("成绩必须在 0–100 之间。",true);return;}
-    const {error}=await db.from("report_submissions").update({score,feedback:$("gradeFeedback").value.trim(),status:$("gradeStatus").value,reviewed_by:user.id,reviewed_at:new Date().toISOString()}).eq("id",gradingRecord.id);
-    if(error){toast("保存批阅失败："+error.message,true);return;}
-    toast("批阅结果已保存。");$("gradingPanel").classList.add("hidden");gradingRecord=null;loadReviews();
+    const status=$("gradeStatus").value;
+    const update={score,feedback:$("gradeFeedback").value.trim(),status,reviewed_by:user.id,reviewed_at:new Date().toISOString()};
+    let newPath=null;
+    const hasAnnotations=Object.values(gradingStrokes).some(list=>Array.isArray(list)&&list.length);
+    if(gradingPdfBytes&&hasAnnotations){
+      try{
+        const bytes=await buildAnnotatedPdf();
+        newPath="reviewed/"+gradingRecord.id+"/"+crypto.randomUUID()+"_reviewed.pdf";
+        const blob=new Blob([bytes],{type:"application/pdf"});
+        const {error:uploadError}=await db.storage.from("lab-reports").upload(newPath,blob,{upsert:false,contentType:"application/pdf"});
+        if(uploadError)throw new Error("批阅版 PDF 上传失败："+uploadError.message);
+        update.storage_path=newPath;
+        const original=(gradingRecord.file_name||"实验报告.pdf").replace(/\.pdf$/i,"");
+        update.file_name=original+"_批阅版.pdf";
+        update.review_annotations=gradingStrokes;
+      }catch(err){toast(err.message||"生成批阅版 PDF 失败。",true);return;}
+    }
+    const {error}=await db.from("report_submissions").update(update).eq("id",gradingRecord.id);
+    if(error){
+      if(newPath)await db.storage.from("lab-reports").remove([newPath]);
+      toast("保存批阅失败："+error.message,true);return;
+    }
+    toast(hasAnnotations?"批阅结果与标注版 PDF 已同步发布，原始文件保留在版本历史中。":"批阅结果已保存。");
+    closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
+    await loadReviews();await loadReports();await loadOverview();
   }
   async function loadUsers(){
     $("usersBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
@@ -557,25 +694,70 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     let visible=classesCache;
     if(profile.role==="student"){
       const {data:members}=await db.from("class_members").select("class_id").eq("student_id",user.id).eq("status","active");
-      const ids=new Set((members||[]).map(x=>x.class_id));visible=classesCache.filter(c=>ids.has(c.id));
+      const ids=new Set((members||[]).map(x=>x.class_id));
+      visible=classesCache.filter(c=>ids.has(c.id)&&c.is_active);
     }
-    $("classList").innerHTML=visible.map(c=>`<article class="class-card"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.course_code||"课程班级")}</small><p>${escapeHtml(c.description||"")}</p>${profile.role!=="student"?`<code>加入码：${escapeHtml(c.join_code)}</code>`:""}</article>`).join("")||'<p class="muted">当前没有班级。</p>';
-    $("classTaskSelect").innerHTML=visible.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-    $("reportClass").innerHTML=visible.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-    if(!activeClassId&&visible.length)activeClassId=visible[0].id;
+    const staff=["teacher","admin"].includes(profile.role);
+    $("classList").innerHTML=visible.map(c=>`<article class="class-card ${c.is_active?"":"class-inactive"}">
+      <strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.course_code||"课程班级")}</small>
+      <p>${escapeHtml(c.description||"")}</p>
+      ${staff?`<code>加入码：${escapeHtml(c.join_code||"—")}</code>
+      <div class="class-card-actions"><button class="btn btn-outline btn-sm" data-class-edit="${c.id}">修改</button>
+      <button class="btn btn-outline btn-sm" data-class-toggle="${c.id}">${c.is_active?"停用/归档":"重新启用"}</button></div>`: ""}
+      ${!c.is_active?'<small class="muted">已停用，历史报告保留</small>':""}
+    </article>`).join("")||'<p class="muted">当前没有班级。</p>';
+    const active=visible.filter(c=>c.is_active);
+    $("classTaskSelect").innerHTML=active.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
+    $("reportClass").innerHTML=active.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
+    if(!activeClassId||!active.some(c=>c.id===activeClassId))activeClassId=active[0]?.id||null;
     if(activeClassId)$("classTaskSelect").value=activeClassId;
-    $("classManagerTools").classList.toggle("hidden",profile.role==="student");
+    $("classManagerTools").classList.toggle("hidden",!staff);
+    if($("classBulkDelete"))$("classBulkDelete").textContent=profile.role==="admin"?"批量永久删除学生账号":"批量移出本班";
+    if(!activeClassId){$("classAssignments").textContent="请先创建或加入有效班级。";$("classRosterBody").innerHTML='<tr><td colspan="5">暂无有效班级。</td></tr>';return;}
     await loadClassAssignments();
+  }
+  async function editClass(id){
+    const row=classesCache.find(c=>c.id===id);if(!row)return;
+    const name=prompt("班级名称：",row.name);if(name===null)return;
+    const code=prompt("课程代码：",row.course_code||"");if(code===null)return;
+    const description=prompt("班级说明：",row.description||"");if(description===null)return;
+    if(!name.trim()){toast("班级名称不能为空。",true);return;}
+    const {error}=await db.from("classes").update({name:name.trim(),course_code:code.trim(),description:description.trim()}).eq("id",id);
+    if(error){toast("班级修改失败："+error.message,true);return;}
+    toast("班级信息已更新。");await loadClasses();
+  }
+  async function toggleClass(id){
+    const row=classesCache.find(c=>c.id===id);if(!row)return;
+    const next=!row.is_active;
+    if(!confirm(next?"重新启用该班级？":"停用该班级？历史报告和成绩不会删除，学生将不能继续加入或提交新报告。"))return;
+    const {error}=await db.from("classes").update({is_active:next}).eq("id",id);
+    if(error){toast("班级状态更新失败："+error.message,true);return;}
+    toast(next?"班级已重新启用。":"班级已停用并归档。");await loadClasses();
   }
   async function loadClassAssignments(){
     const classId=$("classTaskSelect").value||activeClassId;activeClassId=classId;
     if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=error.message;return;}
-    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span></div>`).join("")||"本班暂无实验任务。";
+    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span><span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button></span></div>`).join("")||"本班暂无实验任务。";
     await loadClassRoster(classId);
     $("reportAssignment").innerHTML=(data||[]).filter(a=>a.is_open).map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
     $("reportClass").value=classId;
+  }
+  async function editAssignment(id){
+    const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at").eq("id",id).maybeSingle();
+    if(error||!data){toast(error?.message||"未找到实验任务。",true);return;}
+    const title=prompt("任务名称：",data.title);if(title===null)return;
+    const instructions=prompt("任务要求：",data.instructions||"");if(instructions===null)return;
+    const due=prompt("截止时间（ISO 时间，例如 2026-11-20T23:59:00Z；留空表示不限）：",data.due_at||"");if(due===null)return;
+    const {error:updateError}=await db.from("experiment_assignments").update({title:title.trim(),instructions:instructions.trim(),due_at:due.trim()?new Date(due).toISOString():null}).eq("id",id);
+    if(updateError){toast("任务修改失败："+updateError.message,true);return;}
+    toast("实验任务已更新。");await loadClassAssignments();
+  }
+  async function toggleAssignment(id,isOpen){
+    const {error}=await db.from("experiment_assignments").update({is_open:!isOpen}).eq("id",id);
+    if(error){toast("任务状态修改失败："+error.message,true);return;}
+    toast(isOpen?"任务已关闭。":"任务已重新开放。");await loadClassAssignments();
   }
   async function loadClassRoster(classId){
     const host=$("classRosterBody");if(!host)return;
@@ -604,7 +786,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       $("accountActionResult").textContent=results.filter(x=>x.ok).map(x=>x.email+" "+x.link).join("\n")||"没有生成恢复链接。";
       toast("已生成 "+results.filter(x=>x.ok).length+"/"+ids.length+" 个恢复链接。");
     }else{
-      toast("账号删除完成："+results.filter(x=>x.ok).length+"/"+ids.length+" 个成功。");
+      toast(profile.role==="admin"?"账号永久删除完成："+results.filter(x=>x.ok).length+"/"+ids.length+" 个成功。":"已从本班移出："+results.filter(x=>x.ok).length+"/"+ids.length+" 个学生。");
       await loadClassRoster(classId);
     }
   }
@@ -621,6 +803,43 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
     if(error){toast("名单导入失败："+error.message,true);return;}
     const ok=(data?.results||[]).filter(x=>x.ok).length;toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
+  }
+  async function loadExperimentCatalogManager(){
+    const host=$("experimentCatalogAdminList");if(!host)return;
+    const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,is_active").order("code");
+    if(error){host.textContent=error.message;return;}
+    host.innerHTML=(data||[]).map(x=>`<div class="catalog-admin-row"><div><strong>${escapeHtml(x.code)} · ${escapeHtml(x.name)}</strong><small>${escapeHtml(x.slug)} · ${escapeHtml(x.category||"其他")} · ${x.is_active?"启用":"已停用"}</small></div><div><button class="btn btn-outline btn-sm" data-catalog-edit="${x.id}">编辑</button><button class="btn btn-outline btn-sm" data-catalog-toggle="${x.id}" data-active="${x.is_active}">${x.is_active?"停用":"启用"}</button></div></div>`).join("")||"尚无实验项目。";
+  }
+  async function editCatalogItem(id){
+    const {data,error}=await db.from("experiment_catalog").select("*").eq("id",id).maybeSingle();
+    if(error||!data){toast(error?.message||"未找到实验项目。",true);return;}
+    catalogEditingId=id;
+    $("catalogSlug").value=data.slug||"";$("catalogCode").value=data.code||"";
+    $("catalogName").value=data.name||"";$("catalogCategory").value=data.category||"";
+    $("catalogDescription").value=data.description||"";
+    $("saveCatalogItem").textContent="保存项目修改";
+    $("catalogName").focus();
+  }
+  function clearCatalogForm(){
+    catalogEditingId=null;
+    ["catalogSlug","catalogCode","catalogName","catalogCategory","catalogDescription"].forEach(id=>$(id).value="");
+    $("saveCatalogItem").textContent="新增实验项目";
+  }
+  async function saveCatalogItem(){
+    const name=$("catalogName").value.trim(),code=$("catalogCode").value.trim().toUpperCase();
+    const slug=$("catalogSlug").value.trim().toLowerCase()||code.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+    if(!name||!code||!slug){toast("项目名称、项目编号和唯一 slug 均为必填。",true);return;}
+    const payload={slug,code,name,category:$("catalogCategory").value.trim()||"其他",description:$("catalogDescription").value.trim(),config:{workflow:"generic",schema_version:1},is_active:true,updated_by:user.id};
+    let result;
+    if(catalogEditingId) result=await db.from("experiment_catalog").update(payload).eq("id",catalogEditingId);
+    else result=await db.from("experiment_catalog").insert({...payload,created_by:user.id});
+    if(result.error){toast("实验项目保存失败："+result.error.message,true);return;}
+    toast(catalogEditingId?"实验项目已更新。":"实验项目已创建。");clearCatalogForm();await renderCatalog();await loadClasses();
+  }
+  async function toggleCatalogItem(id,isActive){
+    const {error}=await db.from("experiment_catalog").update({is_active:!isActive,updated_by:user.id}).eq("id",id);
+    if(error){toast("项目状态更新失败："+error.message,true);return;}
+    toast(isActive?"实验项目已停用，历史任务保留。":"实验项目已重新启用。");await renderCatalog();
   }
   async function createClass(){
     const name=$("newClassName").value.trim();if(!name){toast("请填写班级名称。",true);return;}
@@ -785,6 +1004,12 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const del=e.target.closest("[data-report-delete]");if(del)deleteReport(del.dataset.reportDelete);
       const review=e.target.closest("[data-review-open]");if(review)openGrading(review.dataset.reviewOpen);
       const reviewDownload=e.target.closest("[data-review-download]");if(reviewDownload)downloadReviewFile(reviewDownload.dataset.reviewDownload);
+      const classEdit=e.target.closest("[data-class-edit]");if(classEdit)editClass(classEdit.dataset.classEdit);
+      const classToggle=e.target.closest("[data-class-toggle]");if(classToggle)toggleClass(classToggle.dataset.classToggle);
+      const assignmentEdit=e.target.closest("[data-assignment-edit]");if(assignmentEdit)editAssignment(assignmentEdit.dataset.assignmentEdit);
+      const assignmentToggle=e.target.closest("[data-assignment-toggle]");if(assignmentToggle)toggleAssignment(assignmentToggle.dataset.assignmentToggle,assignmentToggle.dataset.open==="true");
+      const catalogEdit=e.target.closest("[data-catalog-edit]");if(catalogEdit)editCatalogItem(catalogEdit.dataset.catalogEdit);
+      const catalogToggle=e.target.closest("[data-catalog-toggle]");if(catalogToggle)toggleCatalogItem(catalogToggle.dataset.catalogToggle,catalogToggle.dataset.active==="true");
     });
     $("backExperiments").addEventListener("click",()=>go("experiments"));
     $("runAnalysis").addEventListener("click",runAnalysis);
@@ -817,6 +1042,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("reportClass").addEventListener("change",()=>{$("classTaskSelect").value=$("reportClass").value;loadClassAssignments();});
     $("classTaskSelect").addEventListener("change",loadClassAssignments);
     $("adminTestConnection").addEventListener("click",runAdminConnectionCheck);
+    $("saveCatalogItem").addEventListener("click",saveCatalogItem);
+    $("clearCatalogForm").addEventListener("click",clearCatalogForm);
+    $("undoPdfAnnotation").addEventListener("click",undoPdfAnnotation);
+    $("clearPdfAnnotations").addEventListener("click",clearPdfAnnotations);
     $("closeReportViewer").addEventListener("click",()=>$("reportViewerDialog").close());
     $("closeFeedback").addEventListener("click",()=>$("feedbackDialog").close());
     $("profileButton").addEventListener("click",()=>toast((profile?.full_name||user?.email||"账户")+" · "+roleName(profile?.role)));
