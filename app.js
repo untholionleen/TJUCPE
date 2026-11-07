@@ -164,6 +164,8 @@
     latestAnalysis=null;dedicatedResult=null;selectedFitIndices=[];
     if(chart){chart.destroy();chart=null;}
     if(window.Plotly&&$("analysisPlotly")){try{Plotly.purge($("analysisPlotly"));}catch(_){ }}
+    if($("pythonPlotImage")){$("pythonPlotImage").src="";$("pythonPlotImage").classList.add("hidden");}
+    if($("pythonPlotStatus"))$("pythonPlotStatus").textContent="等待运行实验计算";
     $("analysisResult").classList.add("hidden");$("chartPlaceholder").classList.remove("hidden");
     $("engineWarnings").classList.add("hidden");$("engineWarnings").innerHTML="";
     $("dataTableBody").innerHTML='<tr><td colspan="4" class="muted center">暂无数据</td></tr>';
@@ -705,6 +707,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("clearData").addEventListener("click",()=>{$("dataInput").value="";clearAnalysis();$("dataCount").textContent="等待输入数据";});
     $("dataFile").addEventListener("change",async e=>{const file=e.target.files[0];if(file)$("dataInput").value=await file.text();$("dataCount").textContent=file?file.name:"等待输入数据";});
     $("downloadCsv").addEventListener("click",downloadCsv);
+    $("clearFitSelection")?.addEventListener("click",clearDedicatedSelection);
     $("downloadChart").addEventListener("click",()=>{const image=$("pythonPlotImage");if(image&&!image.classList.contains("hidden")&&image.src){const a=document.createElement("a");a.href=image.src;a.download=(currentExperiment?.slug||"analysis")+"-matplotlib.png";a.click();}else if(window.Plotly&&plotlyGraph){Plotly.downloadImage("analysisPlotly",{format:"png",filename:(currentExperiment?.slug||"analysis")+"-selection",width:1800,height:1200,scale:2});}else if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
     $("saveRecord").addEventListener("click",saveRecord);
     $("newReport").addEventListener("click",()=>{$("reportUploadPanel").classList.remove("hidden");loadClasses();});
