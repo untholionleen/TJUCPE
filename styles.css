@@ -52,3 +52,6 @@
 .selection-workspace{border:1px solid #e2eaee;border-radius:10px;background:#fff;overflow:hidden}
 .selection-workspace .analysis-plotly{height:340px;min-height:300px}
 @media(max-width:720px){.selection-workspace .analysis-plotly{height:300px;min-height:260px}.python-plot-heading,.selection-workspace-heading{align-items:flex-start}}
+
+/* Embedded report review and class roster */
+.grading-preview-panel{margin-top:18px;border:1px solid var(--line);border-radius:10px;padding:14px;background:#fbfcfd}.grading-preview-content{min-height:180px;max-height:72vh;overflow:auto;background:#fff;border:1px solid #e2eaee;border-radius:8px;padding:10px}.grading-inline-frame{width:100%;height:68vh;min-height:560px;border:0}.grading-docx{height:auto;max-height:68vh}.roster-panel{margin-top:16px}
