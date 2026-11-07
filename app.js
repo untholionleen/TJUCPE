@@ -503,7 +503,7 @@
     $("downloadCsv").addEventListener("click",downloadCsv);
     $("downloadChart").addEventListener("click",()=>{if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
     $("saveRecord").addEventListener("click",saveRecord);
-    $("newReport").addEventListener("click",()=>$("reportUploadPanel").classList.remove("hidden"));
+    $("newReport").addEventListener("click",()=>{$("reportUploadPanel").classList.remove("hidden");loadClasses();});
     $("closeReportPanel").addEventListener("click",()=>$("reportUploadPanel").classList.add("hidden"));
     $("reportFile").addEventListener("change",e=>$("reportFileName").textContent=e.target.files[0]?.name||"点击选择报告文件");
     $("submitReport").addEventListener("click",submitReport);
