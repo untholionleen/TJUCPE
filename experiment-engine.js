@@ -99,10 +99,24 @@
   const defs = [
     {
       slug:"surface-tension", code:"PC-01", name:"最大泡压法测定液体的表面张力", workflow:"surface_tension",
-      tables:[{key:"main",title:"压力与浓度原始数据",columns:["c_mol_L","Δp_rep1_Pa","Δp_rep2_Pa","Δp_rep3_Pa"],headers:["浓度 c (mol/L)","Δp1 (Pa)","Δp2 (Pa)","Δp3 (Pa)"],example:"0\t...\t...\t...\n0.05\t...\t...\t...\n0.10\t...\t...\t...\n0.15\t...\t...\t...\n0.20\t...\t...\t...\n0.25\t...\t...\t...\n0.30\t...\t...\t..."}],
+      tables:[{key:"main",title:"压力与浓度原始数据（原始压力路线）",columns:["c_mol_L","Δp_rep1_Pa","Δp_rep2_Pa","Δp_rep3_Pa"],headers:["浓度 c (mol/L)","Δp1 (Pa)","Δp2 (Pa)","Δp3 (Pa)"],example:"0\t...\t...\t...\n0.05\t...\t...\t...\n0.10\t...\t...\t...\n0.15\t...\t...\t...\n0.20\t...\t...\t...\n0.25\t...\t...\t...\n0.30\t...\t...\t..."},{key:"processed",title:"已处理结果数据（可直接导入“实验处理数据结果.xlsx”三列）",columns:["c_mol_L","gamma_mN_m","Gamma_mol_m2"],headers:["浓度 c / mol·dm⁻³","表面张力 γ / mN·m⁻¹","吸附量 Γ / mol·m⁻²"],example:""}],
       settings:[{key:"T_C",label:"实验温度 T (℃)",defaultValue:20.7},{key:"water_gamma",label:"纯水表面张力 γ水 (mN/m)",defaultValue:72.75},{key:"dp_water",label:"纯水最大泡压 Δp水 (Pa)",defaultValue:""}],
       note:"依据上传 Python 脚本：γ=γ水·Δp/Δp水；Szyszkowski：γ=γ₀−a ln(1+bc)；Γ=−c/(RT)·dγ/dc。纯水校准读数必须由本次实验输入，不使用固定 72.75 自动换算。",
       analyze:(tables,s,sel)=>{
+        const processed=matrix(tables.processed,3).filter(x=>x[0]>=0&&x[1]>0&&x[2]>=0);
+        if(processed.length>=4){
+          const c=processed.map(x=>x[0]),gamma=processed.map(x=>x[1]),gValues=processed.map(x=>x[2]);
+          const gPts=c.map((x,i)=>({x,y:gamma[i],i})),selected=selectPoints(gPts,sel);
+          const fit=fitSzyszkowski(selected.map(p=>p.x),selected.map(p=>p.y));
+          const cOver=gValues.map((g,i)=>({x:c[i],y:g>0?c[i]/g:NaN,i})).filter(p=>p.x>0&&Number.isFinite(p.y));
+          const lang=linearRange(cOver,sel),gm=1/lang.slope,area=1/(NA*gm)*1e18;
+          const series=[
+            {name:"实验表面张力 γ-c（Excel处理数据）",points:gPts,fitCurve:curve(fit,Math.min(...c),Math.max(...c)),xLabel:"浓度 c / mol·L⁻¹",yLabel:"γ / mN·m⁻¹"},
+            {name:"实验吸附量 Γ-c（Excel处理数据）",points:c.map((x,i)=>({x,y:gValues[i]*1e6,i})),xLabel:"浓度 c / mol·L⁻¹",yLabel:"Γ × 10⁶ / mol·m⁻²"},
+            {name:"Langmuir 线性化 c/Γ-c",points:cOver,fitCurve:curve(lang,Math.min(...cOver.map(x=>x.x)),Math.max(...cOver.map(x=>x.x))),xLabel:"浓度 c / mol·L⁻¹",yLabel:"c/Γ"}
+          ];
+          return {series,fit:{model:"Excel处理数据：Szyszkowski + Langmuir",coefficients:[fit.gamma0,fit.a,fit.b],r2:fit.r2,sse:fit.sse},metrics:[["γ₀",fit.gamma0,"mN/m"],["a",fit.a,"mN/m"],["b",fit.b,"L/mol"],["Γm (Langmuir)",gm,"mol/m²"],["分子截面积",area,"nm²"],["R²",fit.r2,""]],warnings:["本次使用的是“实验处理数据结果.xlsx”中的 c、γ、Γ 三列；不会再对已处理数据重复进行纯水压力校准。","请保留原始压力路线数据；处理结果与原始读数应可追溯，拟合区间只影响拟合、不覆盖输入数据。"],rawRows:processed,headers:["c_mol_L","gamma_mN_m","Gamma_mol_m2"],resultRows:processed.map((x,i)=>[x[0],x[1],x[2],x[0]>0?x[0]/x[2]:null])};
+        }
         const r=matrix(tables.main,4).filter(x=>x[0]>=0),T=s.T_C+273.15;
         if(r.length<4) throw new Error("至少输入 4 个浓度点（含平行压力读数）。");
         if(!(s.dp_water>0)) throw new Error("请填写同一仪器、同温度下纯水最大泡压 Δp水。");
@@ -124,9 +138,9 @@
     },
     {
       slug:"saponification",code:"PC-02",name:"乙酸乙酯的皂化反应",workflow:"saponification",
-      tables:[{key:"main",title:"不同时刻电导率数据",columns:["t_min","kappa_T1","kappa_T2"],headers:["t / min","κt(T1) / mS·cm⁻¹","κt(T2) / mS·cm⁻¹"],example:"0\t2.15\t2.28\n1\t2.14\t2.20\n2\t2.13\t2.05\n3\t2.12\t1.94\n4\t2.08\t1.85\n5\t2.06\t1.80\n6\t2.03\t1.77\n7\t2.00\t1.74\n8\t1.98\t1.72\n9\t1.96\t1.71\n10\t1.94\t1.68"}],
-      settings:[{key:"T1_C",label:"温度 T1 (℃)",defaultValue:25},{key:"T2_C",label:"温度 T2 (℃)",defaultValue:30},{key:"kappa0_1",label:"κ0(T1)",defaultValue:2.15},{key:"kappaInf_1",label:"κ∞(T1)",defaultValue:0.68},{key:"kappa0_2",label:"κ0(T2)",defaultValue:2.28},{key:"kappaInf_2",label:"κ∞(T2)",defaultValue:0.75},{key:"c0",label:"反应物初始浓度 c0 (mol/L)",defaultValue:0.00999}],
-      note:"依据上传的吴兆宇实验报告：25℃与30℃两组数据，κ0分别为2.15、2.28 mS·cm⁻¹，κ∞分别为0.68、0.75 mS·cm⁻¹。式(12)–(15)：y=1/(κt−κ∞) 对 t 作图，k=m/(c0·b)，m为斜率、b为截距；不同温度的k用Arrhenius两点式求Ea。c0应按NaOH物质的量除以加入乙酸乙酯后的实际总体积计算，默认值0.00999 mol/L仅对应报告中的100mL、0.0100mol/L NaOH与约97.9μL乙酸乙酯。",
+      tables:[{key:"main",title:"不同时刻电导率数据",columns:["t_min","kappa_T1","kappa_T2"],headers:["t / min","κt(T1) / mS·cm⁻¹","κt(T2) / mS·cm⁻¹"],example:"0\t2.18\t2.45\n1\t2.07\t2.29\n2\t1.98\t2.15\n3\t1.90\t2.03\n4\t1.82\t1.92\n5\t1.76\t1.83\n6\t1.70\t1.75\n7\t1.66\t1.69\n8\t1.61\t1.65\n9\t1.58\t1.61\n10\t1.54\t1.58\n11\t1.51\t1.55\n12\t1.48\t1.52\n13\t1.45\t1.50"}],
+      settings:[{key:"T1_C",label:"温度 T1 (℃)",defaultValue:30},{key:"T2_C",label:"温度 T2 (℃)",defaultValue:35},{key:"kappa0_1",label:"κ0(T1)",defaultValue:2.18},{key:"kappaInf_1",label:"κ∞(T1)",defaultValue:0.81},{key:"kappa0_2",label:"κ0(T2)",defaultValue:2.45},{key:"kappaInf_2",label:"κ∞(T2)",defaultValue:0.91},{key:"c0",label:"反应物初始浓度 c0 (mol/L)",defaultValue:0.00999}],
+      note:"Excel工作簿“合并版【吴兆宇版】.xlsx”的实验数据表采用30℃/35℃两组，κ0分别为2.18/2.45 mS·cm⁻¹，κ∞分别为0.81/0.91 mS·cm⁻¹；因此默认值按该Excel设置。注意：另一个报告文本给出25℃/30℃、κ0=2.15/2.28、κ∞=0.68/0.75，属于另一组数据；使用该组数据时请同步改写温度和κ0/κ∞参数。c0需按当前实验混合方案计算；0.00999 mol/L来自报告中的100mL、0.0100mol/L NaOH与约97.9μL乙酸乙酯，Excel表本身未单独注明c0。",
       analyze:(tables,s,sel)=>{
         const rows=matrix(tables.main,3);if(rows.length<3)throw new Error("至少录入 3 个时间点。");
         const out=[],series=[];
@@ -137,7 +151,7 @@
         }
         const Ea=R*Math.log(out[1].k/out[0].k)/(1/out[0].K-1/out[1].K);
         series.push(makeSeries("Arrhenius ln k - 1/T",out.map(v=>({x:1/v.K,y:Math.log(v.k)})),linear(out.map(v=>({x:1/v.K,y:Math.log(v.k)}))),{x:"1/T / K⁻¹",y:"ln k"}));
-        return {series,fit:out[0].fit,metrics:[["k(T1)",out[0].k,"L·mol⁻¹·min⁻¹"],["k(T2)",out[1].k,"L·mol⁻¹·min⁻¹"],["Ea",Ea/1000,"kJ/mol"],["R²(T1)",out[0].fit.r2,""],["R²(T2)",out[1].fit.r2,""]],warnings:["当前默认值按上传报告的25℃、30℃数据设置；如其他批次实验温度或κ0、κ∞不同，请使用本组实测值覆盖默认值。","如果每次混合总体积改变，必须按实际体积重新计算 c0。"],rawRows:rows,headers:["t_min","kappa_T1","kappa_T2"],resultRows:rows.map(r=>[r[0],r[1],r[2],r[1]>s.kappaInf_1?1/(r[1]-s.kappaInf_1):null,r[2]>s.kappaInf_2?1/(r[2]-s.kappaInf_2):null])};
+        return {series,fit:out[0].fit,metrics:[["k(T1)",out[0].k,"L·mol⁻¹·min⁻¹"],["k(T2)",out[1].k,"L·mol⁻¹·min⁻¹"],["Ea",Ea/1000,"kJ/mol"],["R²(T1)",out[0].fit.r2,""],["R²(T2)",out[1].fit.r2,""]],warnings:["默认值按Excel工作簿30℃/35℃数据设置；另一个报告文本的25℃/30℃数据不是同一组参数，使用时必须同步切换T1/T2、κ0与κ∞。","如果每次混合总体积改变，必须按实际体积重新计算 c0。"],rawRows:rows,headers:["t_min","kappa_T1","kappa_T2"],resultRows:rows.map(r=>[r[0],r[1],r[2],r[1]>s.kappaInf_1?1/(r[1]-s.kappaInf_1):null,r[2]>s.kappaInf_2?1/(r[2]-s.kappaInf_2):null])};
       }
     },
     {
