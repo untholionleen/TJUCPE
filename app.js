@@ -126,7 +126,7 @@
       picked=excelSheetRows(workbook);out=excelNumericRows(picked.rows,[0,1,2]);
     }else if(slug==="surface-tension"&&key==="main"){
       picked=excelSheetRows(workbook,"最大液泡法");
-      out=excelNumericRows(picked.rows,[0,1,2,3]);
+      out=excelNumericRows(picked.rows,[0,1,6,7]);
     }else if(slug==="saponification"&&key==="main"){
       picked=excelSheetRows(workbook,"实验数据");
       out=excelNumericRows(picked.rows,[0,1,4]);
@@ -172,8 +172,8 @@
       }
     }else if(slug==="thermostat-viscosity"&&key==="viscosity"){
       picked=excelSheetRows(workbook,"恒温槽表格");rows=picked.rows;
-      const ethanol=rows.find(r=>String(r[13]??"").includes("乙醇"));
-      const water=rows.find(r=>String(r[13]??"").includes("蒸馏水"));
+      const ethanol=rows.find(r=>String(r[13]??"").trim()==="乙醇");
+      const water=rows.find(r=>String(r[13]??"").trim()==="蒸馏水");
       if(ethanol&&water)out=[[excelNum(ethanol[14]),excelNum(ethanol[15]),excelNum(ethanol[16]),excelNum(water[14]),excelNum(water[15]),excelNum(water[16])]].filter(r=>r.every(Number.isFinite));
     }else if(slug==="passivation"&&key==="main"){
       picked=excelSheetRows(workbook,"数据源");
