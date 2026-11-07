@@ -62,7 +62,7 @@ for each row execute procedure public.handle_new_user();
 -- Block role escalation through a student's own profile update.
 -- SQL Editor runs as a database owner, so authorized database administrators can assign roles there.
 create or replace function public.guard_profile_role_change()
-returns trigger language plpgsql security definer set search_path = public as $$
+returns trigger language plpgsql set search_path = public as $
 begin
   if new.role is distinct from old.role
      and current_user not in ('postgres','supabase_admin')
@@ -154,7 +154,7 @@ before insert on public.report_submissions
 for each row execute procedure public.guard_report_insert_fields();
 
 create or replace function public.guard_report_review_fields()
-returns trigger language plpgsql security definer set search_path = public as $$
+returns trigger language plpgsql set search_path = public as $
 begin
   if not public.is_staff() and current_user not in ('postgres','supabase_admin') then
     if new.student_id is distinct from old.student_id
@@ -162,13 +162,14 @@ begin
        or new.feedback is distinct from old.feedback
        or new.reviewed_by is distinct from old.reviewed_by
        or new.reviewed_at is distinct from old.reviewed_at
-       or new.status = 'graded' then
-      raise exception 'Students cannot modify review fields';
+       or new.status is distinct from old.status
+       or new.storage_path is distinct from old.storage_path then
+      raise exception 'Students cannot modify report review, ownership, status, or storage fields';
     end if;
   end if;
   return new;
 end;
-$$;
+$;
 
 drop trigger if exists report_review_fields_guard_tjucpe on public.report_submissions;
 create trigger report_review_fields_guard_tjucpe
