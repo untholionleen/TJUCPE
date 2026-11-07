@@ -211,7 +211,7 @@
         for(let j=1;j<6;j++){
           const pts=r.map((x,i)=>({x:x[0],y:x[j],i}));
           const chosen=selectPoints(pts,sel);
-          const plateau=chosen.length>=3?{start:Math.min(...chosen.map(p=>p.i)),end:Math.max(...chosen.map(p=>p.i)),temp:stats(chosen.map(p=>p.y)).mean,manual:true}:fitPlateau(pts,Math.min(7,Math.max(3,Math.floor(pts.length/5)));
+          const plateau=chosen.length>=3?{start:Math.min(...chosen.map(p=>p.i)),end:Math.max(...chosen.map(p=>p.i)),temp:stats(chosen.map(p=>p.y)).mean,manual:true}:fitPlateau(pts,Math.min(7,Math.max(3,Math.floor(pts.length/5))));
           series.push(makeSeries(cols[j-1],pts,null,{x:"时间 / s",y:"温度 / ℃"}));
           metrics.push([cols[j-1]+" 自动平台估计",plateau?.temp??NaN,"℃"],[cols[j-1]+" 平台区间",plateau?((plateau.start+1)+"–"+(plateau.end+1)):"—","数据点"]);
         }
