@@ -28,7 +28,7 @@
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
-  let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null;
+  let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null, classEditingId = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.add("show");
@@ -692,6 +692,13 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const {data,error}=await db.from("classes").select("id,name,course_code,description,teacher_id,join_code,is_active").order("created_at",{ascending:false});
     if(error){$("classList").textContent=error.message;return;}
     classesCache=data||[];
+    const teacherLabel=$("newClassTeacher")?.closest("label");
+    if(profile.role==="admin"&&$("newClassTeacher")){
+      const {data:teacherRows}=await db.from("profiles").select("id,full_name,student_no,role").in("role",["teacher","admin"]).order("full_name");
+      $("newClassTeacher").innerHTML=(teacherRows||[]).map(t=>'<option value="'+t.id+'">'+escapeHtml((t.full_name||"未命名")+" · "+(t.student_no||t.role))+'</option>').join("");
+      if(!classEditingId)$("newClassTeacher").value=user.id;
+      teacherLabel?.classList.remove("hidden");
+    }else teacherLabel?.classList.add("hidden");
     let visible=classesCache;
     if(profile.role==="student"){
       const {data:members}=await db.from("class_members").select("class_id").eq("student_id",user.id).eq("status","active");
@@ -719,13 +726,19 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function editClass(id){
     const row=classesCache.find(c=>c.id===id);if(!row)return;
-    const name=prompt("班级名称：",row.name);if(name===null)return;
-    const code=prompt("课程代码：",row.course_code||"");if(code===null)return;
-    const description=prompt("班级说明：",row.description||"");if(description===null)return;
-    if(!name.trim()){toast("班级名称不能为空。",true);return;}
-    const {error}=await db.from("classes").update({name:name.trim(),course_code:code.trim(),description:description.trim()}).eq("id",id);
-    if(error){toast("班级修改失败："+error.message,true);return;}
-    toast("班级信息已更新。");await loadClasses();
+    classEditingId=id;
+    $("newClassName").value=row.name||"";
+    $("newClassCode").value=row.course_code||"";
+    $("newClassDesc").value=row.description||"";
+    if(profile.role==="admin"&&$("newClassTeacher"))$("newClassTeacher").value=row.teacher_id;
+    $("createClass").textContent="保存班级修改";
+    $("newClassName").scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  function clearClassForm(){
+    classEditingId=null;
+    ["newClassName","newClassCode","newClassDesc"].forEach(id=>$(id).value="");
+    $("createClass").textContent="创建班级";
+    if(profile.role==="admin"&&$("newClassTeacher"))$("newClassTeacher").value=user.id;
   }
   async function toggleClass(id){
     const row=classesCache.find(c=>c.id===id);if(!row)return;
@@ -844,8 +857,13 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function createClass(){
     const name=$("newClassName").value.trim();if(!name){toast("请填写班级名称。",true);return;}
-    const {error}=await db.from("classes").insert({name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim(),teacher_id:user.id});
-    if(error){toast(error.message,true);return;}toast("班级创建成功。");loadClasses();
+    const teacherId=profile.role==="admin"?($("newClassTeacher").value||user.id):user.id;
+    const payload={name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim(),teacher_id:teacherId};
+    const result=classEditingId
+      ?await db.from("classes").update(payload).eq("id",classEditingId)
+      :await db.from("classes").insert(payload);
+    if(result.error){toast(result.error.message,true);return;}
+    toast(classEditingId?"班级信息已更新。":"班级创建成功。");clearClassForm();await loadClasses();
   }
   async function publishAssignment(){
     const slug=$("taskExperiment").value,cls=$("classTaskSelect").value,exp=experiments.find(x=>x.slug===slug);
@@ -1037,6 +1055,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("saveGrade").addEventListener("click",saveGrade);
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el)changeRole(el.dataset.roleUser,el.value);});
     $("createClass").addEventListener("click",createClass);
+    $("clearClassForm").addEventListener("click",clearClassForm);
     $("publishAssignment").addEventListener("click",publishAssignment);
     $("joinClass").addEventListener("click",joinClass);
     $("importRoster").addEventListener("click",importClassRoster);
