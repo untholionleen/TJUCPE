@@ -954,6 +954,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const histCurrent=e.target.closest("[data-history-current]");if(histCurrent){const row=lastRecords.find(x=>x.id===histCurrent.dataset.historyCurrent)||reviewRows.find(x=>x.id===histCurrent.dataset.historyCurrent);if(row)openReportViewer(row);}
       const review=e.target.closest("[data-review-open]");if(review)openGrading(review.dataset.reviewOpen);
       const reviewDownload=e.target.closest("[data-review-download]");if(reviewDownload)downloadReviewFile(reviewDownload.dataset.reviewDownload);
+      const classEdit=e.target.closest("[data-class-edit]");if(classEdit)editClass(classEdit.dataset.classEdit);
+      const classDelete=e.target.closest("[data-class-delete]");if(classDelete)deleteClass(classDelete.dataset.classDelete);
+      const taskToggle=e.target.closest("[data-assignment-toggle]");if(taskToggle)toggleAssignment(taskToggle.dataset.assignmentToggle);
+      const taskEdit=e.target.closest("[data-assignment-edit]");if(taskEdit)editAssignment(taskEdit.dataset.assignmentEdit);
+      const taskDelete=e.target.closest("[data-assignment-delete]");if(taskDelete)deleteAssignment(taskDelete.dataset.assignmentDelete);
+      const catEdit=e.target.closest("[data-catalog-edit]");if(catEdit)editCatalogItem(catEdit.dataset.catalogEdit);
+      const catToggle=e.target.closest("[data-catalog-toggle]");if(catToggle)toggleCatalogItem(catToggle.dataset.catalogToggle);
+      const catDelete=e.target.closest("[data-catalog-delete]");if(catDelete)deleteCatalogItem(catDelete.dataset.catalogDelete);
     });
     $("backExperiments").addEventListener("click",()=>go("experiments"));
     $("runAnalysis").addEventListener("click",runAnalysis);
