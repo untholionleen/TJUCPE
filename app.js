@@ -507,7 +507,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(error){body.innerHTML=`<tr><td colspan="6" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
     lastRecords=data||[];
     if(!lastRecords.length){body.innerHTML='<tr><td colspan="6" class="muted center">暂无报告记录，点击右上角提交第一份实验报告。</td></tr>';return;}
-    body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">预览</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button> ${r.status==="submitted"?`<button class="action-link" data-report-withdraw="${r.id}">撤回</button>`:""} ${["draft","returned","withdrawn"].includes(r.status)?`<button class="action-link" data-report-edit="${r.id}">修改并重交</button> <button class="action-link" data-report-delete="${r.id}">删除</button>`:""}</td></tr>`).join("");
+    body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}<small class="block muted">版本 v${Number(r.submission_version||1)}</small></td><td>${new Date(r.submitted_at||r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">预览</button> <button class="action-link" data-report-history="${r.id}">版本记录</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button> ${r.status==="submitted"?`<button class="action-link" data-report-withdraw="${r.id}">撤回</button>`:""} ${["draft","returned","withdrawn"].includes(r.status)?`<button class="action-link" data-report-edit="${r.id}">修改并重交</button> <button class="action-link" data-report-delete="${r.id}">删除</button>`:""}</td></tr>`).join("");
   }
   async function submitReport(){
     const file=$("reportFile").files[0],classId=$("reportClass").value,assignmentId=$("reportAssignment").value,assignmentOption=$("reportAssignment").selectedOptions[0],slug=assignmentOption?.dataset.slug||"",title=$("reportTitle").value.trim();
@@ -543,18 +543,32 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       if(upErr){toast("新文件上传失败："+upErr.message,true);return;}
       const {error}=await db.from("report_submissions").update({file_name:file.name,storage_path:path,status:"submitted",submitted_at:new Date().toISOString(),withdrawn_at:null}).eq("id",id);
       if(error){await db.storage.from("lab-reports").remove([path]);toast("报告更新失败："+error.message,true);return;}
-      await db.storage.from("lab-reports").remove([row.storage_path]);
-      toast("已保存新版本并重新提交。");await loadReports();await loadOverview();
+      // Preserve the replaced file; report_revisions stores its previous path.
+      toast("已保存新版本并重新提交；旧版本已留档。");await loadReports();await loadOverview();
     };
     picker.click();
   }
   async function deleteReport(id){
     const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status))return;
-    if(!confirm("确认删除这份报告记录？此操作不可恢复。"))return;
+    if(!confirm("确认删除这份报告及其全部历史版本文件？此操作不可恢复。"))return;
+    const {data:revisions}=await db.from("report_revisions").select("previous_storage_path").eq("report_id",id);
+    const paths=[...new Set([row.storage_path,...(revisions||[]).map(x=>x.previous_storage_path)].filter(Boolean))];
     const {error}=await db.from("report_submissions").delete().eq("id",id);
     if(error){toast("删除失败："+error.message,true);return;}
-    await db.storage.from("lab-reports").remove([row.storage_path]);
-    toast("报告记录已删除。");await loadReports();await loadOverview();
+    if(paths.length){
+      const {error:storageError}=await db.storage.from("lab-reports").remove(paths);
+      if(storageError)toast("报告记录已删除，但部分历史文件清理失败："+storageError.message,true);
+    }
+    toast("报告记录及历史版本已删除。");await loadReports();await loadOverview();
+  }
+  async function showReportHistory(id){
+    const row=lastRecords.find(r=>r.id===id)||reviewRows.find(r=>r.id===id);if(!row)return;
+    const {data,error}=await db.from("report_revisions").select("id,version,previous_file_name,previous_storage_path,action,changed_at,details").eq("report_id",id).order("changed_at",{ascending:false});
+    if(error){toast("版本记录读取失败："+error.message,true);return;}
+    const items=(data||[]).map(v=>'<div class="history-row"><div><strong>历史版本 v'+escapeHtml(String(v.version))+' · '+escapeHtml(v.previous_file_name)+'</strong><small>'+escapeHtml(v.action)+' · '+new Date(v.changed_at).toLocaleString("zh-CN")+'</small></div><button class="action-link" data-history-open="'+escapeHtml(v.id)+'">查看文件</button></div>').join("");
+    $("reportHistoryTitle").textContent=experimentName(row.experiment_slug)+" · 当前版本 v"+Number(row.submission_version||1);
+    $("reportHistoryList").innerHTML='<div class="history-row current"><div><strong>当前版本 v'+Number(row.submission_version||1)+' · '+escapeHtml(row.file_name||"报告")+'</strong><small>当前文件</small></div><button class="action-link" data-history-current="'+escapeHtml(row.id)+'">查看文件</button></div>'+(items||'<p class="muted">暂无历史修订记录。</p>');
+    $("reportHistoryDialog").showModal();
   }
   async function showFeedback(id){
     const row=lastRecords.find(r=>r.id===id);if(!row)return;
@@ -572,12 +586,12 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(ids.length){const result=await db.from("profiles").select("id,full_name,student_no").in("id",ids);(result.data||[]).forEach(p=>profiles[p.id]=p);}
     $("reviewBody").innerHTML=reviewRows.length?reviewRows.map(r=>{
       const p=profiles[r.student_id]||{};
-      return `<tr><td>${escapeHtml(p.full_name||"学生")}<small class="block muted">${escapeHtml(p.student_no||"")}</small></td><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${new Date(r.created_at).toLocaleString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td><button class="action-link" data-review-open="${r.id}">打开批阅</button></td></tr>`;
+      return `<tr><td>${escapeHtml(p.full_name||"学生")}<small class="block muted">${escapeHtml(p.student_no||"")}</small></td><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>v${Number(r.submission_version||1)}</td><td>${new Date(r.submitted_at||r.created_at).toLocaleString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td><button class="action-link" data-review-open="${r.id}">打开批阅</button> <button class="action-link" data-review-history="${r.id}">版本记录</button></td></tr>`;
     }).join(""):'<tr><td colspan="5" class="muted center">暂无报告提交。</td></tr>';
   }
   async function openGrading(id){
     gradingRecord=reviewRows.find(r=>r.id===id);if(!gradingRecord)return;
-    $("gradingTitle").textContent=experimentName(gradingRecord.experiment_slug)+" · "+(gradingRecord.file_name||"报告");
+    $("gradingTitle").textContent=experimentName(gradingRecord.experiment_slug)+" · "+(gradingRecord.file_name||"报告")+" · v"+Number(gradingRecord.submission_version||1);
     $("gradeScore").value=gradingRecord.score??"";$("gradeStatus").value=gradingRecord.status==="returned"?"returned":"graded";$("gradeFeedback").value=gradingRecord.feedback||"";
     $("gradingPanel").classList.remove("hidden");await loadGradingPreview(gradingRecord);$("gradingPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }
@@ -856,6 +870,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const withdraw=e.target.closest("[data-report-withdraw]");if(withdraw)withdrawReport(withdraw.dataset.reportWithdraw);
       const edit=e.target.closest("[data-report-edit]");if(edit)editReport(edit.dataset.reportEdit);
       const del=e.target.closest("[data-report-delete]");if(del)deleteReport(del.dataset.reportDelete);
+      const hist=e.target.closest("[data-report-history]");if(hist)showReportHistory(hist.dataset.reportHistory);
+      const reviewHist=e.target.closest("[data-review-history]");if(reviewHist)showReportHistory(reviewHist.dataset.reviewHistory);
+      const histOpen=e.target.closest("[data-history-open]");if(histOpen){const id=histOpen.dataset.historyOpen;db.from("report_revisions").select("previous_file_name,previous_storage_path").eq("id",id).maybeSingle().then(({data,error})=>{if(error||!data){toast("历史文件记录不可用。",true);return;}openReportViewer({file_name:data.previous_file_name,storage_path:data.previous_storage_path});});}
+      const histCurrent=e.target.closest("[data-history-current]");if(histCurrent){const row=lastRecords.find(x=>x.id===histCurrent.dataset.historyCurrent)||reviewRows.find(x=>x.id===histCurrent.dataset.historyCurrent);if(row)openReportViewer(row);}
       const review=e.target.closest("[data-review-open]");if(review)openGrading(review.dataset.reviewOpen);
       const reviewDownload=e.target.closest("[data-review-download]");if(reviewDownload)downloadReviewFile(reviewDownload.dataset.reviewDownload);
     });
