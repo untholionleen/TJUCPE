@@ -100,7 +100,7 @@
     {
       slug:"surface-tension", code:"PC-01", name:"最大泡压法测定液体的表面张力", workflow:"surface_tension",
       tables:[{key:"main",title:"压力与浓度原始数据",columns:["c_mol_L","Δp_rep1_Pa","Δp_rep2_Pa","Δp_rep3_Pa"],headers:["浓度 c (mol/L)","Δp1 (Pa)","Δp2 (Pa)","Δp3 (Pa)"],example:"0\t...\t...\t...\n0.05\t...\t...\t...\n0.10\t...\t...\t...\n0.15\t...\t...\t...\n0.20\t...\t...\t...\n0.25\t...\t...\t...\n0.30\t...\t...\t..."}],
-      settings:[{key:"T_C",label:"实验温度 T (℃)",defaultValue:20.7},{key:"water_gamma",label:"纯水表面张力 γ水 (mN/m)",defaultValue:73.02},{key:"dp_water",label:"纯水最大泡压 Δp水 (Pa)",defaultValue:""}],
+      settings:[{key:"T_C",label:"实验温度 T (℃)",defaultValue:20.7},{key:"water_gamma",label:"纯水表面张力 γ水 (mN/m)",defaultValue:72.75},{key:"dp_water",label:"纯水最大泡压 Δp水 (Pa)",defaultValue:""}],
       note:"依据上传 Python 脚本：γ=γ水·Δp/Δp水；Szyszkowski：γ=γ₀−a ln(1+bc)；Γ=−c/(RT)·dγ/dc。纯水校准读数必须由本次实验输入，不使用固定 72.75 自动换算。",
       analyze:(tables,s,sel)=>{
         const r=matrix(tables.main,4).filter(x=>x[0]>=0),T=s.T_C+273.15;
