@@ -95,11 +95,19 @@
     $("experimentMethodNote").textContent=currentExperiment.note;
     clearAnalysis(); go("analysis");
   }
-  function parseRows(text){
-    return text.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).map(line=>{
-      const parts=line.split(/[\t,，;； ]+/).filter(Boolean);
-      return parts.length>=2?{x:Number(parts[0]),y:Number(parts[1])}:null;
-    }).filter(p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y));
+  function parseTable(text){
+    const lines=text.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+    if(!lines.length)return {headers:[],rows:[]};
+    const splitLine=line=>/[\t,，;；]/.test(line)?line.split(/[\t,，;；]/).map(s=>s.trim()):line.split(/\s+/).map(s=>s.trim());
+    const first=splitLine(lines[0]);
+    const hasHeader=first.some(v=>v!==""&&!Number.isFinite(Number(v)));
+    const headers=hasHeader?first:first.map((_,i)=>i===0?$("xLabel").value:(i===1?$("yLabel").value:"系列 "+i));
+    const body=hasHeader?lines.slice(1):lines;
+    const width=Math.max(2,headers.length);
+    const rows=body.map(line=>splitLine(line)).filter(cells=>cells.length>=width)
+      .map(cells=>cells.slice(0,width).map(Number))
+      .filter(cells=>cells.every(Number.isFinite));
+    return {headers,rows};
   }
   function solveLinearSystem(A,b){
     const n=b.length, M=A.map((row,i)=>row.slice().concat(b[i]));
@@ -138,47 +146,58 @@
   }
   function formatNum(n){return Number.isFinite(n)?Number(n).toPrecision(5):"—";}
   function runAnalysis(){
-    const points=parseRows($("dataInput").value);
-    $("dataCount").textContent=points.length+" 个有效数据点";
-    if(points.length<2){toast("请至少输入 2 行有效数值数据，每行包含 X 和 Y。",true);return;}
+    const table=parseTable($("dataInput").value);
+    const rawRows=table.rows;
+    const points=rawRows.map(row=>({x:row[0],y:row[1]}));
+    const seriesLabels=table.headers.slice(1);
+    $("dataCount").textContent=points.length+" 行 · "+seriesLabels.length+" 条 Y 系列";
+    if(points.length<2){toast("请至少输入 2 行有效数值数据，每行包含 X 和至少一列 Y。",true);return;}
     const model=$("fitModel").value, degree=({linear:1,quadratic:2,cubic:3})[model];
     let fit=null;
     try{if(degree)fit=polyFit(points,degree);}catch(e){toast(e.message,true);return;}
     const mean=points.reduce((s,p)=>s+p.y,0)/points.length;
     const sd=Math.sqrt(points.reduce((s,p)=>s+Math.pow(p.y-mean,2),0)/(points.length-1));
-    const datasets=[{label:"实验数据",data:points,showLine:$("chartStyle").value==="line",borderColor:"#168b83",backgroundColor:"#168b83",pointRadius:4,pointHoverRadius:6,borderWidth:1.5}];
+    const palette=["#168b83","#5887b9","#c58b43","#8d78b8","#c65a4d","#4a9a70","#607d8b","#b56f91"];
+    const datasets=seriesLabels.map((label,index)=>({
+      label:label||("系列 "+(index+1)),
+      data:rawRows.map(row=>({x:row[0],y:row[index+1]})),
+      showLine:$("chartStyle").value==="line",
+      borderColor:palette[index%palette.length],backgroundColor:palette[index%palette.length],
+      pointRadius:3.5,pointHoverRadius:5,borderWidth:1.4
+    }));
     if(fit){
       const min=Math.min(...points.map(p=>p.x)),max=Math.max(...points.map(p=>p.x));
       const curve=Array.from({length:160},(_,i)=>{const x=min+(max-min)*i/159;return{x,y:fit.predict(x)};});
-      datasets.push({label:"拟合曲线",data:curve,showLine:true,pointRadius:0,borderColor:"#c65a4d",borderWidth:2,borderDash:[5,3],tension:0});
+      datasets.push({label:"系列 1 拟合曲线",data:curve,showLine:true,pointRadius:0,borderColor:"#c65a4d",borderWidth:2,borderDash:[5,3],tension:0});
     }
     if(chart) chart.destroy();
     $("chartPlaceholder").classList.add("hidden");
-    chart=new Chart($("analysisChart"),{type:"scatter",data:{datasets},options:{responsive:true,maintainAspectRatio:false,animation:{duration:350},plugins:{legend:{position:"bottom",labels:{usePointStyle:true,boxWidth:8,font:{family:"Noto Sans SC",size:10},color:"#68808f"}},tooltip:{callbacks:{label(ctx){return "("+formatNum(ctx.parsed.x)+", "+formatNum(ctx.parsed.y)+")";}}}},scales:{x:{type:"linear",title:{display:true,text:$("xLabel").value+" / "+$("xUnit").value,color:"#506b7b",font:{size:11}},grid:{color:"#edf1f3",borderDash:[3,4]},ticks:{color:"#80929d",font:{size:10}}},y:{title:{display:true,text:$("yLabel").value+" / "+$("yUnit").value,color:"#506b7b",font:{size:11}},grid:{color:"#edf1f3",borderDash:[3,4]},ticks:{color:"#80929d",font:{size:10}}}}}});
+    chart=new Chart($("analysisChart"),{type:"scatter",data:{datasets},options:{responsive:true,maintainAspectRatio:false,animation:{duration:350},plugins:{legend:{position:"bottom",labels:{usePointStyle:true,boxWidth:8,font:{family:"Noto Sans SC",size:10},color:"#68808f"}},tooltip:{callbacks:{label(ctx){return ctx.dataset.label+": ("+formatNum(ctx.parsed.x)+", "+formatNum(ctx.parsed.y)+")";}}}},scales:{x:{type:"linear",title:{display:true,text:$("xLabel").value+" / "+$("xUnit").value,color:"#506b7b",font:{size:11}},grid:{color:"#edf1f3",borderDash:[3,4]},ticks:{color:"#80929d",font:{size:10}}},y:{title:{display:true,text:$("yLabel").value+" / "+$("yUnit").value,color:"#506b7b",font:{size:11}},grid:{color:"#edf1f3",borderDash:[3,4]},ticks:{color:"#80929d",font:{size:10}}}}}});
     $("statN").textContent=String(points.length);$("statMean").textContent=formatNum(mean);$("statSd").textContent=formatNum(sd);
     $("statR2").textContent=fit?formatNum(fit.r2):"未拟合";$("statSse").textContent=fit?formatNum(fit.sse):"—";
     const equation=fit?fit.coefficients.map((c,i)=>(i===0?formatNum(c):(c>=0?" + ":" − ")+formatNum(Math.abs(c))+"x"+(i>1?"^"+i:""))).join(""):"仅显示原始实验点";
-    $("analysisResult").innerHTML="<strong>分析完成：</strong> "+points.length+" 个有效数据点 · "+escapeHtml(equation)+(fit?" · R² = "+formatNum(fit.r2):"");
+    $("analysisResult").innerHTML="<strong>分析完成：</strong> "+points.length+" 个数据点 · "+seriesLabels.length+" 条曲线 · "+escapeHtml(equation)+(fit?" · R² = "+formatNum(fit.r2):"");
     $("analysisResult").classList.remove("hidden");
     $("tableXHeader").textContent=$("xLabel").value+" ("+$("xUnit").value+")";
-    $("tableYHeader").textContent=$("yLabel").value+" ("+$("yUnit").value+")";
+    $("tableYHeader").textContent=(seriesLabels[0]||$("yLabel").value)+" ("+$("yUnit").value+")";
     $("dataTableBody").innerHTML=points.map((p,i)=>`<tr><td>${i+1}</td><td>${p.x}</td><td>${p.y}</td><td>${fit?formatNum(fit.residuals[i]):"—"}</td></tr>`).join("");
-    $("chartCaption").textContent=$("analysisTitle").textContent+" · "+points.length+" 点"+(fit?" · "+model+" 拟合":"");
+    $("chartCaption").textContent=$("analysisTitle").textContent+" · "+points.length+" 点 · "+seriesLabels.length+" 条曲线"+(fit?" · "+model+" 拟合":"");
     $("downloadChart").disabled=false;$("downloadCsv").disabled=false;
-    latestAnalysis={points,fit,model,xLabel:$("xLabel").value,yLabel:$("yLabel").value,xUnit:$("xUnit").value,yUnit:$("yUnit").value,mean,sd,engine:ENGINE_VERSION};
+    latestAnalysis={points,rawRows,seriesLabels,fit,model,xLabel:$("xLabel").value,yLabel:$("yLabel").value,xUnit:$("xUnit").value,yUnit:$("yUnit").value,mean,sd,engine:ENGINE_VERSION};
   }
   async function saveRecord(){
     if(!user||!latestAnalysis){toast("请先运行分析，再保存记录。",true);return;}
-    const record={owner_id:user.id,experiment_slug:currentExperiment?.slug||"custom",title:currentExperiment?.name||"数据分析",raw_data:latestAnalysis.points,analysis:{model:latestAnalysis.model,coefficients:latestAnalysis.fit?.coefficients||null,r2:latestAnalysis.fit?.r2??null,sse:latestAnalysis.fit?.sse??null,mean:latestAnalysis.mean,sd:latestAnalysis.sd,x_label:latestAnalysis.xLabel,y_label:latestAnalysis.yLabel,x_unit:latestAnalysis.xUnit,y_unit:latestAnalysis.yUnit},engine_version:ENGINE_VERSION};
+    const record={owner_id:user.id,experiment_slug:currentExperiment?.slug||"custom",title:currentExperiment?.name||"数据分析",raw_data:{headers:latestAnalysis.seriesLabels,rows:latestAnalysis.rawRows},analysis:{model:latestAnalysis.model,coefficients:latestAnalysis.fit?.coefficients||null,r2:latestAnalysis.fit?.r2??null,sse:latestAnalysis.fit?.sse??null,mean:latestAnalysis.mean,sd:latestAnalysis.sd,x_label:latestAnalysis.xLabel,y_label:latestAnalysis.yLabel,x_unit:latestAnalysis.xUnit,y_unit:latestAnalysis.yUnit},engine_version:ENGINE_VERSION};
     const {error}=await db.from("experiment_records").insert(record);
     if(error){toast("保存失败："+error.message,true);return;}
     toast("分析记录已保存到个人空间。"); loadOverview();
   }
   function downloadCsv(){
     if(!latestAnalysis)return;
-    const {points,fit}=latestAnalysis;
-    const rows=[[latestAnalysis.xLabel+" ("+latestAnalysis.xUnit+")",latestAnalysis.yLabel+" ("+latestAnalysis.yUnit+")","residual"],...points.map((p,i)=>[p.x,p.y,fit?fit.residuals[i]:""])];
-    const csv="\uFEFF"+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\r\n");
+    const {points,fit,rawRows,seriesLabels}=latestAnalysis;
+    const headers=[latestAnalysis.xLabel+" ("+latestAnalysis.xUnit+")",...seriesLabels,"residual (series 1)"];
+    const rows=[headers,...rawRows.map((r,i)=>[...r,fit?fit.residuals[i]:""])];
+    const csv="\\uFEFF"+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\\r\\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=(currentExperiment?.slug||"experiment-data")+".csv";a.click();URL.revokeObjectURL(a.href);
   }
   async function loadOverview(){
