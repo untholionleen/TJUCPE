@@ -22,23 +22,24 @@ const close = (actual, expected, tolerance = 1e-4) =>
 
 // PC-01: Szyszkowski pressure calibration, Gibbs excess and Langmuir linearisation.
 const conc = [0, .05, .1, .15, .2, .25, .3];
-const gamma = conc.map(c => 73.02 - 20 * Math.log(1 + 5 * c));
+const gamma = conc.map(c => 72.75 - 20 * Math.log(1 + 5 * c));
 const pRows = conc.map((c,i) => {
-  const dp = gamma[i] / 73.02 * 1000;
+  const dp = gamma[i] / 72.75 * 1000;
   return [c, dp - .1, dp, dp + .1].join("\t");
 }).join("\n");
 console.log("PC01 parsed rows:", engine.parse(pRows));
 assert.equal(engine.parse(pRows).length, 7, "PC01 parser should keep seven numeric data rows");
-const r1 = run("surface-tension", {main:pRows}, {T_C:20.7,water_gamma:73.02,dp_water:1000});
+const r1 = run("surface-tension", {main:pRows}, {T_C:20.7,water_gamma:72.75,dp_water:1000});
 assert.ok(r1.metrics.some(x => x[0] === "分子截面积"));
 assert.ok(r1.series.some(x => x.name.includes("Szyszkowski") || x.name.includes("表面张力")));
 
 // PC-02: conductivity kinetics and Arrhenius two-temperature calculation.
 const sap = [
-"0\t2.18\t2.45","1\t2.07\t2.29","2\t1.98\t2.15","3\t1.90\t2.03",
-"4\t1.82\t1.92","5\t1.76\t1.83","6\t1.70\t1.75"
+"0\t2.15\t2.28","1\t2.14\t2.20","2\t2.13\t2.05","3\t2.12\t1.94",
+"4\t2.08\t1.85","5\t2.06\t1.80","6\t2.03\t1.77","7\t2.00\t1.74",
+"8\t1.98\t1.72","9\t1.96\t1.71","10\t1.94\t1.68"
 ].join("\n");
-const r2 = run("saponification",{main:sap},{T1_C:30,T2_C:35,kappa0_1:2.18,kappaInf_1:.81,kappa0_2:2.45,kappaInf_2:.75,c0:.005});
+const r2 = run("saponification",{main:sap},{T1_C:25,T2_C:30,kappa0_1:2.15,kappaInf_1:.68,kappa0_2:2.28,kappaInf_2:.75,c0:.00999});
 assert.ok(r2.metrics.some(x => x[0] === "Ea"));
 
 // PC-03: calibration curve, source workbook's delta-C adsorption ordinates.
