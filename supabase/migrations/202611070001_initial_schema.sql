@@ -325,21 +325,27 @@ using (
   and ((storage.foldername(name))[1]=auth.uid()::text or public.is_staff())
 );
 
-drop policy if exists report_objects_update_own on storage.objects;
-create policy report_objects_update_own on storage.objects
-for update to authenticated
-using (bucket_id='lab-reports' and (storage.foldername(name))[1]=auth.uid()::text)
-with check (bucket_id='lab-reports' and (storage.foldername(name))[1]=auth.uid()::text);
-
 -- The client never edits uploaded objects in place; replacement uses a new UUID path.
 drop policy if exists report_objects_update_own on storage.objects;
 
+-- Students may clean up an orphan upload only before a report row is created.
+-- Once a path is referenced by a submission, only an administrator can delete it.
 drop policy if exists report_objects_delete_own_or_admin on storage.objects;
-create policy report_objects_delete_own_or_admin on storage.objects
+drop policy if exists report_objects_delete_orphan_own_or_admin on storage.objects;
+create policy report_objects_delete_orphan_own_or_admin on storage.objects
 for delete to authenticated
 using (
   bucket_id='lab-reports'
-  and ((storage.foldername(name))[1]=auth.uid()::text or public.is_admin())
+  and (
+    public.is_admin()
+    or (
+      (storage.foldername(name))[1]=auth.uid()::text
+      and not exists (
+        select 1 from public.report_submissions r
+        where r.storage_path = storage.objects.name
+      )
+    )
+  )
 );
 
 -- Remove inherited default grants first, then add back only the operations used by the client.
