@@ -426,7 +426,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       $("recentActivity").innerHTML=items.map(i=>`<div class="activity-row"><span>${escapeHtml(i.label)}</span><span>${escapeHtml(i.kind)}</span><small>${new Date(i.date).toLocaleString("zh-CN")}</small></div>`).join("");
     }
   }
-  function statusLabel(status){return ({draft:"草稿",submitted:"已提交",graded:"已批阅",returned:"退回修改"})[status]||status;}
+  function statusLabel(status){return ({draft:"草稿",submitted:"已提交",graded:"已批阅",returned:"退回修改",withdrawn:"已撤回"})[status]||status;}
   function statusClass(status){return status||"draft";}
   async function loadReports(){
     const body=$("reportsBody");body.innerHTML='<tr><td colspan="6" class="muted center">正在加载……</td></tr>';
@@ -434,7 +434,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(error){body.innerHTML=`<tr><td colspan="6" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
     lastRecords=data||[];
     if(!lastRecords.length){body.innerHTML='<tr><td colspan="6" class="muted center">暂无报告记录，点击右上角提交第一份实验报告。</td></tr>';return;}
-    body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">下载</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button></td></tr>`).join("");
+    body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">预览</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button> ${r.status==="submitted"?`<button class="action-link" data-report-withdraw="${r.id}">撤回</button>`:""} ${["draft","returned","withdrawn"].includes(r.status)?`<button class="action-link" data-report-edit="${r.id}">修改并重交</button> <button class="action-link" data-report-delete="${r.id}">删除</button>`:""}</td></tr>`).join("");
   }
   async function submitReport(){
     const file=$("reportFile").files[0],classId=$("reportClass").value,assignmentId=$("reportAssignment").value,assignmentOption=$("reportAssignment").selectedOptions[0],slug=assignmentOption?.dataset.slug||"",title=$("reportTitle").value.trim();
@@ -451,6 +451,38 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     toast("报告已提交。");$("reportUploadPanel").classList.add("hidden");$("reportFile").value="";$("reportFileName").textContent="点击选择报告文件";$("reportTitle").value="";loadReports();loadOverview();
   }
   async function downloadReport(id){const row=lastRecords.find(r=>r.id===id);if(row)await openReportViewer(row);}
+  async function withdrawReport(id){
+    const row=lastRecords.find(r=>r.id===id);if(!row||row.status!=="submitted")return;
+    if(!confirm("确认撤回这份已提交报告？撤回后可修改文件并重新提交。"))return;
+    const {error}=await db.from("report_submissions").update({status:"withdrawn",withdrawn_at:new Date().toISOString()}).eq("id",id);
+    if(error){toast("撤回失败："+error.message,true);return;}
+    toast("报告已撤回，可修改后重新提交。");await loadReports();await loadOverview();
+  }
+  async function editReport(id){
+    const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status))return;
+    const picker=document.createElement("input");picker.type="file";picker.accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    picker.onchange=async()=>{
+      const file=picker.files?.[0];if(!file)return;
+      if(file.size>20*1024*1024){toast("文件超过 20 MB。",true);return;}
+      const ext=file.name.split(".").pop().toLowerCase();if(!["pdf","docx"].includes(ext)){toast("仅支持 PDF / DOCX。",true);return;}
+      const path=user.id+"/"+crypto.randomUUID()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const {error:upErr}=await db.storage.from("lab-reports").upload(path,file,{upsert:false,contentType:file.type||(ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document")});
+      if(upErr){toast("新文件上传失败："+upErr.message,true);return;}
+      const {error}=await db.from("report_submissions").update({file_name:file.name,storage_path:path,status:"submitted",submitted_at:new Date().toISOString(),withdrawn_at:null}).eq("id",id);
+      if(error){await db.storage.from("lab-reports").remove([path]);toast("报告更新失败："+error.message,true);return;}
+      await db.storage.from("lab-reports").remove([row.storage_path]);
+      toast("已保存新版本并重新提交。");await loadReports();await loadOverview();
+    };
+    picker.click();
+  }
+  async function deleteReport(id){
+    const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status))return;
+    if(!confirm("确认删除这份报告记录？此操作不可恢复。"))return;
+    const {error}=await db.from("report_submissions").delete().eq("id",id);
+    if(error){toast("删除失败："+error.message,true);return;}
+    await db.storage.from("lab-reports").remove([row.storage_path]);
+    toast("报告记录已删除。");await loadReports();await loadOverview();
+  }
   async function showFeedback(id){
     const row=lastRecords.find(r=>r.id===id);if(!row)return;
     $("feedbackContent").textContent=row.feedback||"该报告暂时没有教师反馈。";
@@ -459,7 +491,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   let reviewRows=[];
   async function loadReviews(){
     $("reviewBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
-    const {data,error}=await db.from("report_submissions").select("*").order("created_at",{ascending:false}).limit(200);
+    const {data,error}=await db.from("report_submissions").select("*").order("created_at",{ascending:false}).limit(500);
     if(error){$("reviewBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
     reviewRows=data||[];
     const ids=[...new Set(reviewRows.map(r=>r.student_id))];
@@ -467,16 +499,35 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(ids.length){const result=await db.from("profiles").select("id,full_name,student_no").in("id",ids);(result.data||[]).forEach(p=>profiles[p.id]=p);}
     $("reviewBody").innerHTML=reviewRows.length?reviewRows.map(r=>{
       const p=profiles[r.student_id]||{};
-      return `<tr><td>${escapeHtml(p.full_name||"学生")}<small class="block muted">${escapeHtml(p.student_no||"")}</small></td><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${new Date(r.created_at).toLocaleString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td><button class="action-link" data-review-open="${r.id}">批阅</button> <button class="action-link" data-review-download="${r.id}">查看文件</button></td></tr>`;
+      return `<tr><td>${escapeHtml(p.full_name||"学生")}<small class="block muted">${escapeHtml(p.student_no||"")}</small></td><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${new Date(r.created_at).toLocaleString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td><button class="action-link" data-review-open="${r.id}">打开批阅</button></td></tr>`;
     }).join(""):'<tr><td colspan="5" class="muted center">暂无报告提交。</td></tr>';
   }
   async function openGrading(id){
     gradingRecord=reviewRows.find(r=>r.id===id);if(!gradingRecord)return;
     $("gradingTitle").textContent=experimentName(gradingRecord.experiment_slug)+" · "+(gradingRecord.file_name||"报告");
     $("gradeScore").value=gradingRecord.score??"";$("gradeStatus").value=gradingRecord.status==="returned"?"returned":"graded";$("gradeFeedback").value=gradingRecord.feedback||"";
-    $("gradingPanel").classList.remove("hidden");$("gradingPanel").scrollIntoView({behavior:"smooth",block:"center"});
+    $("gradingPanel").classList.remove("hidden");await loadGradingPreview(gradingRecord);$("gradingPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }
-  async function downloadReviewFile(id){const row=reviewRows.find(r=>r.id===id);if(row)await openReportViewer(row);}
+  async function downloadReviewFile(id){const row=reviewRows.find(r=>r.id===id);if(row)await openGrading(id);}
+  let gradingPreviewUrl=null;
+  async function loadGradingPreview(row){
+    const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
+    if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
+    const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
+    if(error){host.textContent="报告读取失败："+error.message;return;}
+    if((row.file_name||"").toLowerCase().endsWith(".pdf")){
+      gradingPreviewUrl=URL.createObjectURL(data);
+      host.innerHTML='<iframe class="grading-inline-frame" title="学生实验报告" src="'+gradingPreviewUrl+'"></iframe>';
+    }else if((row.file_name||"").toLowerCase().endsWith(".docx")){
+      if(!window.mammoth){host.textContent="Word 预览组件未加载。";return;}
+      const result=await mammoth.convertToHtml({arrayBuffer:await data.arrayBuffer()});
+      host.innerHTML='<article class="docx-preview grading-docx"></article>';host.querySelector("article").innerHTML=result.value;
+    }else host.textContent="不支持该文件格式。";
+  }
+  function closeGradingPreview(){
+    if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
+    $("gradingPreviewContent").innerHTML="点击“打开批阅”后在此处预览 PDF / DOCX。";
+  }
   async function saveGrade(){
     if(!gradingRecord)return;
     const score=$("gradeScore").value===""?null:Number($("gradeScore").value);
@@ -522,8 +573,40 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=error.message;return;}
     $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span></div>`).join("")||"本班暂无实验任务。";
+    await loadClassRoster(classId);
     $("reportAssignment").innerHTML=(data||[]).filter(a=>a.is_open).map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
     $("reportClass").value=classId;
+  }
+  async function loadClassRoster(classId){
+    const host=$("classRosterBody");if(!host)return;
+    if(profile.role==="student"){host.innerHTML='<tr><td colspan="5">学生不可管理班级名单。</td></tr>';return;}
+    const {data:members,error}=await db.from("class_members").select("student_id,status,joined_at").eq("class_id",classId).order("joined_at",{ascending:false});
+    if(error){host.innerHTML='<tr><td colspan="5">'+escapeHtml(error.message)+'</td></tr>';return;}
+    const ids=(members||[]).map(x=>x.student_id);
+    const {data:people}=ids.length?await db.from("profiles").select("id,full_name,student_no,role").in("id",ids):{data:[]};
+    const map=Object.fromEntries((people||[]).map(x=>[x.id,x]));
+    host.innerHTML=(members||[]).map(m=>{const p=map[m.student_id]||{};return '<tr><td>'+(p.role==="student"?'<input class="class-user-check" type="checkbox" value="'+m.student_id+'">':"—")+'</td><td>'+escapeHtml(p.full_name||"未命名")+'</td><td>'+escapeHtml(p.student_no||"—")+'</td><td>'+escapeHtml(m.status)+'</td><td>'+new Date(m.joined_at).toLocaleDateString("zh-CN")+'</td></tr>';}).join("")||'<tr><td colspan="5">本班尚无学生。</td></tr>';
+  }
+  async function bulkClassAccountAction(action){
+    const classId=$("classTaskSelect").value;
+    const ids=Array.from(document.querySelectorAll(".class-user-check:checked")).map(x=>x.value);
+    if(!classId||!ids.length){toast("请先选择班级并勾选学生。",true);return;}
+    const message=action==="delete_students"?"确认永久删除选中学生账号及其报告文件？":"为选中学生生成密码恢复链接？";
+    if(!confirm(message))return;
+    const results=[];
+    for(const id of ids){
+      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action,user_id:id,user_ids:[id],class_id:classId}});
+      if(error)results.push({id,ok:false,error:error.message});
+      else if(action==="reset_password")results.push({id,ok:!!data?.action_link,email:data?.email,link:data?.action_link,error:data?.error});
+      else results.push(...(data?.results||[]));
+    }
+    if(action==="reset_password"){
+      $("accountActionResult").textContent=results.filter(x=>x.ok).map(x=>x.email+" "+x.link).join("\n")||"没有生成恢复链接。";
+      toast("已生成 "+results.filter(x=>x.ok).length+"/"+ids.length+" 个恢复链接。");
+    }else{
+      toast("账号删除完成："+results.filter(x=>x.ok).length+"/"+ids.length+" 个成功。");
+      await loadClassRoster(classId);
+    }
   }
   async function joinClass(){
     const code=$("joinClassCode").value.trim().toUpperCase();if(!code){toast("请输入教师提供的班级加入码。",true);return;}
@@ -697,6 +780,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const open=e.target.closest("[data-open-experiment]");if(open)openExperiment(open.dataset.openExperiment);
       const report=e.target.closest("[data-report-download]");if(report)downloadReport(report.dataset.reportDownload);
       const fb=e.target.closest("[data-report-feedback]");if(fb)showFeedback(fb.dataset.reportFeedback);
+      const withdraw=e.target.closest("[data-report-withdraw]");if(withdraw)withdrawReport(withdraw.dataset.reportWithdraw);
+      const edit=e.target.closest("[data-report-edit]");if(edit)editReport(edit.dataset.reportEdit);
+      const del=e.target.closest("[data-report-delete]");if(del)deleteReport(del.dataset.reportDelete);
       const review=e.target.closest("[data-review-open]");if(review)openGrading(review.dataset.reviewOpen);
       const reviewDownload=e.target.closest("[data-review-download]");if(reviewDownload)downloadReviewFile(reviewDownload.dataset.reviewDownload);
     });
@@ -718,7 +804,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("refreshUsers").addEventListener("click",loadUsers);
     $("bulkDeleteUsers").addEventListener("click",()=>bulkAccountAction("delete_students"));
     $("bulkResetUsers").addEventListener("click",()=>bulkAccountAction("reset_password"));
-    $("closeGrading").addEventListener("click",()=>$("gradingPanel").classList.add("hidden"));
+    $("closeGrading").addEventListener("click",()=>{$("gradingPanel").classList.add("hidden");closeGradingPreview();});
+    $("closeGradingPreview").addEventListener("click",closeGradingPreview);
+    $("classBulkReset").addEventListener("click",()=>bulkClassAccountAction("reset_password"));
+    $("classBulkDelete").addEventListener("click",()=>bulkClassAccountAction("delete_students"));
     $("saveGrade").addEventListener("click",saveGrade);
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el)changeRole(el.dataset.roleUser,el.value);});
     $("createClass").addEventListener("click",createClass);
