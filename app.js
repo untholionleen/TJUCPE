@@ -285,7 +285,7 @@
     $("usersBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
     const {data,error}=await db.from("profiles").select("*").order("created_at",{ascending:false}).limit(500);
     if(error){$("usersBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
-    $("usersBody").innerHTML=(data||[]).map(p=>`<tr><td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.student_no||"—")}</td><td><span class="status-pill">${roleName(p.role)}</span></td><td>${new Date(p.created_at).toLocaleDateString("zh-CN")}</td><td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td></tr>`).join("")||'<tr><td colspan="5" class="muted center">暂无用户。</td></tr>';
+    $("usersBody").innerHTML=(data||[]).map(p=>`<tr><td>${p.role==="student"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td><td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.student_no||"—")}</td><td><span class="status-pill">${roleName(p.role)}</span></td><td>${new Date(p.created_at).toLocaleDateString("zh-CN")}</td><td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td></tr>`).join("")||'<tr><td colspan="5" class="muted center">暂无用户。</td></tr>';
   }
   async function changeRole(id,role){
     if(!["student","teacher","admin"].includes(role))return;
@@ -509,6 +509,8 @@
     $("submitReport").addEventListener("click",submitReport);
     $("refreshReviews").addEventListener("click",loadReviews);
     $("refreshUsers").addEventListener("click",loadUsers);
+    $("bulkDeleteUsers").addEventListener("click",()=>bulkAccountAction("delete_students"));
+    $("bulkResetUsers").addEventListener("click",()=>bulkAccountAction("reset_password"));
     $("closeGrading").addEventListener("click",()=>$("gradingPanel").classList.add("hidden"));
     $("saveGrade").addEventListener("click",saveGrade);
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el)changeRole(el.dataset.roleUser,el.value);});
