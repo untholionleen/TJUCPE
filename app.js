@@ -375,7 +375,8 @@
       $("connectionHint").classList.add("error");$("authSubmit").disabled=true;
     }
     $("testConnection").addEventListener("click",testSupabaseConnection);
-    db?.auth.onAuthStateChange((event,session)=>{
+    if(!db)return;
+    db.auth.onAuthStateChange((event,session)=>{
       if(event==="PASSWORD_RECOVERY"&&session){
         user=session.user;profile=null;showAuth();setAuthMode("recovery");
       }else if(!session){user=null;profile=null;showAuth();setAuthMode("login");}
