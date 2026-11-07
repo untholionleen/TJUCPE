@@ -86,7 +86,9 @@ Supabase 项目引用：`snkokdrjxymlmyjbitbu`
 | `audit_logs` | 管理员角色变更记录 |
 | `lab-reports` Storage bucket | 私有 PDF / DOCX 报告文件桶 |
 
-迁移同时配置 RLS、必要的 SQL grants、用户注册触发器、角色保护触发器、报告评分保护、私有文件桶及文件访问策略。
+迁移同时配置 RLS、最小必要 SQL grants、用户注册触发器、角色保护触发器、报告批阅权限及私有文件桶策略。角色判断与触发器使用的 SECURITY DEFINER 函数放在 `private` schema，且将函数的 `search_path` 固定为空；请不要把 `private` 加入 Supabase 的 Exposed schemas。
+
+本次安全补丁还收紧了报告生命周期：学生只能读取自己的报告，不能修改已提交报告的数据库记录，也不能删除已经关联到报告记录的文件；教师/管理员可批阅，只有管理员可删除报告记录或已提交文件。学生仅可删除“已上传但尚未成功写入报告记录”的孤立文件，以便失败回滚。
 
 ### 迁移完成后的检查
 
@@ -113,6 +115,12 @@ where id = 'lab-reports';
 - 四张业务表均能查到，`rowsecurity = true`。
 - `lab-reports` 存在，`public = false`，文件大小上限为 20,971,520 bytes（20 MiB）。
 - 报告桶只允许 PDF 和 DOCX。
+
+建议再执行仓库内的只读检查脚本：
+
+`supabase/verification/post_deploy_checks.sql`
+
+在 SQL Editor 中打开该文件并运行。它会列出 RLS 开启状态、Storage bucket 配置、业务表和 Storage 的全部策略、表 grants、私有辅助函数设置以及触发器。特别检查 `storage.objects`：PostgreSQL 的 permissive policies 会按 OR 合并，若项目此前存在范围过宽的其他策略，单独新增本项目策略并不能抵消旧策略。不要在未检查额外策略前导入真实报告。
 
 ## 四、配置 Auth 邮箱登录
 
@@ -212,15 +220,18 @@ returning id, full_name, student_no, role;
 - 登录后不应看到学生 A 的实验记录。
 - 不应看到或下载学生 A 的报告文件。
 - 不能更改自己的角色、成绩、教师评语、批阅人、报告状态或文件路径。
+- 不能修改或删除已提交报告记录，也不能通过 Storage 删除已提交的报告文件。
 
 ### 教师
 - 登录后能看到“报告批阅”。
 - 能查看提交记录、生成短时签名链接、录入成绩与反馈、退回修改。
+- 不能越权更改用户角色或访问管理页面。
 - 不应看到“用户与权限”管理员管理页。
 
 ### 管理员
 - 能看到“报告批阅”和“用户与权限”。
 - 可以把已注册用户调整为教师或学生。
+- 可按管理流程删除报告记录及已提交的报告文件。
 - 更改身份后，`audit_logs` 应出现一条对应记录。
 
 若任一隔离测试不符合预期，请不要导入真实教学数据，先检查 RLS、Storage policies 和 grants。
