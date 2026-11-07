@@ -719,7 +719,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!activeClassId||!active.some(c=>c.id===activeClassId))activeClassId=active[0]?.id||null;
     if(activeClassId)$("classTaskSelect").value=activeClassId;
     $("classManagerTools").classList.toggle("hidden",!staff);
-    if($("classBulkDelete"))$("classBulkDelete").textContent=profile.role==="admin"?"批量永久删除学生账号":"批量移出本班";
+    if($("classBulkDelete"))$("classBulkDelete").textContent=profile.role==="admin"?"批量永久删除学生账号":"批量删除/移出学生";
     if(!activeClassId){$("classAssignments").textContent="请先创建或加入有效班级。";$("classRosterBody").innerHTML='<tr><td colspan="5">暂无有效班级。</td></tr>';return;}
     await loadClassAssignments();
   }
@@ -799,7 +799,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       $("accountActionResult").textContent=results.filter(x=>x.ok).map(x=>x.email+" "+x.link).join("\n")||"没有生成恢复链接。";
       toast("已生成 "+results.filter(x=>x.ok).length+"/"+ids.length+" 个恢复链接。");
     }else{
-      toast(profile.role==="admin"?"账号永久删除完成："+results.filter(x=>x.ok).length+"/"+ids.length+" 个成功。":"已从本班移出："+results.filter(x=>x.ok).length+"/"+ids.length+" 个学生。");
+      const deleted=results.filter(x=>x.operation==="permanently_deleted").length,removed=results.filter(x=>x.operation==="removed_from_this_class").length;toast(profile.role==="admin"?"账号永久删除完成："+deleted+"/"+ids.length+" 个成功。":"教师操作完成：永久删除 "+deleted+" 个账号，移出本班 "+removed+" 人。");
       await loadClassRoster(classId);
     }
   }
