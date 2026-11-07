@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261108-workflow-2">
   <script src="config.js?v=20261107-publishable-key-2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -19,7 +19,7 @@
   <script defer src="experiment-engine.js?v=20261108-engine-3"></script>
   <script defer src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-  <script defer src="app.js?v=20261108-pythonplot-1"></script>
+  <script defer src="app.js?v=20261108-workflow-2"></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status"></div>
@@ -225,7 +225,7 @@
         <div class="page-heading"><div><div class="eyebrow">ADMIN ONLY</div><h1>系统管理与审计</h1><p class="muted">管理员专属诊断、审计记录与技术资料入口。</p></div></div>
         <section class="panel"><h3>Supabase 连接检测</h3><button id="adminTestConnection" class="btn btn-outline">检测 Auth 网关</button><p id="adminConnectionDiagnostic" class="connection-diagnostic">尚未检测</p></section>
         <section class="panel"><h3>修复与审计日志</h3><div class="table-scroll"><table class="data-table"><thead><tr><th>时间</th><th>事件</th><th>详情</th></tr></thead><tbody id="auditLogBody"></tbody></table></div></section>
-        <section class="panel"><h3>技术资料</h3><a href="https://github.com/untholionleen/TJUCPE" target="_blank" rel="noopener">项目源代码、迁移与部署文档</a></section>
+        <section class="panel"><h3>技术资料</h3><a href="https://github.com/untholionleen/TJUCPE" target="_blank" rel="noopener">项目源代码</a> · <a href="https://github.com/untholionleen/TJUCPE/blob/main/docs/ALGORITHM_STATUS.md" target="_blank" rel="noopener">算法状态</a> · <a href="https://github.com/untholionleen/TJUCPE/blob/main/docs/DEPLOYMENT.md" target="_blank" rel="noopener">部署与技术说明</a></section>
       </section>
 
       <footer class="app-footer"><span>物理化学实验教学与电子报告管理平台</span><span>教学数据仅用于课程实验教学 · TJUCPE</span></footer>
