@@ -302,7 +302,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const node=$("analysisPlotly");
       node.removeAllListeners?.("plotly_selected");
       node.on("plotly_selected",event=>{
-        const chosen=(event?.points||[]).filter(p=>p.curveNumber>=0&&plotData[p.curveNumber]?.mode==="markers");
+        const chosen=(event?.points||[]).filter(p=>p.curveNumber===0&&plotData[p.curveNumber]?.mode==="markers");
         selectedFitIndices=[...new Set(chosen.map(p=>Number(p.customdata)).filter(Number.isInteger))];
         $("fitSelectionLabel").textContent=selectedFitIndices.length
           ?("已选中 "+selectedFitIndices.length+" 个原始点；点击“运行本实验专属计算”按选区重新拟合。")
