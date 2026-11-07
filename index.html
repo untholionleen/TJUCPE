@@ -13,6 +13,8 @@
   <script src="config.js?v=20261107-publishable-key-2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script defer src="experiment-engine.js?v=20261108-engine-2"></script>
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
   <script defer src="app.js"></script>
 </head>
@@ -114,10 +116,17 @@
       <section id="analysisPage" class="page hidden">
         <div class="analysis-top"><button id="backExperiments" class="back-link">← 返回实验列表</button><span class="status-tag">数据工作区</span></div>
         <div class="page-heading compact"><div><div class="eyebrow" id="analysisGroup">DATA ANALYSIS</div><h1 id="analysisTitle">实验数据分析</h1><p class="muted" id="analysisDescription"></p></div></div>
+        <section id="dedicatedEnginePanel" class="panel experiment-engine-panel">
+          <div class="panel-heading"><div><span class="small-tag">EXPERIMENT-SPECIFIC WORKFLOW</span><h3 id="engineWorkflowTitle">专属实验数据处理</h3><p id="engineWorkflowDescription" class="muted">请按当前实验的专用数据表录入，不同实验的原始列结构互不通用。</p></div></div>
+          <div id="experimentSpecificInputs" class="experiment-input-grid"></div>
+          <div class="engine-settings-head"><strong>实验参数与常数</strong><span class="tiny muted">带有“按指导书填写”的项目必须核对后输入，不会自动套用未知常数。</span></div>
+          <div id="experimentSpecificSettings" class="field-grid experiment-settings-grid"></div>
+          <div class="engine-actions"><button id="runDedicatedAnalysis" class="btn btn-primary">运行本实验专属计算</button><button id="clearFitSelection" class="btn btn-outline btn-sm" type="button">清除拟合选区</button><span id="fitSelectionLabel" class="tiny muted">拟合范围：全部有效数据点（可在图上框选或套索选点）</span></div>
+        </section>
         <div class="analysis-layout">
           <div class="analysis-main">
-            <section class="panel">
-              <div class="panel-heading"><div><h3>原始数据</h3><p>可直接粘贴 Excel 中的两列或多列数据：第一列为 X，后续各列为独立 Y 曲线（Tab / 逗号分隔）。</p></div><span class="small-tag">RAW DATA</span></div>
+            <section id="genericRawPanel" class="panel hidden">
+              <div class="panel-heading"><div><h3>通用原始数据（兼容旧版）</h3><p>可直接粘贴 Excel 中的两列或多列数据：第一列为 X，后续各列为独立 Y 曲线（Tab / 逗号分隔）。</p></div><span class="small-tag">RAW DATA</span></div>
               <div class="field-grid">
                 <label>X 轴列名<input id="xLabel" value="浓度 c"></label>
                 <label>Y 轴列名<input id="yLabel" value="表面张力 γ"></label>
@@ -128,8 +137,8 @@
               <textarea id="dataInput" class="data-editor" spellcheck="false" placeholder="0.00&#9;72.8&#10;0.05&#9;68.4&#10;0.10&#9;64.2&#10;……"></textarea>
               <div class="editor-actions"><label class="file-pick">导入 CSV / TXT<input id="dataFile" type="file" accept=".csv,.txt,.tsv"></label><button id="clearData" class="btn btn-quiet">清空数据</button><span id="dataCount" class="muted tiny">等待输入数据</span></div>
             </section>
-            <section class="panel">
-              <div class="panel-heading"><div><h3>分析设置</h3><p>拟合模型与数据变换应依据具体实验原理选择。</p></div><span class="small-tag">ANALYSIS</span></div>
+            <section id="genericAnalysisPanel" class="panel hidden">
+              <div class="panel-heading"><div><h3>通用回归（兼容旧版）</h3><p>拟合模型与数据变换应依据具体实验原理选择。</p></div><span class="small-tag">ANALYSIS</span></div>
               <div class="analysis-controls">
                 <label>拟合模型<select id="fitModel"><option value="none">仅显示实验点</option><option value="linear">线性拟合 y = a + bx</option><option value="quadratic">二次多项式</option><option value="cubic">三次多项式</option></select></label>
                 <label>图表样式<select id="chartStyle"><option value="scatter">散点图</option><option value="line">折线图</option></select></label>
@@ -139,12 +148,13 @@
             </section>
             <section class="panel chart-panel">
               <div class="panel-heading"><div><h3>图形分析</h3><p>支持高清 PNG 导出；原始数据可导出为 CSV，便于继续在 Origin / MATLAB 中处理。</p></div><button id="downloadChart" class="btn btn-outline btn-sm" disabled>↓ 导出 PNG</button></div>
-              <div class="chart-wrap"><canvas id="analysisChart"></canvas><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>图表将在分析后生成</strong><small>导入数据并运行分析，即可查看实验点与拟合曲线。</small></div></div>
-              <div class="chart-footer"><span id="chartCaption">当前没有图表</span><button id="downloadCsv" class="text-action" disabled>导出数据 CSV　↓</button></div>
+              <div class="chart-wrap"><div id="analysisPlotly" class="analysis-plotly"></div><canvas id="analysisChart" class="hidden"></canvas><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>图表将在分析后生成</strong><small>可使用图形工具栏的框选或套索工具选择拟合范围。</small></div></div>
+              <div class="chart-footer"><span id="chartCaption">当前没有图表</span><button id="downloadCsv" class="text-action" disabled>导出 Origin CSV　↓</button></div>
+              <div id="engineWarnings" class="engine-warnings hidden"></div>
             </section>
             <section class="panel">
               <div class="panel-heading"><div><h3>数据明细</h3><p>分析结果基于当前数据快照生成。</p></div><button id="saveRecord" class="btn btn-primary btn-sm">保存分析记录</button></div>
-              <div class="table-scroll"><table class="data-table"><thead><tr><th>#</th><th id="tableXHeader">X</th><th id="tableYHeader">Y</th><th>残差</th></tr></thead><tbody id="dataTableBody"><tr><td colspan="4" class="muted center">暂无数据</td></tr></tbody></table></div>
+              <div class="table-scroll"><table class="data-table"><thead id="dataTableHead"><tr><th>#</th><th id="tableXHeader">X</th><th id="tableYHeader">Y</th><th>残差</th></tr></thead><tbody id="dataTableBody"><tr><td colspan="4" class="muted center">暂无数据</td></tr></tbody></table></div>
             </section>
           </div>
           <aside class="analysis-side">
