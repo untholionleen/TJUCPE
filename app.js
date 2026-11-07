@@ -482,18 +482,17 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       if(upErr){toast("新文件上传失败："+upErr.message,true);return;}
       const {error}=await db.from("report_submissions").update({file_name:file.name,storage_path:path,status:"submitted",submitted_at:new Date().toISOString(),withdrawn_at:null}).eq("id",id);
       if(error){await db.storage.from("lab-reports").remove([path]);toast("报告更新失败："+error.message,true);return;}
-      await db.storage.from("lab-reports").remove([row.storage_path]);
-      toast("已保存新版本并重新提交。");await loadReports();await loadOverview();
+      // Preserve the previous file: report_revisions keeps its path for version history.
+      toast("已保存新版本并重新提交，旧版本已保留。");await loadReports();await loadOverview();
     };
     picker.click();
   }
   async function deleteReport(id){
     const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status))return;
-    if(!confirm("确认删除这份报告记录？此操作不可恢复。"))return;
-    const {error}=await db.from("report_submissions").delete().eq("id",id);
-    if(error){toast("删除失败："+error.message,true);return;}
-    await db.storage.from("lab-reports").remove([row.storage_path]);
-    toast("报告记录已删除。");await loadReports();await loadOverview();
+    if(!confirm("确认删除这份报告及其全部历史文件版本？此操作不可恢复。"))return;
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"delete_report",report_id:id}});
+    if(error||!data?.ok){toast("报告删除失败："+(error?.message||data?.error||"未知错误"),true);return;}
+    toast("报告记录及 "+(data.removed_files||0)+" 个文件版本已删除。");await loadReports();await loadOverview();
   }
   async function showFeedback(id){
     const row=lastRecords.find(r=>r.id===id);if(!row)return;
