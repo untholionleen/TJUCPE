@@ -367,15 +367,10 @@
     }
   ];
   const map=Object.fromEntries(defs.map(d=>[d.slug,d]));
-  function parseAll(tables, def) {
-    const parsed={};
-    for(const t of def.tables) parsed[t.key]=parse(tables[t.key]||"");
-    return parsed;
-  }
   function analyze(slug, tables, settings, selected) {
     const def=map[slug]; if(!def) throw new Error("未找到该实验的专属算法模块。");
-    const parsed=parseAll(tables,def);
-    return def.analyze(parsed,settings||{},selected||[]);
+    // Pass original textarea strings through: each workflow parses its own distinct table schema.
+    return def.analyze(tables||{},settings||{},selected||[]);
   }
   function renderSetup(slug, root, settingsRoot, values={}) {
     const def=map[slug];if(!def)return;
