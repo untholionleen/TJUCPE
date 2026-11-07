@@ -27,7 +27,7 @@
     {slug:"passivation",code:"PC-14",name:"金属钝化行为和极化曲线",group:"电化学",desc:"导入电位–电流数据，绘制极化曲线并观察钝化区间。",x:"电位 E",y:"电流对数 log i",xu:"mV",yu:"log(mA)",note:"需确认电位参比电极、扫描方向、电流密度换算和对数底数。原始数据与变换数据应同时保存。"}
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
-  let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [];
+  let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.add("show");
@@ -101,6 +101,22 @@
     $("xUnit").value=currentExperiment.xu; $("yUnit").value=currentExperiment.yu;
     $("dataInput").value=""; $("dataCount").textContent="等待输入数据";
     $("experimentMethodNote").textContent=currentExperiment.note;
+    const engine=window.TJUCPE_EXPERIMENT_ENGINE;
+    const def=engine?.definitions?.find(x=>x.slug===slug);
+    if(def){
+      selectedFitIndices=[];dedicatedResult=null;dedicatedTables={};
+      $("dedicatedEnginePanel").classList.remove("hidden");
+      $("genericRawPanel").classList.add("hidden");
+      $("genericAnalysisPanel").classList.add("hidden");
+      $("engineWorkflowTitle").textContent=def.code+" · "+def.name;
+      $("engineWorkflowDescription").textContent=def.note;
+      engine.renderSetup(slug,$("experimentSpecificInputs"),$("experimentSpecificSettings"));
+      $("fitSelectionLabel").textContent="拟合范围：全部有效数据点（可在图上框选或套索选点）";
+    }else{
+      $("dedicatedEnginePanel").classList.add("hidden");
+      $("genericRawPanel").classList.remove("hidden");
+      $("genericAnalysisPanel").classList.remove("hidden");
+    }
     clearAnalysis(); go("analysis");
   }
   function parseTable(text){
@@ -145,15 +161,134 @@
     return {coefficients,predict,residuals,sse,r2};
   }
   function clearAnalysis(){
-    latestAnalysis=null; if(chart){chart.destroy();chart=null;}
-    $("analysisResult").classList.add("hidden"); $("chartPlaceholder").classList.remove("hidden");
+    latestAnalysis=null;dedicatedResult=null;selectedFitIndices=[];
+    if(chart){chart.destroy();chart=null;}
+    if(window.Plotly&&$("analysisPlotly")){try{Plotly.purge($("analysisPlotly"));}catch(_){ }}
+    $("analysisResult").classList.add("hidden");$("chartPlaceholder").classList.remove("hidden");
+    $("engineWarnings").classList.add("hidden");$("engineWarnings").innerHTML="";
     $("dataTableBody").innerHTML='<tr><td colspan="4" class="muted center">暂无数据</td></tr>';
+    $("dataTableHead").innerHTML='<tr><th>#</th><th id="tableXHeader">X</th><th id="tableYHeader">Y</th><th>残差</th></tr>';
     ["statN","statMean","statSd","statR2","statSse"].forEach(id=>$(id).textContent="—");
     $("downloadChart").disabled=true;$("downloadCsv").disabled=true;$("saveRecord").disabled=false;
     $("chartCaption").textContent="当前没有图表";
+    if($("fitSelectionLabel"))$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";
   }
   function formatNum(n){return Number.isFinite(n)?Number(n).toPrecision(5):"—";}
+  function readDedicatedInputs(){
+    const engine=window.TJUCPE_EXPERIMENT_ENGINE;
+    const def=engine?.definitions?.find(x=>x.slug===currentExperiment?.slug);
+    if(!def)throw new Error("当前实验没有专属计算流程。");
+    const tables=Object.fromEntries(def.tables.map(t=>[t.key,$("expData_"+t.key)?.value||""]));
+    const settings=Object.fromEntries(def.settings.map(f=>[f.key,$("expSetting_"+f.key)?.value??""]));
+    return {def,tables,settings};
+  }
+  function runDedicatedAnalysis(){
+    if(!window.TJUCPE_EXPERIMENT_ENGINE||!window.Plotly){toast("实验算法或绘图组件尚未加载，请刷新页面。",true);return;}
+    try{
+      const {def,tables,settings}=readDedicatedInputs();
+      const result=window.TJUCPE_EXPERIMENT_ENGINE.analyze(def.slug,tables,settings,selectedFitIndices);
+      dedicatedTables=tables;dedicatedResult=result;
+      renderDedicatedResult(def,result,tables,settings);
+    }catch(error){toast(error?.message||"实验计算失败。",true);}
+  }
+  function renderDedicatedResult(def,result,tables,settings){
+    const firstSeries=result.series?.[0],basePoints=(firstSeries?.points||[]).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
+    const yValues=basePoints.map(p=>p.y),summaryMean=yValues.length?yValues.reduce((a,b)=>a+b,0)/yValues.length:NaN;
+    const summarySd=yValues.length>1?Math.sqrt(yValues.reduce((a,b)=>a+(b-summaryMean)**2,0)/(yValues.length-1)):NaN;
+    const plotData=[];
+    (result.series||[]).forEach((series,index)=>{
+      const pts=(series.points||[]).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
+      plotData.push({
+        type:"scatter",mode:"markers",name:series.name,
+        x:pts.map(p=>p.x),y:pts.map(p=>p.y),
+        customdata:pts.map((p,i)=>Number.isInteger(p.i)?p.i:i),
+        marker:{size:7,color:["#168b83","#5887b9","#c58b43","#8d78b8","#c65a4d","#4a9a70","#607d8b","#b56f91"][index%8],opacity:0.88},
+        hovertemplate:"%{x:.6g}, %{y:.6g}<extra>"+escapeHtml(series.name)+"</extra>"
+      });
+      if(series.fitCurve?.length){
+        plotData.push({
+          type:"scatter",mode:"lines",name:series.name+" · 拟合",
+          x:series.fitCurve.map(p=>p.x),y:series.fitCurve.map(p=>p.y),
+          line:{width:2.5,dash:"dash",color:["#b94f48","#346f9a","#b27a25","#7665a3"][index%4]},
+          hovertemplate:"%{x:.6g}, %{y:.6g}<extra>拟合曲线</extra>"
+        });
+      }
+    });
+    $("chartPlaceholder").classList.add("hidden");
+    const layout={
+      autosize:true,paper_bgcolor:"#ffffff",plot_bgcolor:"#ffffff",
+      font:{family:"Noto Sans SC, Arial, sans-serif",size:12,color:"#486274"},
+      margin:{l:72,r:28,t:36,b:70},legend:{orientation:"h",y:-0.22,x:0},
+      dragmode:"select",
+      xaxis:{title:firstSeries?.xLabel||"X",gridcolor:"#e9eff2",zerolinecolor:"#d4e0e5",linecolor:"#bfcdd4"},
+      yaxis:{title:firstSeries?.yLabel||"Y",gridcolor:"#e9eff2",zerolinecolor:"#d4e0e5",linecolor:"#bfcdd4"},
+      selectdirection:"any",hovermode:"closest"
+    };
+    Plotly.react("analysisPlotly",plotData,layout,{
+      responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:["select2d","lasso2d"],
+      toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-origin-style",height:1000,width:1500,scale:2}
+    }).then(graph=>{
+      plotlyGraph=graph;
+      const node=$("analysisPlotly");
+      node.removeAllListeners?.("plotly_selected");
+      node.on("plotly_selected",event=>{
+        const chosen=(event?.points||[]).filter(p=>p.curveNumber>=0&&plotData[p.curveNumber]?.mode==="markers");
+        selectedFitIndices=[...new Set(chosen.map(p=>Number(p.customdata)).filter(Number.isInteger))];
+        $("fitSelectionLabel").textContent=selectedFitIndices.length
+          ?("已选中 "+selectedFitIndices.length+" 个原始点；点击“运行本实验专属计算”按选区重新拟合。")
+          :"未选中有效原始点，将使用全部数据拟合。";
+      });
+      node.removeAllListeners?.("plotly_deselect");
+      node.on("plotly_deselect",()=>{selectedFitIndices=[];$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";});
+    }).catch(error=>toast("绘图失败："+error.message,true));
+    $("analysisResult").classList.remove("hidden");
+    const metrics=(result.metrics||[]).map(([label,value,unit])=>
+      '<div class="engine-metric"><span>'+escapeHtml(String(label))+'</span><strong>'+escapeHtml(formatNum(Number(value)))+'</strong><small>'+escapeHtml(String(unit||""))+'</small></div>'
+    ).join("");
+    const warnings=(result.warnings||[]).map(w=>'<li>'+escapeHtml(w)+'</li>').join("");
+    $("analysisResult").innerHTML=
+      '<div class="engine-result-heading"><strong>专属计算完成</strong><span>'+escapeHtml(def.code+" · "+def.name)+'</span></div>'+
+      '<div class="engine-metrics">'+metrics+'</div>'+
+      '<p class="tiny muted">算法版本 TJUCPE Experiment Engine 2.0.0 · 原始录入数据不会被拟合覆盖</p>';
+    if(warnings){
+      $("engineWarnings").classList.remove("hidden");
+      $("engineWarnings").innerHTML='<strong>校核提示</strong><ul>'+warnings+'</ul>';
+    }else{$("engineWarnings").classList.add("hidden");$("engineWarnings").innerHTML="";}
+    $("statN").textContent=String(basePoints.length);
+    $("statMean").textContent=formatNum(summaryMean);$("statSd").textContent=formatNum(summarySd);
+    $("statR2").textContent=result.fit?.r2==null?"—":formatNum(result.fit.r2);
+    $("statSse").textContent=result.fit?.sse==null?"—":formatNum(result.fit.sse);
+    $("chartCaption").textContent=def.code+" · "+def.name+" · "+(result.series?.length||0)+" 组曲线";
+    const rows=result.resultRows||result.rawRows||[],headers=result.headers||[];
+    const width=Math.max(headers.length,...rows.map(r=>Array.isArray(r)?r.length:0),1);
+    $("dataTableHead").innerHTML="<tr>"+["序号",...Array.from({length:width},(_,i)=>headers[i]||("数据/计算列 "+(i+1)))].map(x=>"<th>"+escapeHtml(String(x))+"</th>").join("")+"</tr>";
+    $("dataTableBody").innerHTML=rows.slice(0,500).map((row,i)=>{
+      const cells=Array.isArray(row)?row:[JSON.stringify(row)];
+      return "<tr><td>"+(i+1)+"</td>"+Array.from({length:width},(_,j)=>"<td>"+escapeHtml(cells[j]===null||cells[j]===undefined?"—":typeof cells[j]==="number"?formatNum(cells[j]):String(cells[j]))+"</td>").join("")+"</tr>";
+    }).join("")||'<tr><td colspan="'+(width+1)+'" class="muted center">无可显示的明细数据</td></tr>';
+    $("downloadChart").disabled=false;$("downloadCsv").disabled=false;
+    const fitResult=result.fit||null;
+    latestAnalysis={
+      points:basePoints,rawRows:result.rawRows??rows,seriesLabels:(result.series||[]).map(x=>x.name),
+      fit:fitResult?{coefficients:fitResult.coefficients||fitResult.params||[fitResult.slope,fitResult.intercept].filter(Number.isFinite),r2:fitResult.r2??null,sse:fitResult.sse??null,residuals:fitResult.residuals||[]}:null,
+      model:def.workflow,xLabel:firstSeries?.xLabel||"X",yLabel:firstSeries?.yLabel||"Y",xUnit:"",yUnit:"",
+      mean:summaryMean,sd:summarySd,engine:"tjucpe-experiment-engine-2.0.0",
+      exportRows:rows,exportHeaders:headers,analysisSummary:{metrics:result.metrics||[],warnings:result.warnings||[]},
+      sourceTables:tables,settings
+    };
+  }
+  function clearDedicatedSelection(){
+    selectedFitIndices=[];
+    $("fitSelectionLabel").textContent="拟合范围：全部有效数据点";
+    if(window.Plotly&&$("analysisPlotly"))Plotly.relayout("analysisPlotly",{selection:{}}).catch(()=>{});
+  }
   function runAnalysis(){
+    if(currentExperiment&&window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.some(x=>x.slug===currentExperiment.slug)){
+      runDedicatedAnalysis();return;
+    }
+    runLegacyAnalysis();
+  }
+  function runLegacyAnalysis(){
     const table=parseTable($("dataInput").value);
     const rawRows=table.rows;
     const points=rawRows.map(row=>({x:row[0],y:row[1]}));
@@ -195,18 +330,17 @@
   }
   async function saveRecord(){
     if(!user||!latestAnalysis){toast("请先运行分析，再保存记录。",true);return;}
-    const record={owner_id:user.id,experiment_slug:currentExperiment?.slug||"custom",title:currentExperiment?.name||"数据分析",raw_data:{headers:latestAnalysis.seriesLabels,rows:latestAnalysis.rawRows},analysis:{model:latestAnalysis.model,coefficients:latestAnalysis.fit?.coefficients||null,r2:latestAnalysis.fit?.r2??null,sse:latestAnalysis.fit?.sse??null,mean:latestAnalysis.mean,sd:latestAnalysis.sd,x_label:latestAnalysis.xLabel,y_label:latestAnalysis.yLabel,x_unit:latestAnalysis.xUnit,y_unit:latestAnalysis.yUnit},engine_version:ENGINE_VERSION};
+    const record={owner_id:user.id,experiment_slug:currentExperiment?.slug||"custom",title:currentExperiment?.name||"数据分析",raw_data:{headers:latestAnalysis.seriesLabels,rows:latestAnalysis.rawRows,source_tables:latestAnalysis.sourceTables||null,export_headers:latestAnalysis.exportHeaders||null,export_rows:latestAnalysis.exportRows||null},analysis:{model:latestAnalysis.model,coefficients:latestAnalysis.fit?.coefficients||null,r2:latestAnalysis.fit?.r2??null,sse:latestAnalysis.fit?.sse??null,mean:latestAnalysis.mean,sd:latestAnalysis.sd,x_label:latestAnalysis.xLabel,y_label:latestAnalysis.yLabel,x_unit:latestAnalysis.xUnit,y_unit:latestAnalysis.yUnit,summary:latestAnalysis.analysisSummary||null,settings:latestAnalysis.settings||null},engine_version:latestAnalysis.engine||ENGINE_VERSION};
     const {error}=await db.from("experiment_records").insert(record);
     if(error){toast("保存失败："+error.message,true);return;}
     toast("分析记录已保存到个人空间。"); loadOverview();
   }
   function downloadCsv(){
     if(!latestAnalysis)return;
-    const {points,fit,rawRows,seriesLabels}=latestAnalysis;
-    const headers=[latestAnalysis.xLabel+" ("+latestAnalysis.xUnit+")",...seriesLabels,"residual (series 1)"];
-    const rows=[headers,...rawRows.map((r,i)=>[...r,fit?fit.residuals[i]:""])];
-    const csv="\\uFEFF"+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\\r\\n");
-    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=(currentExperiment?.slug||"experiment-data")+".csv";a.click();URL.revokeObjectURL(a.href);
+    const headers=latestAnalysis.exportHeaders||[latestAnalysis.xLabel,latestAnalysis.yLabel];
+    const rows=latestAnalysis.exportRows||latestAnalysis.rawRows||[];
+    const csv="\\uFEFF"+[headers,...rows].map(r=>(Array.isArray(r)?r:[r]).map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\\r\\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=(currentExperiment?.slug||"experiment-data")+"-origin.csv";a.click();URL.revokeObjectURL(a.href);
   }
   async function loadOverview(){
     if(!db||!user)return;
@@ -498,10 +632,12 @@
     });
     $("backExperiments").addEventListener("click",()=>go("experiments"));
     $("runAnalysis").addEventListener("click",runAnalysis);
+    $("runDedicatedAnalysis").addEventListener("click",runDedicatedAnalysis);
+    $("clearFitSelection").addEventListener("click",clearDedicatedSelection);
     $("clearData").addEventListener("click",()=>{$("dataInput").value="";clearAnalysis();$("dataCount").textContent="等待输入数据";});
     $("dataFile").addEventListener("change",async e=>{const file=e.target.files[0];if(file)$("dataInput").value=await file.text();$("dataCount").textContent=file?file.name:"等待输入数据";});
     $("downloadCsv").addEventListener("click",downloadCsv);
-    $("downloadChart").addEventListener("click",()=>{if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
+    $("downloadChart").addEventListener("click",()=>{if(window.Plotly&&plotlyGraph)Plotly.downloadImage("analysisPlotly",{format:"png",filename:(currentExperiment?.slug||"analysis")+"-origin-style",width:1800,height:1200,scale:2});else if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
     $("saveRecord").addEventListener("click",saveRecord);
     $("newReport").addEventListener("click",()=>{$("reportUploadPanel").classList.remove("hidden");loadClasses();});
     $("closeReportPanel").addEventListener("click",()=>$("reportUploadPanel").classList.add("hidden"));
