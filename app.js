@@ -625,23 +625,6 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("gradingPreviewContent").innerHTML="点击“打开批阅”后在此处预览 PDF / DOCX。";
   }
 
-    const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
-    if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
-    const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
-    if(error){host.textContent="报告读取失败："+error.message;return;}
-    if((row.file_name||"").toLowerCase().endsWith(".pdf")){
-      gradingPreviewUrl=URL.createObjectURL(data);
-      host.innerHTML='<iframe class="grading-inline-frame" title="学生实验报告" src="'+gradingPreviewUrl+'"></iframe>';
-    }else if((row.file_name||"").toLowerCase().endsWith(".docx")){
-      if(!window.mammoth){host.textContent="Word 预览组件未加载。";return;}
-      const result=await mammoth.convertToHtml({arrayBuffer:await data.arrayBuffer()});
-      host.innerHTML='<article class="docx-preview grading-docx"></article>';host.querySelector("article").innerHTML=result.value;
-    }else host.textContent="不支持该文件格式。";
-  }
-  function closeGradingPreview(){
-    if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
-    $("gradingPreviewContent").innerHTML="点击“打开批阅”后在此处预览 PDF / DOCX。";
-  }
   async function saveGrade(){
     if(!gradingRecord)return;
     const score=$("gradeScore").value===""?null:Number($("gradeScore").value);
