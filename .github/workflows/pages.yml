@@ -27,6 +27,8 @@ jobs:
         run: node --check app.js
       - name: Test regression engine
         run: node tests/regression-smoke.cjs
+      - name: Test database security schema
+        run: node tests/schema-security-smoke.cjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Assemble public application files
