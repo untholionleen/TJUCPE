@@ -41,3 +41,14 @@
   .engine-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .engine-actions{align-items:flex-start}
 }
+
+
+/* Python scientific plotting + Origin-style selection workspace */
+.python-plot-stage{background:#fff;border:1px solid #e2eaee;border-radius:10px;overflow:hidden;margin:12px 0 16px}
+.python-plot-heading,.selection-workspace-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 15px;border-bottom:1px solid #e5ecef}
+.python-plot-heading strong,.selection-workspace-heading strong{font-size:13px;color:#24495e}
+.python-plot-heading span,.selection-workspace-heading span{font-size:11px;color:#718592}
+.python-plot-image{display:block;width:100%;height:auto;max-height:760px;object-fit:contain;background:#fff;padding:8px}
+.selection-workspace{border:1px solid #e2eaee;border-radius:10px;background:#fff;overflow:hidden}
+.selection-workspace .analysis-plotly{height:340px;min-height:300px}
+@media(max-width:720px){.selection-workspace .analysis-plotly{height:300px;min-height:260px}.python-plot-heading,.selection-workspace-heading{align-items:flex-start}}
