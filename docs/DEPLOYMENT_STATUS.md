@@ -5,7 +5,7 @@ Last checked: 2026-11-08
 ## Confirmed on the connected Supabase project
 
 - Project `TJUCPE` is `ACTIVE_HEALTHY`.
-- Database migration history includes five applied migrations, through `tjucpe_query_performance_indexes_v6`.
+- Database migration history includes five applied migrations, through `tjucpe_report_resubmission_deadline_guard_v7`.
 - Verified application tables: `profiles`, `experiment_records`, `report_submissions`, `audit_logs`, `classes`, `class_members`, `experiment_catalog`, `experiment_assignments`, `report_revisions`.
 - RLS is enabled on the inspected business tables.
 - `experiment_catalog` currently contains 14 experiment entries.
@@ -13,7 +13,7 @@ Last checked: 2026-11-08
 - Storage policies now include current-report/revision-history reads and class-staff upload of reviewed PDFs.
 - Edge Function `classroom-admin` is ACTIVE version 9 with JWT verification.
 - The existing legacy report without a class/task assignment remains intact; the new-submission trigger requires class membership and a matching open assignment for all new student submissions.
-- Migration v5 adds `profiles.account_status` and `report_submissions.review_annotations`; migration v6 adds foreign-key/audit lookup indexes.
+- Migration v5 adds `profiles.account_status` and `report_submissions.review_annotations`; migration v6 adds foreign-key/audit lookup indexes; migration v7 enforces deadlines on student resubmissions without altering legacy reports.
 
 ## Confirmed repository changes
 
