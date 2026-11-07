@@ -1,64 +1,62 @@
-# TJUCPE deployment guide
+# TJUCPE deployment and operations
 
-## 0. Current boundary
+## Current verified state (2026-11-08)
 
-This repository contains a static browser application and Supabase SQL migration. The connected GitHub integration can write repository files, but it does not expose Supabase project administration or hosting-dashboard configuration. A committed migration is not the same as an applied database migration, and a committed Pages workflow is not proof that a public site is already live.
+- Repository: `untholionleen/TJUCPE`, default branch `main`.
+- Supabase project: `TJUCPE`, status `ACTIVE_HEALTHY`.
+- Applied database migrations:
+  - `20261107154542_tjucpe_classroom_catalog_assignments_v2`
+  - `20261107170207_tjucpe_report_lifecycle_v3`
+  - `20261107173313_report_student_edit_guard_v4`
+  - `20261107175451_tjucpe_full_workflow_pdf_review_v5`
+  - `20261107180243_tjucpe_query_performance_indexes_v6`
+- Verified business tables include profiles, classes, class_members, experiment_catalog (14 rows), experiment_assignments, report_submissions, report_revisions, audit_logs. RLS is enabled on these tables.
+- Storage bucket `lab-reports` is private, with a 20 MiB limit and PDF/DOCX allowlist.
+- Edge Function `classroom-admin` is ACTIVE version 6 with JWT verification.
+- Current sample database has three profiles, one class, one class member, 14 experiment catalog rows, no experiment assignments yet, one legacy report, one report revision and three audit entries. These are counts only; no student personal details are copied into this document.
 
-The repository was public when inspected. It contains application source only. Do not upload class rosters, student reports, identifiers, grade exports, original workbooks, or private teaching materials here.
+## Deploying code
 
-## 1. Apply the Supabase database migration
+1. Push to `main`; the `.github/workflows/pages.yml` workflow checks JavaScript syntax and experiment/regression/security smoke tests, then deploys the static application to GitHub Pages.
+2. Verify the latest workflow run completed successfully before treating the public preview as updated.
+3. Browser cache references are versioned in `index.html`; hard-refresh only if an older asset remains cached.
 
-1. Open the Supabase project whose reference is snkokdrjxymlmyjbitbu.
-2. Open SQL Editor → New query.
-3. Copy the complete file supabase/migrations/202611070001_initial_schema.sql from this repository into the editor and run it as the project owner.
-4. Run `supabase/verification/post_deploy_checks.sql` and inspect the four tables' RLS state, all policies on the application tables and `storage.objects`, grants, private helper functions, triggers, and private bucket. Review any pre-existing permissive Storage policies because policies combine with OR.
-5. In Authentication → URL Configuration, add the eventual GitHub Pages address to the allowed redirect URLs. The usual project URL is https://untholionleen.github.io/TJUCPE/; use it only after the Pages deployment has succeeded.
-6. Register your own account in the site, verify the email if email confirmation is enabled, then run the admin bootstrap SQL at the bottom of the migration, replacing YOUR_ADMIN_EMAIL with the email used for your own account.
-7. Assign teacher users with the same SQL pattern and role teacher. Student registration itself never accepts a role.
+## Database migration discipline
 
-## 2. Enable GitHub Pages
+The five migrations above have already been applied to the connected TJUCPE project. **Do not rerun the original initial schema or reapply the same migrations on this live database.** For a new environment, apply the migration files in timestamp order and then run `supabase/verification/post_deploy_checks.sql`.
 
-1. Open repository Settings → Pages.
-2. Under Build and deployment, select GitHub Actions as the source.
-3. Open Actions and allow the workflow to run if GitHub asks for approval.
-4. The workflow .github/workflows/pages.yml deploys the repository root on pushes to main.
-5. Wait for the Deploy TJUCPE to GitHub Pages workflow to complete successfully. The site URL is usually https://untholionleen.github.io/TJUCPE/.
+The v5 migration adds account lifecycle metadata, review annotation storage, and Storage policies so students can read the current annotated PDF and authorized teachers can upload reviewed PDF versions. The v6 migration adds foreign-key and audit lookup indexes.
 
-The GitHub connector used here cannot change repository visibility or switch the Pages setting. Both are account-level repository settings.
+## Roles and account lifecycle
 
-## 3. Configure Authentication
+- Students can only submit against an active membership and a currently open required assignment in their class.
+- Teachers can create/manage their own classes, import their class roster, manage class memberships, reset student passwords by generating recovery links, and review reports in their assigned classes.
+- A teacher's “delete” action removes the student from that teacher's class; it does not destroy the student's global Auth account or erase their other course records.
+- Only administrators can permanently delete student Auth accounts. This operation removes associated report objects and account-linked data; use only after confirming retention requirements.
+- Password resets use Supabase Auth recovery links. Staff should deliver the one-time link securely; the platform does not reveal or display a student's existing password.
+- Administrators can assign teachers to classes, manage all classes and experiment catalog entries, assign roles, and access system diagnostics and audit logs.
 
-In Supabase Authentication settings:
-- Enable the email/password provider.
-- Decide whether email confirmation is required for the course.
-- Set the Site URL to the final Pages URL.
-- Add the Pages URL to Redirect URLs.
-- Test registration, email confirmation, login, logout and password reset.
+## Reports and PDF review
 
-## 4. First-use acceptance tests
+- New submissions require class membership and a published experiment assignment.
+- A submitted student report must be withdrawn before the student can replace its file. Draft, returned and withdrawn reports may be edited/deleted under the lifecycle policy; graded reports are read-only to students.
+- Teacher PDF annotations are drawn in the embedded PDF review workspace. Saving annotations creates a new PDF object under `reviewed/<report-id>/...`, updates the current report file path, increments the submission version, and lets the revision trigger preserve the previous path. The original PDF is not overwritten.
+- Students and teachers both resolve the current `report_submissions.storage_path`; revision history keeps the previous file reference.
+- DOCX files can be previewed and reviewed with written feedback; page-level ink annotations are currently PDF-only.
 
-Use two separate student test accounts and one staff account.
+## Experiment data and plotting
 
-- A new registration creates a profiles row with role student.
-- Sending role=admin or role=teacher in signup metadata has no effect.
-- A student cannot read another student's experiment_records, report rows, or report objects.
-- A student cannot update their own role, grade, feedback, reviewer, report status, report path, or any submitted report row.
-- A student cannot delete an already-submitted report object; the student can only clean up an orphan upload when no report row references it.
-- A teacher can read report submissions and private report files, and can save grade/feedback/status. A teacher cannot change roles or delete submitted report files.
-- An admin can manage user roles and delete report rows/objects under the administrative process; role changes generate an audit_logs row.
-- Student report uploads are limited to PDF/DOCX and 20 MB in the app; Storage also enforces its configured file limit and MIME allowlist.
-- Signed download URLs expire after 90 seconds.
-- Data analysis exports CSV and PNG; the original input data is kept separately from fitted values.
+- The 14 built-in experiment workflows use separate table schemas and experiment-specific calculations.
+- Interactive Plotly rectangle/lasso selection controls the selected fit points; Matplotlib/Python is used for publication-style raster plots. If the Python runtime is unavailable, the interactive Plotly chart remains available.
+- CSV export is Origin-compatible. The browser does not remotely control a local Origin installation.
+- Newly added catalog entries default to the generic workspace until a teacher-reviewed dedicated calculation template is supplied.
+- Experimental constants and equations must be verified against the actual lab manual and current course requirements; warnings in the calculation engine are intentional and must not be bypassed silently.
 
-## 5. Production notes
+## Security and remaining checks
 
-- The browser contains only the Supabase URL and publishable key. Never place service_role, secret keys, database passwords or deployment tokens in config.js.
-- RLS and SQL grants together are the security boundary. Do not launch with the migration unapplied. Keep the `private` schema out of the Supabase API's Exposed schemas.
-- Use HTTPS and enable MFA for administrative Supabase/GitHub accounts.
-- Establish data-retention and report deletion policies with the teaching center before importing real student records.
-- Back up the Supabase database and Storage. A scheduled export is not configured by this repository.
-- GitHub Pages is static hosting; it does not provide a private application backend. GitHub explicitly says Pages should not be used for sensitive transactions such as sending passwords. Treat the current Pages deployment as a public preview, not the production student login/report endpoint. Move the frontend to hosting intended for authenticated applications before accepting real student credentials or reports. Student records remain in Supabase, governed by RLS.
-
-## 6. Supabase Free project inactivity
-
-A Free project can be paused after a period of inactivity under Supabase's current policy. A frontend keep-alive ping is not a guaranteed prevention method. For a teaching service that must remain available throughout a semester, evaluate an eligible paid plan and configure backups/monitoring. Check the current Supabase pricing and pause policy before deciding.
+- The browser uses only the Supabase publishable key. Never place service-role or secret keys in static assets or GitHub.
+- The repository is public; do not commit rosters, student reports, grade exports, identifiers or private teaching datasets.
+- RLS and Storage policies are the security boundary; UI hiding is not authorization.
+- Supabase Security Advisor currently reports leaked-password protection disabled. Enable it in Supabase Auth password-security settings.
+- Performance Advisor may continue to report RLS init-plan and multiple permissive-policy optimization suggestions. These are performance advisories, not evidence that row security is disabled; review them before scaling to large classes.
+- GitHub Pages is a preview host. Before collecting real student credentials or sensitive reports at scale, deploy behind an appropriate authenticated application host and complete synthetic multi-role acceptance tests.
