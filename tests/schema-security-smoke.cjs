@@ -82,6 +82,12 @@ assert.ok(deadlineMigration.includes("a.due_at is null or a.due_at >= now()"),
 assert.ok(deadlineMigration.includes("old.class_id is null and old.assignment_id is null"),
   "legacy reports must remain compatible without invented class/task links");
 
+const activeClassMigration = fs.readFileSync("supabase/migrations/20261107181407_tjucpe_active_class_submission_guard_v8.sql", "utf8").toLowerCase();
+assert.ok(activeClassMigration.includes("c.is_active=true"),
+  "new submissions must require an active class");
+assert.ok(activeClassMigration.includes("active_class"),
+  "student resubmissions must require an active class");
+
 const verification = fs.readFileSync("supabase/verification/post_deploy_checks.sql", "utf8").toLowerCase();
 assert.ok(verification.includes("from pg_policies"), "post-deployment policy inspection must be provided");
 assert.ok(verification.includes("from storage.buckets"), "post-deployment bucket inspection must be provided");
