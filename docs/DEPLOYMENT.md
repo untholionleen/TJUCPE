@@ -13,6 +13,7 @@
   - `20261107181323_tjucpe_report_resubmission_deadline_guard_v7`
   - `20261107181407_tjucpe_active_class_submission_guard_v8`
   - `20261107181850_tjucpe_rls_performance_policy_tuning_v9`
+  - `20261107181935_tjucpe_legacy_report_resubmit_guard_v10`
 - Verified business tables include profiles, classes, class_members, experiment_catalog (14 rows), experiment_assignments, report_submissions, report_revisions, audit_logs. RLS is enabled on these tables.
 - Storage bucket `lab-reports` is private, with a 20 MiB limit and PDF/DOCX allowlist.
 - Edge Function `classroom-admin` is ACTIVE version 9 with JWT verification.
@@ -28,7 +29,7 @@
 
 The five migrations above have already been applied to the connected TJUCPE project. **Do not rerun the original initial schema or reapply the same migrations on this live database.** For a new environment, apply the migration files in timestamp order and then run `supabase/verification/post_deploy_checks.sql`.
 
-The v5 migration adds account lifecycle metadata, review annotation storage, and Storage policies so students can read the current annotated PDF and authorized teachers can upload reviewed PDF versions. The v6 migration adds foreign-key and audit lookup indexes. The v7 migration prevents student resubmission after an assignment deadline while retaining legacy report compatibility. The v8 migration also blocks new submissions and student resubmissions when a class has been archived. The v9 migration splits overlapping ALL policies and wraps direct auth.uid() policy checks in SELECT InitPlans to reduce per-row evaluation.
+The v5 migration adds account lifecycle metadata, review annotation storage, and Storage policies so students can read the current annotated PDF and authorized teachers can upload reviewed PDF versions. The v6 migration adds foreign-key and audit lookup indexes. The v7 migration prevents student resubmission after an assignment deadline while retaining legacy report compatibility. The v8 migration also blocks new submissions and student resubmissions when a class has been archived. The v9 migration splits overlapping ALL policies and wraps direct auth.uid() policy checks in SELECT InitPlans to reduce per-row evaluation. The v10 migration prevents unassigned legacy reports from being resubmitted without inventing class/task links.
 
 ## Roles and account lifecycle
 
