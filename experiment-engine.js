@@ -393,7 +393,7 @@
     root.innerHTML=def.tables.map((t,i)=>{
       const id="expData_"+t.key;
       const current=values[t.key]||"";
-      return '<div class="experiment-data-block"><div class="experiment-data-title"><strong>'+t.title+'</strong><span>'+t.headers.join(" · ")+'</span></div><textarea class="data-editor experiment-specific-editor" id="'+id+'" spellcheck="false" placeholder="'+t.example.replace(/"/g,"&quot;")+'">'+current+'</textarea><small class="muted tiny">列顺序：'+t.columns.join(" / ")+'</small></div>';
+      return '<div class="experiment-data-block"><div class="experiment-data-title"><strong>'+t.title+'</strong><span>'+t.headers.join(" · ")+'</span><label class="experiment-table-import">导入 Excel / CSV<input type="file" class="experiment-table-file" data-table-key="'+t.key+'" accept=".xlsx,.xls,.csv,.tsv,text/csv"></label></div><textarea class="data-editor experiment-specific-editor" id="'+id+'" spellcheck="false" placeholder="'+t.example.replace(/"/g,"&quot;")+'">'+current+'</textarea><small class="muted tiny">列顺序：'+t.columns.join(" / ")+'；导入后仍可手动修正</small></div>';
     }).join("");
     settingsRoot.innerHTML=def.settings.map(f=>'<label>'+f.label+'<input type="number" step="any" id="expSetting_'+f.key+'" value="'+(values[f.key]??f.defaultValue??"")+'" placeholder="按实验指导书填写"></label>').join("");
     return def;
