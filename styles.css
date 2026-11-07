@@ -55,3 +55,22 @@
 
 /* Embedded report review and class roster */
 .grading-preview-panel{margin-top:18px;border:1px solid var(--line);border-radius:10px;padding:14px;background:#fbfcfd}.grading-preview-content{min-height:180px;max-height:72vh;overflow:auto;background:#fff;border:1px solid #e2eaee;border-radius:8px;padding:10px}.grading-inline-frame{width:100%;height:68vh;min-height:560px;border:0}.grading-docx{height:auto;max-height:68vh}.roster-panel{margin-top:16px}
+
+/* TJUCPE full workflow additions */
+.class-inactive{opacity:.68;border-style:dashed!important}
+.class-card-actions,.assignment-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.assignment-actions{margin-left:auto;align-items:center}
+.catalog-manager-panel{margin-top:18px}
+.catalog-admin-list{display:grid;gap:8px;margin-top:16px}
+.catalog-admin-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.catalog-admin-row>div:first-child{display:grid;gap:4px}
+.catalog-admin-row small{color:var(--muted);font-size:11px}
+.pdf-annotation-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin:8px 0 14px;background:#f1f6f7;border:1px solid #dce8e8;border-radius:10px}
+.pdf-annotation-toolbar span{font-size:11px;color:var(--muted);margin-right:auto}
+.pdf-annotation-pages{display:grid;gap:20px;justify-items:center;padding:14px;background:#eef2f4;border-radius:10px;max-height:900px;overflow:auto}
+.pdf-review-page{max-width:100%;overflow:auto}
+.pdf-review-paper{position:relative;display:inline-block;background:white;box-shadow:0 4px 18px #102a4320;line-height:0}
+.pdf-review-base{display:block;max-width:none}
+.pdf-review-overlay{position:absolute;inset:0;touch-action:none;cursor:crosshair}
+.grading-preview-content{min-height:220px}
+@media(max-width:720px){.catalog-admin-row{align-items:flex-start;flex-direction:column}.assignment-actions{margin-left:0}.pdf-annotation-toolbar{align-items:flex-start}.pdf-annotation-pages{padding:8px}}
