@@ -26,7 +26,14 @@ const required = [
   "revoke all on function private.is_staff() from public, anon",
   "grant execute on function private.is_admin() to authenticated",
   "grant execute on function private.is_staff() to authenticated",
-  "set search_path = ''"
+  "set search_path = ''",
+  "create schema if not exists private",
+  "create or replace function private.is_admin()",
+  "create or replace function private.is_staff()",
+  "create or replace function private.handle_new_user()",
+  "create or replace function private.log_profile_role_change()",
+  "do $verify$",
+  "has_table_privilege('anon','public.profiles','select')",
 ];
 
 for (const fragment of required) {
