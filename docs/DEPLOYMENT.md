@@ -49,6 +49,7 @@ The v5 migration adds account lifecycle metadata, review annotation storage, and
 ## Experiment data and plotting
 
 - The 14 built-in experiment workflows use separate table schemas and experiment-specific calculations.
+- Each experiment table has its own Excel/CSV import control. The workbook importer maps the supplied saponification, adsorption, galvanic-cell, phase-diagram, boiling-composition, reaction-enthalpy, freezing-point, equilibrium, thermostat/viscosity and passivation sheets into the corresponding table columns. Surface tension accepts the processed c/γ/Γ workbook directly. Zeta-potential is intentionally left to manual column confirmation because the workbook’s KCl concentration cell is ambiguous; vapor-pressure and peroxide sheets do not provide a verified numeric source table.
 - Interactive Plotly rectangle/lasso selection controls the selected fit points; Matplotlib/Python is used for publication-style raster plots. If the Python runtime is unavailable, the interactive Plotly chart remains available.
 - CSV export is Origin-compatible. The browser does not remotely control a local Origin installation.
 - Newly added catalog entries default to the generic workspace until a teacher-reviewed dedicated calculation template is supplied.
