@@ -16,4 +16,6 @@ exports/
 !.env.example
 .DS_Store
 Thumbs.db
-\n# Generated Pages staging directory\n_site/\n
+
+# Generated Pages staging directory
+_site/
