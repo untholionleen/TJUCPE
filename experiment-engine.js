@@ -21,7 +21,7 @@
     return lines.slice(hasHeader ? 1 : 0).map(split).filter(x => x.length >= 2);
   };
   const parse = text => rowsOf(text);
-  const matrix = (text, width) => rowsOf(text).map(r => r.slice(0,width).map(num)).filter(r => r.length === width && r.every(Number.isFinite));
+  const matrix = (text, width) => rowsOf(text).map(r => r.slice(0,width).map(v => num(v))).filter(r => r.length === width && r.every(Number.isFinite));
   const solve = (A, b) => {
     const n=b.length, M=A.map((r,i)=>r.slice().concat(b[i]));
     for(let i=0;i<n;i++){
