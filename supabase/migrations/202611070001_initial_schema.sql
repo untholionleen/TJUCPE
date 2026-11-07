@@ -131,6 +131,28 @@ create table if not exists public.report_submissions (
   updated_at timestamptz not null default now()
 );
 
+create or replace function public.guard_report_insert_fields()
+returns trigger language plpgsql set search_path = public as $
+begin
+  if not public.is_staff() and current_user not in ('postgres','supabase_admin') then
+    new.student_id := auth.uid();
+    new.score := null;
+    new.feedback := null;
+    new.reviewed_by := null;
+    new.reviewed_at := null;
+    if new.status not in ('draft','submitted') then
+      new.status := 'submitted';
+    end if;
+  end if;
+  return new;
+end;
+$;
+
+drop trigger if exists report_insert_fields_guard_tjucpe on public.report_submissions;
+create trigger report_insert_fields_guard_tjucpe
+before insert on public.report_submissions
+for each row execute procedure public.guard_report_insert_fields();
+
 create or replace function public.guard_report_review_fields()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
