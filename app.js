@@ -547,7 +547,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(error){body.innerHTML=`<tr><td colspan="6" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
     lastRecords=data||[];
     if(!lastRecords.length){body.innerHTML='<tr><td colspan="6" class="muted center">暂无报告记录，点击右上角提交第一份实验报告。</td></tr>';return;}
-    body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">预览</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button> ${r.status==="submitted"?`<button class="action-link" data-report-withdraw="${r.id}">撤回</button>`:""} ${["draft","returned","withdrawn"].includes(r.status)?`<button class="action-link" data-report-edit="${r.id}">修改并重交</button> <button class="action-link" data-report-delete="${r.id}">删除</button>`:""}</td></tr>`).join("");
+    body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">预览</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button> ${r.status==="submitted"?`<button class="action-link" data-report-withdraw="${r.id}">撤回</button>`:""} ${["draft","returned","withdrawn"].includes(r.status)?`${r.class_id&&r.assignment_id?`<button class="action-link" data-report-edit="${r.id}">修改并重交</button> `:""}<button class="action-link" data-report-delete="${r.id}">删除</button>`:""}</td></tr>`).join("");
   }
   async function submitReport(){
     const file=$("reportFile").files[0],classId=$("reportClass").value,assignmentId=$("reportAssignment").value,assignmentOption=$("reportAssignment").selectedOptions[0],slug=assignmentOption?.dataset.slug||"",title=$("reportTitle").value.trim();
@@ -572,7 +572,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     toast("报告已撤回，可修改后重新提交。");await loadReports();await loadOverview();
   }
   async function editReport(id){
-    const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status))return;
+    const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status)||!row.class_id||!row.assignment_id)return;
     const picker=document.createElement("input");picker.type="file";picker.accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     picker.onchange=async()=>{
       const file=picker.files?.[0];if(!file)return;
