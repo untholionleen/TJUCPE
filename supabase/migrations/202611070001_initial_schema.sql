@@ -318,6 +318,12 @@ using (
   and ((storage.foldername(name))[1]=auth.uid()::text or public.is_admin())
 );
 
+-- Remove inherited default grants first, then add back only the operations used by the client.
+revoke all on table public.profiles from anon, authenticated;
+revoke all on table public.experiment_records from anon, authenticated;
+revoke all on table public.report_submissions from anon, authenticated;
+revoke all on table public.audit_logs from anon, authenticated;
+
 grant usage on schema public to authenticated;
 grant select, update on public.profiles to authenticated;
 grant select, insert, update, delete on public.experiment_records to authenticated;
