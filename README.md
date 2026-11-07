@@ -11,17 +11,18 @@
 
 ## 快速部署
 
-1. 在 Supabase SQL Editor 执行 supabase/migrations/202611070001_initial_schema.sql。
-2. 在 Authentication 中启用邮箱/密码登录并设置站点回调 URL。
-3. 在 GitHub 仓库 Settings → Pages 中将 Source 设为 GitHub Actions。
-4. 等待 Actions 中的部署 workflow 成功。
-5. 首次注册管理员账号后，按迁移文件末尾 SQL 在数据库中授予 admin 角色。
+1. 在 Supabase SQL Editor 执行 `supabase/migrations/202611070001_initial_schema.sql`。
+2. 执行 `supabase/verification/post_deploy_checks.sql`，核对 RLS、grants、Storage policies、私有函数和触发器。
+3. 在 Authentication 中启用邮箱/密码登录并设置站点回调 URL。
+4. 在 GitHub 仓库 Settings → Pages 中将 Source 设为 GitHub Actions。
+5. 等待 Actions 中的部署 workflow 成功。
+6. 首次注册管理员账号后，按迁移文件末尾 SQL 在数据库中授予 admin 角色。
 
-详细步骤见 docs/DEPLOYMENT.md、docs/SUPABASE_SETUP.md 和 docs/SECURITY.md。
+详细步骤见 `docs/DEPLOYMENT.md`、`docs/SUPABASE_SETUP.md` 和 `docs/SECURITY.md`。CI 包含 JavaScript 语法、回归拟合和数据库安全结构冒烟检查；这些检查不等于已在真实 Supabase 项目执行 SQL。
 
 ## 重要安全边界
 
-此仓库初始核验时是 Public。仓库只保存通用程序代码，不保存实验报告、学生名单或原始教学数据。浏览器只使用 Supabase publishable key；严禁将 service_role / secret key 放入前端。不要在 RLS 尚未启用时投入真实学生数据。当前 GitHub Pages 地址仅作页面预览；GitHub 官方限制说明不应用 Pages 处理密码等敏感交易，正式教学前应迁移至适合认证业务的托管平台。
+此仓库初始核验时是 Public。仓库只保存通用程序代码，不保存实验报告、学生名单或原始教学数据。浏览器只使用 Supabase publishable key；严禁将 service_role / secret key 放入前端。不要在 RLS 尚未启用且权限测试未通过时投入真实学生数据。当前 GitHub Pages 地址仅作页面预览；GitHub 官方限制说明不应用 Pages 处理密码等敏感交易，正式教学前应迁移至适合认证业务的托管平台。
 
 ## 科学计算边界
 
