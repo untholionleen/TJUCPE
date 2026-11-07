@@ -27,8 +27,8 @@
     {slug:"passivation",code:"PC-14",name:"金属钝化行为和极化曲线",group:"电化学",desc:"导入电位–电流数据，绘制极化曲线并观察钝化区间。",x:"电位 E",y:"电流对数 log i",xu:"mV",yu:"log(mA)",note:"需确认电位参比电极、扫描方向、电流密度换算和对数底数。原始数据与变换数据应同时保存。"}
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
-  let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [];
-  const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限"};
+  let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [];
+  const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.add("show");
     clearTimeout(toast._timer); toast._timer=setTimeout(()=>el.classList.remove("show"),3600);
@@ -66,10 +66,11 @@
     document.querySelectorAll(".admin-only").forEach(el=>el.classList.toggle("hidden",profile?.role!=="admin"));
   }
   function go(page){
-    const allowed=["overview","experiments","analysis","reports","review","users"];
+    const allowed=["overview","experiments","analysis","reports","review","users","classes","system"];
     if(!allowed.includes(page)) page="overview";
     if(page==="review"&&!["teacher","admin"].includes(profile?.role)) page="overview";
     if(page==="users"&&profile?.role!=="admin") page="overview";
+    if(page==="system"&&profile?.role!=="admin") page="overview";
     document.querySelectorAll(".page").forEach(el=>el.classList.add("hidden"));
     const target=$(page+"Page"); if(target) target.classList.remove("hidden");
     document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.classList.toggle("active",el.dataset.page===page||(page==="analysis"&&el.dataset.page==="experiments")));
@@ -77,6 +78,8 @@
     if(page==="reports") loadReports();
     if(page==="review") loadReviews();
     if(page==="users") loadUsers();
+    if(page==="classes") loadClasses();
+    if(page==="system") loadSystemAdmin();
     if(page==="overview") loadOverview();
     window.scrollTo({top:0,behavior:"smooth"});
   }
@@ -243,12 +246,7 @@
     if(error){await db.storage.from("lab-reports").remove([path]);toast("报告记录写入失败："+error.message,true);return;}
     toast("报告已提交。");$("reportUploadPanel").classList.add("hidden");$("reportFile").value="";$("reportFileName").textContent="点击选择报告文件";$("reportTitle").value="";loadReports();loadOverview();
   }
-  async function downloadReport(id){
-    const row=lastRecords.find(r=>r.id===id);if(!row)return;
-    const {data,error}=await db.storage.from("lab-reports").createSignedUrl(row.storage_path,90);
-    if(error){toast("无法生成下载链接："+error.message,true);return;}
-    window.open(data.signedUrl,"_blank","noopener");
-  }
+  async function downloadReport(id){const row=lastRecords.find(r=>r.id===id);if(row)await openReportViewer(row);}
   async function showFeedback(id){
     const row=lastRecords.find(r=>r.id===id);if(!row)return;
     $("feedbackContent").textContent=row.feedback||"该报告暂时没有教师反馈。";
@@ -274,12 +272,7 @@
     $("gradeScore").value=gradingRecord.score??"";$("gradeStatus").value=gradingRecord.status==="returned"?"returned":"graded";$("gradeFeedback").value=gradingRecord.feedback||"";
     $("gradingPanel").classList.remove("hidden");$("gradingPanel").scrollIntoView({behavior:"smooth",block:"center"});
   }
-  async function downloadReviewFile(id){
-    const row=reviewRows.find(r=>r.id===id);if(!row)return;
-    const {data,error}=await db.storage.from("lab-reports").createSignedUrl(row.storage_path,90);
-    if(error){toast("文件访问失败："+error.message,true);return;}
-    window.open(data.signedUrl,"_blank","noopener");
-  }
+  async function downloadReviewFile(id){const row=reviewRows.find(r=>r.id===id);if(row)await openReportViewer(row);}
   async function saveGrade(){
     if(!gradingRecord)return;
     const score=$("gradeScore").value===""?null:Number($("gradeScore").value);
@@ -301,6 +294,66 @@
     if(error){toast("身份调整失败："+error.message,true);loadUsers();return;}
     toast("用户身份已更新。");loadUsers();
   }
+
+  async function loadClasses(){
+    const {data,error}=await db.from("classes").select("id,name,course_code,description,teacher_id,join_code,is_active").order("created_at",{ascending:false});
+    if(error){$("classList").textContent=error.message;return;}
+    classesCache=data||[];
+    let visible=classesCache;
+    if(profile.role==="student"){
+      const {data:members}=await db.from("class_members").select("class_id").eq("student_id",user.id).eq("status","active");
+      const ids=new Set((members||[]).map(x=>x.class_id));visible=classesCache.filter(c=>ids.has(c.id));
+    }
+    $("classList").innerHTML=visible.map(c=>`<article class="class-card"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.course_code||"课程班级")}</small><p>${escapeHtml(c.description||"")}</p>${profile.role!=="student"?`<code>加入码：${escapeHtml(c.join_code)}</code>`:""}</article>`).join("")||'<p class="muted">当前没有班级。</p>';
+    $("classTaskSelect").innerHTML=visible.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    if(!activeClassId&&visible.length)activeClassId=visible[0].id;
+    if(activeClassId)$("classTaskSelect").value=activeClassId;
+    $("classManagerTools").classList.toggle("hidden",profile.role==="student");
+    await loadClassAssignments();
+  }
+  async function loadClassAssignments(){
+    const classId=$("classTaskSelect").value||activeClassId;activeClassId=classId;
+    if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
+    const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name)").eq("class_id",classId).order("created_at",{ascending:false});
+    if(error){$("classAssignments").textContent=error.message;return;}
+    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span></div>`).join("")||"本班暂无实验任务。";
+  }
+  async function createClass(){
+    const name=$("newClassName").value.trim();if(!name){toast("请填写班级名称。",true);return;}
+    const {error}=await db.from("classes").insert({name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim(),teacher_id:user.id});
+    if(error){toast(error.message,true);return;}toast("班级创建成功。");loadClasses();
+  }
+  async function publishAssignment(){
+    const slug=$("taskExperiment").value,cls=$("classTaskSelect").value,exp=experiments.find(x=>x.slug===slug);
+    const {data:catalog}=await db.from("experiment_catalog").select("id").eq("slug",slug).maybeSingle();
+    if(!catalog||!cls)return;
+    const {error}=await db.from("experiment_assignments").insert({class_id:cls,experiment_id:catalog.id,title:$("taskTitle").value.trim()||exp.name,instructions:$("taskInstructions").value.trim(),due_at:$("taskDue").value?new Date($("taskDue").value).toISOString():null,created_by:user.id});
+    if(error){toast(error.message,true);return;}toast("任务已发布。");loadClassAssignments();
+  }
+  async function loadSystemAdmin(){
+    const {data,error}=await db.from("audit_logs").select("action,details,created_at").order("created_at",{ascending:false}).limit(100);
+    $("auditLogBody").innerHTML=error?escapeHtml(error.message):(data||[]).map(x=>`<tr><td>${new Date(x.created_at).toLocaleString("zh-CN")}</td><td>${escapeHtml(x.action)}</td><td>${escapeHtml(JSON.stringify(x.details||{}))}</td></tr>`).join("")||'<tr><td colspan="3">暂无审计记录</td></tr>';
+  }
+  async function runAdminConnectionCheck(){
+    const out=$("adminConnectionDiagnostic");
+    try{const r=await fetch(SUPABASE_URL+"/auth/v1/settings",{headers:{apikey:SUPABASE_PUBLISHABLE_KEY}});out.textContent=r.ok?"Auth 网关正常（HTTP "+r.status+"）；仍需单独检查 Storage 和 RLS。":"Auth 网关返回 HTTP "+r.status;}
+    catch(e){out.textContent="检测失败："+e.message;}
+  }
+  async function openReportViewer(row){
+    const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
+    if(error){toast("文件读取失败："+error.message,true);return;}
+    $("reportViewerTitle").textContent=row.file_name||"报告预览";
+    $("reportViewerFrame").classList.add("hidden");$("reportViewerDocx").classList.add("hidden");
+    if((row.file_name||"").toLowerCase().endsWith(".pdf")){
+      $("reportViewerFrame").src=URL.createObjectURL(data);$("reportViewerFrame").classList.remove("hidden");
+    }else if((row.file_name||"").toLowerCase().endsWith(".docx")){
+      if(!window.mammoth){toast("Word 预览组件未加载。",true);return;}
+      const result=await mammoth.convertToHtml({arrayBuffer:await data.arrayBuffer()});
+      $("reportViewerDocx").innerHTML=result.value;$("reportViewerDocx").classList.remove("hidden");
+    }else{toast("仅支持 PDF / DOCX 在线预览。",true);return;}
+    $("reportViewerDialog").showModal();
+  }
+
   async function handleAuthSubmit(e){
     e.preventDefault();if(!db){toast("Supabase 配置未加载，请检查 config.js。",true);return;}
     $("authSubmit").disabled=true;
@@ -429,6 +482,11 @@
     $("closeGrading").addEventListener("click",()=>$("gradingPanel").classList.add("hidden"));
     $("saveGrade").addEventListener("click",saveGrade);
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el)changeRole(el.dataset.roleUser,el.value);});
+    $("createClass").addEventListener("click",createClass);
+    $("publishAssignment").addEventListener("click",publishAssignment);
+    $("classTaskSelect").addEventListener("change",loadClassAssignments);
+    $("adminTestConnection").addEventListener("click",runAdminConnectionCheck);
+    $("closeReportViewer").addEventListener("click",()=>$("reportViewerDialog").close());
     $("closeFeedback").addEventListener("click",()=>$("feedbackDialog").close());
     $("profileButton").addEventListener("click",()=>toast((profile?.full_name||user?.email||"账户")+" · "+roleName(profile?.role)));
   }
