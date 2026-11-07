@@ -315,7 +315,7 @@
   async function loadClassAssignments(){
     const classId=$("classTaskSelect").value||activeClassId;activeClassId=classId;
     if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
-    const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name)").eq("class_id",classId).order("created_at",{ascending:false});
+    const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=error.message;return;}
     $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span></div>`).join("")||"本班暂无实验任务。";
     $("reportAssignment").innerHTML=(data||[]).filter(a=>a.is_open).map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
@@ -350,6 +350,19 @@
   async function loadSystemAdmin(){
     const {data,error}=await db.from("audit_logs").select("action,details,created_at").order("created_at",{ascending:false}).limit(100);
     $("auditLogBody").innerHTML=error?escapeHtml(error.message):(data||[]).map(x=>`<tr><td>${new Date(x.created_at).toLocaleString("zh-CN")}</td><td>${escapeHtml(x.action)}</td><td>${escapeHtml(JSON.stringify(x.details||{}))}</td></tr>`).join("")||'<tr><td colspan="3">暂无审计记录</td></tr>';
+  }
+  async function bulkAccountAction(action){
+    const ids=Array.from(document.querySelectorAll(".user-check:checked")).map(x=>x.value);
+    if(!ids.length){toast("请先勾选学生账号。",true);return;}
+    if(!confirm(action==="delete_students"?"确认批量删除选中的学生账号及报告文件？":"为选中学生生成密码恢复链接？"))return;
+    if(action==="delete_students"){
+      const result=await db.functions.invoke("classroom-admin",{body:{action,user_ids:ids}});
+      if(result.error){toast(result.error.message,true);return;}
+      const ok=(result.data?.results||[]).filter(x=>x.ok).length;toast("批量删除完成："+ok+"/"+ids.length+" 个成功。");loadUsers();
+    }else{
+      const links=[];for(const id of ids){const result=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});if(!result.error&&result.data?.action_link)links.push(result.data.email+" "+result.data.action_link);}
+      $("accountActionResult").textContent=links.join("\n")||"没有生成恢复链接。";toast("已生成 "+links.length+" 个恢复链接，请安全转交学生。");
+    }
   }
   async function runAdminConnectionCheck(){
     const out=$("adminConnectionDiagnostic");
