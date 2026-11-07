@@ -197,7 +197,7 @@
         <div id="classManagerTools" class="hidden">
           <section class="panel"><h3>创建班级</h3><div class="field-grid"><label>班级名称<input id="newClassName"></label><label>课程代码<input id="newClassCode"></label><label>说明<input id="newClassDesc"></label></div><button id="createClass" class="btn btn-primary">创建班级</button></section>
           <section class="panel"><h3>批量导入学生名单</h3><p class="muted tiny">CSV 三列：邮箱、姓名、学号。系统通过 Supabase Auth 发送邀请邮件。</p><label>名单文件<input id="rosterFile" type="file" accept=".csv,.txt"></label><button id="importRoster" class="btn btn-outline">批量邀请学生</button></section>
-          <section class="panel"><h3>发布实验任务</h3><div class="field-grid"><label>管理班级<select id="classTaskSelect"></select></label><label>实验项目<select id="taskExperiment"></select></label><label>任务名称<input id="taskTitle"></label><label>截止时间<input id="taskDue" type="datetime-local"></label></div><label>任务要求<textarea id="taskInstructions" rows="3"></textarea></label><button id="publishAssignment" class="btn btn-primary">发布任务</button><div id="classAssignments" class="assignment-list"></div></section>
+          <section class="panel"><h3>发布实验任务</h3><div class="field-grid"><label>管理班级<select id="classTaskSelect"></select></label><label>实验项目<select id="taskExperiment"></select></label><label>任务名称<input id="taskTitle"></label><label>截止时间<input id="taskDue" type="datetime-local"></label></div><label>任务要求<textarea id="taskInstructions" rows="3"></textarea></label><button id="publishAssignment" class="btn btn-primary">发布任务</button><div id="classAssignments" class="assignment-list"></div><div id="accountActionResult" class="tiny muted"></div></section>
         </div>
       </section>
       <section id="systemPage" class="page hidden admin-only">
