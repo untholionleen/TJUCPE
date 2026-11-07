@@ -26,6 +26,7 @@
     {slug:"hydrogen-peroxide",code:"PC-13",name:"过氧化氢的催化分解",group:"化学动力学",desc:"记录不同催化剂浓度下的反应过程，比较动力学拟合关系。",x:"时间 t",y:"反应量",xu:"min",yu:"mL",note:"需先确认实验测量量与反应进度之间的换算，以及所采用的速率方程和反应级数。"},
     {slug:"passivation",code:"PC-14",name:"金属钝化行为和极化曲线",group:"电化学",desc:"导入电位–电流数据，绘制极化曲线并观察钝化区间。",x:"电位 E",y:"电流对数 log i",xu:"mV",yu:"log(mA)",note:"需确认电位参比电极、扫描方向、电流密度换算和对数底数。原始数据与变换数据应同时保存。"}
   ];
+  const builtInExperimentDefaults = [...experiments];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
   let catalogRows = [], catalogEditingId = null, excelWorkbooks = {};
@@ -98,7 +99,7 @@
     const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,config,is_active,created_at,updated_at").order("code");
     if(error){console.warn("实验目录读取失败：",error.message);return;}
     catalogRows=data||[];
-    const base=[...experiments];
+    const base=builtInExperimentDefaults;
     experiments=catalogRows.filter(r=>r.is_active).map(r=>{
       const original=base.find(x=>x.slug===r.slug)||{},cfg=r.config||{};
       return {...original,slug:r.slug,code:r.code,name:r.name,group:r.category,desc:r.description,
@@ -674,13 +675,13 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const ids=(members||[]).map(x=>x.student_id);
     const {data:people}=ids.length?await db.from("profiles").select("id,full_name,student_no,role").in("id",ids):{data:[]};
     const map=Object.fromEntries((people||[]).map(x=>[x.id,x]));
-    host.innerHTML=(members||[]).map(m=>{const p=map[m.student_id]||{};return '<tr><td>'+(p.role==="student"?'<input class="class-user-check" type="checkbox" value="'+m.student_id+'">':"—")+'</td><td>'+escapeHtml(p.full_name||"未命名")+'</td><td>'+escapeHtml(p.student_no||"—")+'</td><td>'+escapeHtml(m.status)+'</td><td>'+new Date(m.joined_at).toLocaleDateString("zh-CN")+'</td></tr>';}).join("")||'<tr><td colspan="5">本班尚无学生。</td></tr>';
+    host.innerHTML=(members||[]).map(m=>{const p=map[m.student_id]||{};return '<tr><td>'+(p.role==="student"&&m.status==="active"?'<input class="class-user-check" type="checkbox" value="'+m.student_id+'">':"—")+'</td><td>'+escapeHtml(p.full_name||"未命名")+'</td><td>'+escapeHtml(p.student_no||"—")+'</td><td>'+escapeHtml(m.status)+'</td><td>'+new Date(m.joined_at).toLocaleDateString("zh-CN")+'</td></tr>';}).join("")||'<tr><td colspan="5">本班尚无学生。</td></tr>';
   }
   async function bulkClassAccountAction(action){
     const classId=$("classTaskSelect").value;
     const ids=Array.from(document.querySelectorAll(".class-user-check:checked")).map(x=>x.value);
     if(!classId||!ids.length){toast("请先选择班级并勾选学生。",true);return;}
-    const actualAction=action==="reset_passwords"?"reset_passwords":(profile.role==="admin"?"delete_students":"remove_students_from_class");
+    const actualAction=(action==="reset_password"||action==="reset_passwords")?"reset_passwords":(profile.role==="admin"?"delete_students":"remove_students_from_class");
     const message=actualAction==="delete_students"?"确认永久删除选中学生账号及其全部报告历史文件？管理员操作不可恢复。":
       actualAction==="remove_students_from_class"?"确认将选中学生从当前班级移出？其账号及其他班级记录会保留。":"为选中学生批量生成密码恢复链接？";
     if(!confirm(message))return;
@@ -783,7 +784,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function runAdminConnectionCheck(){
     const out=$("adminConnectionDiagnostic");
-    try{const r=await fetch(SUPABASE_URL+"/auth/v1/settings",{headers:{apikey:SUPABASE_PUBLISHABLE_KEY}});out.textContent=r.ok?"Auth 网关正常（HTTP "+r.status+"）；仍需单独检查 Storage 和 RLS。":"Auth 网关返回 HTTP "+r.status;}
+    try{const r=await fetch(SUPABASE_URL+"/auth/v1/settings",{headers:{apikey:SUPABASE_PUBLISHABLE_KEY}});if(!r.ok){out.textContent="Auth 网关返回 HTTP "+r.status;return;}const dbCheck=await db.from("profiles").select("id").eq("id",user.id).maybeSingle();const storageCheck=await db.storage.from("lab-reports").list(user.id,{limit:1});out.textContent="Auth 正常（HTTP "+r.status+"）；数据库 "+(dbCheck.error?"异常："+dbCheck.error.message:"正常")+"；私有报告 Storage "+(storageCheck.error?"异常："+storageCheck.error.message:"可访问");}
     catch(e){out.textContent="检测失败："+e.message;}
   }
   async function openReportViewer(row){
@@ -888,6 +889,40 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       else await enterApp();
     }else showAuth();
   }
+  async function readTabularFile(file){
+    const ext=file.name.split(".").pop().toLowerCase();
+    if(ext==="xlsx"||ext==="xls"){
+      if(!window.XLSX)throw new Error("Excel 解析组件未加载。");
+      const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+      return XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]],{FS:"\t",RS:"\n"});
+    }
+    return await file.text();
+  }
+  async function handleExperimentFileImport(event){
+    const input=event.target.closest("[data-excel-input]");
+    const sheetSelect=event.target.closest("[data-excel-sheet]");
+    if(input&&input.files?.[0]){
+      const key=input.dataset.excelInput,file=input.files[0],ext=file.name.split(".").pop().toLowerCase();
+      try{
+        if(ext==="xlsx"||ext==="xls"){
+          if(!window.XLSX)throw new Error("Excel 解析组件未加载。");
+          const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});excelWorkbooks[key]=wb;
+          const select=$("experimentSpecificInputs").querySelector('[data-excel-sheet="'+key+'"]');
+          select.innerHTML=wb.SheetNames.map((n,i)=>'<option value="'+i+'">'+escapeHtml(n)+'</option>').join("");
+          select.classList.remove("hidden");
+          $("expData_"+key).value=XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]],{FS:"\t",RS:"\n"});
+          toast("已导入工作表："+wb.SheetNames[0]);
+        }else{
+          $("expData_"+key).value=await file.text();toast("已导入数据文件："+file.name);
+        }
+      }catch(err){toast("Excel 导入失败："+err.message,true);}
+    }else if(sheetSelect){
+      const wb=excelWorkbooks[sheetSelect.dataset.excelSheet];if(!wb)return;
+      const name=wb.SheetNames[Number(sheetSelect.value)];
+      $("expData_"+sheetSelect.dataset.excelSheet).value=XLSX.utils.sheet_to_csv(wb.Sheets[name],{FS:"\t",RS:"\n"});
+      toast("已切换工作表："+name);
+    }
+  }
   function bindEvents(){
     $("authForm").addEventListener("submit",handleAuthSubmit);
     $("toggleAuth").addEventListener("click",()=>setAuthMode(authMode==="login"?"register":"login"));
@@ -904,7 +939,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     });
     $("forgotPassword").addEventListener("click",async()=>{if(!db)return;const email=$("email").value.trim();if(!email){toast("请先输入注册邮箱。",true);return;}const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:window.location.href});if(error)toast(error.message,true);else toast("密码重置邮件已发送，请检查邮箱。");});
     $("signOut").addEventListener("click",async()=>{await db.auth.signOut();});
-    $("mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-page]");if(b)go(b.dataset.page);});
+    $("mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-page]");if(b){go(b.dataset.page);if(b.dataset.page==="experiments"||b.dataset.page==="classes")loadCatalog();}});
     document.body.addEventListener("click",e=>{
       const goto=e.target.closest("[data-goto]");if(goto){if(goto.dataset.experiment)openExperiment(goto.dataset.experiment);else go(goto.dataset.goto);}
       const open=e.target.closest("[data-open-experiment]");if(open)openExperiment(open.dataset.openExperiment);
@@ -925,7 +960,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("runDedicatedAnalysis").addEventListener("click",runDedicatedAnalysis);
     $("clearFitSelection").addEventListener("click",clearDedicatedSelection);
     $("clearData").addEventListener("click",()=>{$("dataInput").value="";clearAnalysis();$("dataCount").textContent="等待输入数据";});
-    $("dataFile").addEventListener("change",async e=>{const file=e.target.files[0];if(file)$("dataInput").value=await file.text();$("dataCount").textContent=file?file.name:"等待输入数据";});
+    $("dataFile").addEventListener("change",async e=>{const file=e.target.files[0];if(file){try{$("dataInput").value=await readTabularFile(file);$("dataCount").textContent=file.name+" · 已导入";}catch(err){toast("数据导入失败："+err.message,true);}}else $("dataCount").textContent="等待输入数据";});
     $("downloadCsv").addEventListener("click",downloadCsv);
     $("clearFitSelection")?.addEventListener("click",clearDedicatedSelection);
     $("downloadChart").addEventListener("click",()=>{const image=$("pythonPlotImage");if(image&&!image.classList.contains("hidden")&&image.src){const a=document.createElement("a");a.href=image.src;a.download=(currentExperiment?.slug||"analysis")+"-matplotlib.png";a.click();}else if(window.Plotly&&plotlyGraph){Plotly.downloadImage("analysisPlotly",{format:"png",filename:(currentExperiment?.slug||"analysis")+"-selection",width:1800,height:1200,scale:2});}else if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
@@ -945,13 +980,18 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("saveGrade").addEventListener("click",saveGrade);
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el)changeRole(el.dataset.roleUser,el.value);});
     $("createClass").addEventListener("click",createClass);
+    $("saveCatalogItem").addEventListener("click",saveCatalogItem);
+    $("resetCatalogForm").addEventListener("click",resetCatalogForm);
     $("publishAssignment").addEventListener("click",publishAssignment);
     $("joinClass").addEventListener("click",joinClass);
     $("importRoster").addEventListener("click",importClassRoster);
     $("reportClass").addEventListener("change",()=>{$("classTaskSelect").value=$("reportClass").value;loadClassAssignments();});
     $("classTaskSelect").addEventListener("change",loadClassAssignments);
+    $("experimentSpecificInputs").addEventListener("change",handleExperimentFileImport);
     $("adminTestConnection").addEventListener("click",runAdminConnectionCheck);
     $("closeReportViewer").addEventListener("click",()=>$("reportViewerDialog").close());
+    $("reportViewerDialog").addEventListener("close",()=>{const frame=$("reportViewerFrame");if(frame.src.startsWith("blob:"))URL.revokeObjectURL(frame.src);frame.src="";$("reportViewerDocx").innerHTML="";});
+    $("closeReportHistory").addEventListener("click",()=>$("reportHistoryDialog").close());
     $("closeFeedback").addEventListener("click",()=>$("feedbackDialog").close());
     $("profileButton").addEventListener("click",()=>toast((profile?.full_name||user?.email||"账户")+" · "+roleName(profile?.role)));
   }
