@@ -19,6 +19,7 @@ Last checked: 2026-11-08
 
 - Added class editing, class archival/reactivation and administrator teacher assignment.
 - Added experiment catalog create/edit/disable/enable UI for teachers and administrators.
+- Added per-table Excel/CSV import controls with workbook-specific column mapping for the supplied experiment workbooks; added a safeguard for unequal-length Sn/Pb cooling curves.
 - Added embedded PDF page rendering and freehand annotation layer in the teacher grading workspace. Saving annotations uploads a new reviewed PDF version and updates the current report path; old files remain referenced by report revisions.
 - Added version-aware cache busting for the current application assets.
 - Added the deployed `classroom-admin` Edge Function source to the repository.
