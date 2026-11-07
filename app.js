@@ -329,8 +329,8 @@
   }
   async function importClassRoster(){
     const classId=$("classTaskSelect").value,file=$("rosterFile").files[0];if(!classId||!file){toast("请选择班级和 CSV 名单。",true);return;}
-    const lines=(await file.text()).split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean);
-    const students=lines.map(line=>{const p=line.split(/[,，\\t;]/).map(x=>x.trim());return {email:p[0],full_name:p[1],student_no:p[2]||""};}).filter(x=>x.email&&x.full_name);
+    const lines=(await file.text()).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    const students=lines.map(line=>{const p=line.split(/[,，\t;]/).map(x=>x.trim());return {email:p[0],full_name:p[1],student_no:p[2]||""};}).filter(x=>x.email&&x.full_name);
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
     if(error){toast("名单导入失败："+error.message,true);return;}
     const ok=(data?.results||[]).filter(x=>x.ok).length;toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
