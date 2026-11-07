@@ -192,7 +192,7 @@
       tables:[{key:"main",title:"不同温度下的原电池电动势（使用 Excel 中 E1、E2 两次读数）",columns:["t_C","E1_V","E2_V"],headers:["温度 / ℃","E1 / V","E2 / V"],example:"25\t5.2444\t5.2440\n30\t5.2260\t5.2210\n35\t5.2014\t5.2014\n40\t5.1707\t5.1727\n45\t5.1423\t5.1412" }],
       settings:[{key:"n_e",label:"电池反应转移电子数 n",defaultValue:2}],
       note:"上传报告给出 ΔrGm=−nFE、ΔrSm=nF(∂E/∂T)p、ΔrHm=ΔrGm+TΔrSm。需确认 E1/E2 为同一电池的重复读数，电动势单位为 V，电子转移数依据电池反应方程式填写。",
-      analyze:(tables,s)=>{
+      analyze:(tables,s,sel)=>{
         const r=matrix(tables.main,3);if(r.length<2)throw new Error("至少需要两个温度下的电动势数据。");
         const avg=r.map((x,i)=>({x:x[0]+273.15,y:(x[1]+x[2])/2,i}));
         const f=linearRange(avg,sel);const n=s.n_e;if(!(n>0))throw new Error("电子转移数 n 必须大于 0。");
@@ -205,7 +205,7 @@
       tables:[{key:"main",title:"不同组成样品冷却曲线",columns:["time_s","Sn_C","Sn30_C","Sn61_9_C","Sn80_C","Pb_C"],headers:["时间 / s","纯 Sn / ℃","30% Sn / ℃","61.9% Sn / ℃","80% Sn / ℃","纯 Pb / ℃"],example:"10\t243.7\t260.8\t204.8\t218.2\t351.3\n20\t238.1\t257.0\t202.2\t214.9\t345.7\n30\t235.7\t253.4\t199.3\t211.3\t338.3\n40\t234.7\t250.4\t196.8\t208.1\t333.8"}],
       settings:[{key:"eutectic_C",label:"参考低共熔温度 (℃)",defaultValue:183},{key:"eutecticSn_pct",label:"参考低共熔组成 Sn (%)",defaultValue:61.9}],
       note:"上传报告和 Excel 采用 Sn-Pb 固态部分互溶体系，冷却曲线的斜率变化对应相变转折，平台对应低共熔温度。默认参考线 183℃、61.9% Sn 来自上传材料；自动识别仅作辅助，最终应由教师/学生在曲线上选区确认。",
-      analyze:(tables,s)=>{
+      analyze:(tables,s,sel)=>{
         const r=matrix(tables.main,6);if(r.length<6)throw new Error("至少录入 6 个时间点以观察冷却曲线。");
         const cols=["Sn（纯）","30% Sn","61.9% Sn","80% Sn","Pb（纯）"],series=[],metrics=[];
         for(let j=1;j<6;j++){
@@ -228,7 +228,7 @@
       ],
       settings:[],
       note:"依据上传 Excel：折射率标准曲线采用丙醇质量分数对 nD 的标定；气相冷凝液和液相分别由各自 nD 反算组成，绘制 T-x-y。原报告要求折射率测量温度与波长一致。",
-      analyze:(tables)=>{
+      analyze:(tables,s,sel)=>{
         const c=matrix(tables.calibration,2),r=matrix(tables.samples,3);if(c.length<3||r.length<2)throw new Error("请录入折射率标准系列与沸点/气液折射率样品。");
         const f=linearRange(c.map((x,i)=>({x:x[0],y:x[1],i})),sel);
         const inv=n=>{if(!Number.isFinite(n))return NaN;return Math.max(0,Math.min(100,(n-f.intercept)/f.slope));};
@@ -246,7 +246,7 @@
       ],
       settings:[{key:"eventKCl",label:"KCl 投入时刻 (min)",defaultValue:6.5},{key:"eventRxn",label:"ZnO 投入时刻 (min)",defaultValue:6.5},{key:"massKCl_g",label:"KCl 质量 (g)",defaultValue:10.7207},{key:"water_g",label:"水质量 (g)",defaultValue:500},{key:"deltaH_KCl_kJmol",label:"该组成 KCl 积分溶解焓 (kJ/mol，查表输入)",defaultValue:""},{key:"cpWater",label:"水比热 (J·g⁻¹·K⁻¹)",defaultValue:4.184},{key:"cpKCl",label:"KCl 固体比热 (J·g⁻¹·K⁻¹)",defaultValue:""},{key:"massZnO_g",label:"ZnO 质量 (g)",defaultValue:1.0683},{key:"massHCl_g",label:"HCl 溶液质量 (g)",defaultValue:498.3},{key:"cpZnO",label:"ZnO 比热 (J·g⁻¹·K⁻¹)",defaultValue:0.46},{key:"cpHCl",label:"HCl 溶液比热 (J·g⁻¹·K⁻¹)",defaultValue:4.134}],
       note:"按上传报告流程：分别对加料前后温度-时间基线拟合并外推到加料时刻，作温度修正；先由 KCl 溶解标定量热计 K，再由 ZnO 与 0.2 mol/L HCl 反应计算 ΔrHm。KCl 积分溶解焓和 KCl 固体比热必须按教材/数据表输入。",
-      analyze:(t,s)=>{
+      analyze:(t,s,sel)=>{
         const getFit=(key)=>{const r=matrix(t[key],2);if(r.length<2)throw new Error("请完整录入四组量热温度基线："+key);return {r,fit:linearRange(r.map((x,i)=>({x:x[0],y:x[1],i})),sel)};};
         const kb=getFit("kclBefore"),ka=getFit("kclAfter"),rb=getFit("rxnBefore"),ra=getFit("rxnAfter");
         const dtk=ka.fit.predict(s.eventKCl)-kb.fit.predict(s.eventKCl), dtr=ra.fit.predict(s.eventRxn)-rb.fit.predict(s.eventRxn);
@@ -299,7 +299,7 @@
       tables:[{key:"main",title:"不同温度下平衡总压",columns:["t_C","gauge_kPa","atmosphere_kPa"],headers:["温度 / ℃","压力计示数 p' / kPa","大气压 p0 / kPa"],example:"30\t-85.5\t102.1\n30\t-85.4\t102.1\n35\t-78.1\t102.1\n40\t-68.9\t102.1\n45\t-56.3\t102.1\n50\t-39.6\t102.1"}],
       settings:[{key:"pStandard_kPa",label:"标准压力 pθ (kPa)",defaultValue:100}],
       note:"上传报告反应为 NH₂COONH₄(s) ⇌ NH₃(g)+CO₂(g)。两种气体由 1:1 计量关系生成，平衡总压 p 对应 p(NH₃)=p(CO₂)=p/2，Kθ=(p/2pθ)²；按 van’t Hoff 关系拟合 lnKθ 对 1/T 求 ΔrHm。",
-      analyze:(t,s)=>{
+      analyze:(t,s,sel)=>{
         const r=matrix(t.main,3);if(r.length<3)throw new Error("至少需要 3 组温度与压力数据。");
         const values=r.map((x,i)=>{const T=x[0]+273.15,p=x[1]+x[2],K=(p/(2*s.pStandard_kPa))**2;return{T,p,K,lnK:Math.log(K),invT:1/T,i};});
         const f=linearRange(values.map(x=>({x:x.invT,y:x.lnK,i:x.i})),sel),dh=-f.slope*R;
@@ -311,7 +311,7 @@
       tables:[{key:"main",title:"不同温度下的平衡压力",columns:["T_C","pGauge_kPa","pAtmosphere_kPa"],headers:["沸点温度 / ℃","压力计示数 / kPa","大气压 / kPa"],example:"78.4\t0\t101.3\n75\t-10\t101.3\n72\t-20\t101.3\n69\t-30\t101.3"}],
       settings:[{key:"normalPressure_kPa",label:"正常沸点标准压力 (kPa)",defaultValue:101.325}],
       note:"上传实验报告采用动态法：在不同外压下记录液体沸腾温度；平衡压力 p=p0+p'（按压力计示数正负约定核对）。克劳修斯–克拉佩龙：ln(p/Pa) 对 1/T 线性，斜率 m=−ΔvapHm/R，可外推正常沸点。",
-      analyze:(t,s)=>{
+      analyze:(t,s,sel)=>{
         const r=matrix(t.main,3);if(r.length<3)throw new Error("至少需要 3 组温度和压力数据。");
         const values=r.map((x,i)=>{const T=x[0]+273.15,p=x[1]+x[2];return{T,p,invT:1/T,lnp:Math.log(p*1000),i};}).filter(x=>x.p>0);
         const f=linearRange(values.map(x=>({x:x.invT,y:x.lnp,i:x.i})),sel),dh=-f.slope*R;
