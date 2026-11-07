@@ -233,8 +233,8 @@
     body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">下载</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button></td></tr>`).join("");
   }
   async function submitReport(){
-    const file=$("reportFile").files[0],slug=$("reportExperiment").value,title=$("reportTitle").value.trim();
-    if(!file||!title){toast("请填写报告标题并选择文件。",true);return;}
+    const file=$("reportFile").files[0],classId=$("reportClass").value,assignmentId=$("reportAssignment").value,assignmentOption=$("reportAssignment").selectedOptions[0],slug=assignmentOption?.dataset.slug||"",title=$("reportTitle").value.trim();
+    if(!file||!title||!classId||!assignmentId||!slug){toast("请先加入班级并选择教师布置的实验任务，再选择报告文件。",true);return;}
     if(file.size>20*1024*1024){toast("文件超过 20 MB，请压缩后再上传。",true);return;}
     const ext=file.name.split(".").pop().toLowerCase();
     if(!["pdf","docx"].includes(ext)){toast("仅支持 PDF 或 DOCX 文件。",true);return;}
@@ -242,7 +242,7 @@
     const path=user.id+"/"+crypto.randomUUID()+"_"+safeName;
     const {error:uploadError}=await db.storage.from("lab-reports").upload(path,file,{upsert:false,contentType:file.type||(ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document")});
     if(uploadError){toast("文件上传失败："+uploadError.message+"。请确认已执行 Storage 迁移。",true);return;}
-    const {error}=await db.from("report_submissions").insert({student_id:user.id,experiment_slug:slug,title,file_name:file.name,storage_path:path,status:"submitted"});
+    const {error}=await db.from("report_submissions").insert({student_id:user.id,class_id:classId,assignment_id:assignmentId,experiment_slug:slug,title,file_name:file.name,storage_path:path,status:"submitted"});
     if(error){await db.storage.from("lab-reports").remove([path]);toast("报告记录写入失败："+error.message,true);return;}
     toast("报告已提交。");$("reportUploadPanel").classList.add("hidden");$("reportFile").value="";$("reportFileName").textContent="点击选择报告文件";$("reportTitle").value="";loadReports();loadOverview();
   }
@@ -306,6 +306,7 @@
     }
     $("classList").innerHTML=visible.map(c=>`<article class="class-card"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.course_code||"课程班级")}</small><p>${escapeHtml(c.description||"")}</p>${profile.role!=="student"?`<code>加入码：${escapeHtml(c.join_code)}</code>`:""}</article>`).join("")||'<p class="muted">当前没有班级。</p>';
     $("classTaskSelect").innerHTML=visible.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    $("reportClass").innerHTML=visible.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
     if(!activeClassId&&visible.length)activeClassId=visible[0].id;
     if(activeClassId)$("classTaskSelect").value=activeClassId;
     $("classManagerTools").classList.toggle("hidden",profile.role==="student");
@@ -317,6 +318,22 @@
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=error.message;return;}
     $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span></div>`).join("")||"本班暂无实验任务。";
+    $("reportAssignment").innerHTML=(data||[]).filter(a=>a.is_open).map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
+    $("reportClass").value=classId;
+  }
+  async function joinClass(){
+    const code=$("joinClassCode").value.trim().toUpperCase();if(!code){toast("请输入教师提供的班级加入码。",true);return;}
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"join_class",join_code:code}});
+    if(error||!data?.ok){toast(error?.message||data?.error||"加入班级失败",true);return;}
+    activeClassId=data.class_id;toast("已成功加入班级。");loadClasses();
+  }
+  async function importClassRoster(){
+    const classId=$("classTaskSelect").value,file=$("rosterFile").files[0];if(!classId||!file){toast("请选择班级和 CSV 名单。",true);return;}
+    const lines=(await file.text()).split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean);
+    const students=lines.map(line=>{const p=line.split(/[,，\\t;]/).map(x=>x.trim());return {email:p[0],full_name:p[1],student_no:p[2]||""};}).filter(x=>x.email&&x.full_name);
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
+    if(error){toast("名单导入失败："+error.message,true);return;}
+    const ok=(data?.results||[]).filter(x=>x.ok).length;toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
   }
   async function createClass(){
     const name=$("newClassName").value.trim();if(!name){toast("请填写班级名称。",true);return;}
@@ -484,6 +501,9 @@
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el)changeRole(el.dataset.roleUser,el.value);});
     $("createClass").addEventListener("click",createClass);
     $("publishAssignment").addEventListener("click",publishAssignment);
+    $("joinClass").addEventListener("click",joinClass);
+    $("importRoster").addEventListener("click",importClassRoster);
+    $("reportClass").addEventListener("change",()=>{$("classTaskSelect").value=$("reportClass").value;loadClassAssignments();});
     $("classTaskSelect").addEventListener("change",loadClassAssignments);
     $("adminTestConnection").addEventListener("click",runAdminConnectionCheck);
     $("closeReportViewer").addEventListener("click",()=>$("reportViewerDialog").close());
