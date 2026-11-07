@@ -189,11 +189,11 @@
     },
     {
       slug:"galvanic-cell",code:"PC-05",name:"原电池热力学",workflow:"galvanic",
-      tables:[{key:"main",title:"不同温度下的原电池电动势",columns:["t_C","E1_V","E2_V","E0_V"],headers:["温度 / ℃","E1 / V","E2 / V","E0（可选）/ V"],example:"25\t1.01867\t1.01870\t1.01867\n30\t1.01862\t1.01865\t1.01862\n35\t1.01862\t1.01860\t1.01862"}],
+      tables:[{key:"main",title:"不同温度下的原电池电动势（使用 Excel 中 E1、E2 两次读数）",columns:["t_C","E1_V","E2_V"],headers:["温度 / ℃","E1 / V","E2 / V"],example:"25\t5.2444\t5.2440\n30\t5.2260\t5.2210\n35\t5.2014\t5.2014\n40\t5.1707\t5.1727\n45\t5.1423\t5.1412" }],
       settings:[{key:"n_e",label:"电池反应转移电子数 n",defaultValue:2}],
       note:"上传报告给出 ΔrGm=−nFE、ΔrSm=nF(∂E/∂T)p、ΔrHm=ΔrGm+TΔrSm。需确认 E1/E2 为同一电池的重复读数，电动势单位为 V，电子转移数依据电池反应方程式填写。",
       analyze:(tables,s)=>{
-        const r=matrix(tables.main,4);if(r.length<2)throw new Error("至少需要两个温度下的电动势数据。");
+        const r=matrix(tables.main,3);if(r.length<2)throw new Error("至少需要两个温度下的电动势数据。");
         const avg=r.map((x,i)=>({x:x[0]+273.15,y:(x[1]+x[2])/2,i}));
         const f=linear(avg);const n=s.n_e;if(!(n>0))throw new Error("电子转移数 n 必须大于 0。");
         const values=avg.map(p=>({T:p.x,E:p.y,G:-n*F*p.y,S:n*F*f.slope,H:-n*F*p.y+p.x*n*F*f.slope}));
@@ -262,17 +262,35 @@
     },
     {
       slug:"freezing-point",code:"PC-09",name:"凝固点降低法测定摩尔质量",workflow:"freezing_point",
-      tables:[{key:"main",title:"环己烷与萘溶液冷却曲线",columns:["t_10s","solvent_run1","solvent_run2","solution_run1","solution_run2"],headers:["t / 10 s","环己烷 ΔT1","环己烷 ΔT2","萘溶液 ΔT1","萘溶液 ΔT2"],example:"10\t0.662\t0.823\t0.663\t0.844\n20\t0.610\t0.761\t0.539\t0.483\n30\t0.522\t0.668\t0.427\t0.322\n40\t0.449\t0.603\t0.295\t0.240"}],
+      tables:[{key:"solvent",title:"环己烷冷却数据（对应 Excel 的 3 段时间×2 次测量）",columns:["t1_10s","dT1","t2_10s","dT2","t3_10s","dT3","run2_dT1","run2_dT2","run2_dT3"],headers:["第一次 t1/10s","第一次 ΔT1","第一次 t2/10s","第一次 ΔT2","第一次 t3/10s","第一次 ΔT3","第二次 ΔT1","第二次 ΔT2","第二次 ΔT3"],example:"10\t0.662\t110\t0.095\t210\t0.103\t0.823\t0.126\t0.101\n20\t0.610\t120\t0.091\t220\t0.105\t0.761\t0.108\t0.103"},{key:"solution",title:"萘溶液冷却数据（对应 Excel 的 3 段时间×2 次测量）",columns:["t1_10s","dT1","t2_10s","dT2","t3_10s","dT3","run2_dT1","run2_dT2","run2_dT3"],headers:["第一次 t1/10s","第一次 ΔT1","第一次 t2/10s","第一次 ΔT2","第一次 t3/10s","第一次 ΔT3","第二次 ΔT1","第二次 ΔT2","第二次 ΔT3"],example:"10\t0.663\t110\t-0.431\t210\t-0.942\t0.844\t-0.538\t-0.942\n20\t0.539\t120\t-0.541\t220\t-0.945\t0.483\t-0.660\t-0.948"}],
       settings:[{key:"Kf",label:"环己烷凝固点降低常数 Kf (K·kg/mol)",defaultValue:20},{key:"mSolvent_g",label:"环己烷质量 (g)",defaultValue:""},{key:"mSolute_g",label:"萘质量 (g)",defaultValue:0.1264},{key:"TfSolvent",label:"环己烷凝固点 (℃，自动平台估计可留空)",defaultValue:""},{key:"TfSolution",label:"萘溶液凝固点 (℃，自动平台估计可留空)",defaultValue:""}],
       note:"上传报告：ΔTf=Kf·b；由溶质质量、溶剂质量和凝固点降低计算摩尔质量。报告中 Kf(环己烷)=20.0 K·kg/mol；冷却曲线过冷后需结合平台/外推判定凝固点，自动平台仅辅助。",
       analyze:(t,s,sel)=>{
-        const r=matrix(t.main,5);if(r.length<6)throw new Error("请录入冷却曲线的时间、溶剂和溶液数据。");
-        const means=[1,2,3,4].map(j=>r.map((x,i)=>({x:x[0]*10,y:x[j],i})));
-        const p1=fitPlateau(means[0]),p2=fitPlateau(means[1]),p3=fitPlateau(means[2]),p4=fitPlateau(means[3]);
-        const tf0=Number.isFinite(s.TfSolvent)?s.TfSolvent:(p1.temp+p2.temp)/2;
-        const tf1=Number.isFinite(s.TfSolution)?s.TfSolution:(p3.temp+p4.temp)/2;
+        const parseCooling = key => {
+          const rows=matrix(t[key],9);if(rows.length<6)throw new Error("环己烷和萘溶液均需录入至少 6 行冷却数据。");
+          const first=[],second=[];
+          rows.forEach((x,i)=>{
+            first.push({x:x[0]*10,y:x[1],i},{x:x[2]*10,y:x[3],i: i+rows.length},{x:x[4]*10,y:x[5],i:i+2*rows.length});
+            second.push({x:x[0]*10,y:x[6],i},{x:x[2]*10,y:x[7],i:i+rows.length},{x:x[4]*10,y:x[8],i:i+2*rows.length});
+          });
+          first.sort((a,b)=>a.x-b.x);second.sort((a,b)=>a.x-b.x);
+          return [first,second];
+        };
+        const [solv1,solv2]=parseCooling("solvent"),[solu1,solu2]=parseCooling("solution");
+        const all=[solv1,solv2,solu1,solu2];
+        const getTf=(points)=>{
+          if(Array.isArray(sel)&&sel.length>=2){
+            const chosen=selectPoints(points,sel);
+            if(chosen.length>=2)return {temp:stats(chosen.map(p=>p.y)).mean,start:Math.min(...chosen.map(p=>p.i)),end:Math.max(...chosen.map(p=>p.i)),manual:true};
+          }
+          return fitPlateau(points,5);
+        };
+        const p=all.map(getTf);
+        const tf0=Number.isFinite(s.TfSolvent)?s.TfSolvent:(p[0].temp+p[1].temp)/2;
+        const tf1=Number.isFinite(s.TfSolution)?s.TfSolution:(p[2].temp+p[3].temp)/2;
         const delta=tf0-tf1, M=s.Kf*s.mSolute_g*1000/(delta*s.mSolvent_g);
-        return {series:means.map((p,i)=>makeSeries(["环己烷第一次","环己烷第二次","萘溶液第一次","萘溶液第二次"][i],p,null,{x:"时间 / s",y:"温差仪读数 / ℃"})),fit:null,metrics:[["环己烷凝固点",tf0,"℃"],["萘溶液凝固点",tf1,"℃"],["凝固点降低 ΔTf",delta,"K"],["萘摩尔质量",M,"g/mol"],["自动平台估计范围(溶剂)",p1.start+1+"–"+(p1.end+1),"点"],["自动平台估计范围(溶液)",p3.start+1+"–"+(p3.end+1),"点"]],warnings:["自动识别的最小斜率区间仅用于辅助；如发生明显过冷，应按实验报告方法人工选择凝固平台/外推线。","溶剂质量必须以 g 输入；公式含 1000 是将 g 转换为 kg。"],rawRows:r,headers:["t_10s","solvent_run1","solvent_run2","solution_run1","solution_run2"],resultRows:r};
+        const flatRows=[solv1,solv2,solu1,solu2].flat().map(q=>[q.x,q.y]);
+        return {series:all.map((p,i)=>makeSeries(["环己烷第一次","环己烷第二次","萘溶液第一次","萘溶液第二次"][i],p,null,{x:"时间 / s",y:"温差仪读数 / ℃"})),fit:null,metrics:[["环己烷凝固点",tf0,"℃"],["萘溶液凝固点",tf1,"℃"],["凝固点降低 ΔTf",delta,"K"],["萘摩尔质量",M,"g/mol"],["环己烷第1次平台估计",p[0].temp,"℃"],["环己烷第2次平台估计",p[1].temp,"℃"],["萘溶液第1次平台估计",p[2].temp,"℃"],["萘溶液第2次平台估计",p[3].temp,"℃"]],warnings:["若图形选区覆盖平台/外推区，系统按所选点温度均值作为凝固点；否则用最小斜率窗口辅助估计。萘溶液存在明显过冷，应人工复核。","mSolvent_g 必须填写溶剂实际质量；不能用 25 mL 直接代替质量。"],rawRows:flatRows,headers:["time_s","deltaT_C"],resultRows:flatRows};
       }
     },
     {
