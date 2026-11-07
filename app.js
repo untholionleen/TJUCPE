@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   const CONFIG = window.TJUCPE_CONFIG || {};
-    const SUPABASE_URL = String(CONFIG.SUPABASE_URL || "").trim().replace(/\\/+$/, "");
+  const SUPABASE_URL = String(CONFIG.SUPABASE_URL || "").trim().replace(/\/+$/, "");
   const SUPABASE_PUBLISHABLE_KEY = String(CONFIG.SUPABASE_PUBLISHABLE_KEY || "").trim();
   const hasConfig = !!(SUPABASE_URL && /^sb_publishable_[A-Za-z0-9_-]+$/.test(SUPABASE_PUBLISHABLE_KEY));
   const db = hasConfig && window.supabase?.createClient
