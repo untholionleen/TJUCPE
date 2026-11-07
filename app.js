@@ -174,6 +174,67 @@
     if($("fitSelectionLabel"))$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";
   }
   function formatNum(n){return Number.isFinite(n)?Number(n).toPrecision(5):"—";}
+  let pyodideRuntimePromise=null;
+  async function getPythonPlotRuntime(){
+    if(pyodideRuntimePromise)return pyodideRuntimePromise;
+    pyodideRuntimePromise=(async()=>{
+      if(typeof window.loadPyodide!=="function")throw new Error("Python 运行环境尚未加载，请检查网络后刷新页面。");
+      const py=await window.loadPyodide({indexURL:"https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"});
+      await py.loadPackage(["numpy","matplotlib"]);
+      await py.runPythonAsync("import matplotlib; matplotlib.use('agg')");
+      return py;
+    })();
+    try{return await pyodideRuntimePromise;}catch(error){pyodideRuntimePromise=null;throw error;}
+  }
+  async function renderPythonMatplotlib(def,result){
+    const status=$("pythonPlotStatus"),image=$("pythonPlotImage");
+    if(status)status.textContent="正在启动浏览器内 Python / NumPy / Matplotlib…";
+    const payload=(result.series||[]).map(series=>({
+      name:series.name||"数据系列",xLabel:series.xLabel||"X",yLabel:series.yLabel||"Y",
+      points:(series.points||[]).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)).map(p=>[p.x,p.y]),
+      fit:(series.fitCurve||[]).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)).map(p=>[p.x,p.y])
+    }));
+    const py=await getPythonPlotRuntime();
+    py.globals.set("tjucpe_plot_payload",JSON.stringify(payload));
+    await py.runPythonAsync(`
+import json, io, base64, numpy as np
+import matplotlib
+matplotlib.use("agg")
+import matplotlib.pyplot as plt
+from matplotlib.ticker import AutoMinorLocator
+data = json.loads(tjucpe_plot_payload)
+fig, ax = plt.subplots(figsize=(10.5, 6.4), dpi=160, constrained_layout=True)
+palette = ["#168b83","#5887b9","#c58b43","#8d78b8","#c65a4d","#4a9a70","#607d8b","#b56f91"]
+for i, item in enumerate(data):
+    color = palette[i % len(palette)]
+    pts = np.asarray(item["points"], dtype=float)
+    if pts.size:
+        ax.scatter(pts[:,0], pts[:,1], s=34, color=color, edgecolors="white", linewidths=.55, alpha=.92, label=item["name"], zorder=3)
+    fit = np.asarray(item["fit"], dtype=float)
+    if fit.size:
+        ax.plot(fit[:,0], fit[:,1], color=color, linewidth=2.15, linestyle="--", label=item["name"]+" · 拟合")
+ax.set_xlabel(data[0]["xLabel"] if data else "X", fontsize=11)
+ax.set_ylabel(data[0]["yLabel"] if data else "Y", fontsize=11)
+ax.set_title(${JSON.stringify(def.name)}, fontsize=13, pad=14)
+ax.grid(True, which="major", linestyle="-", linewidth=.65, alpha=.24)
+ax.grid(True, which="minor", linestyle=":", linewidth=.4, alpha=.16)
+ax.xaxis.set_minor_locator(AutoMinorLocator())
+ax.yaxis.set_minor_locator(AutoMinorLocator())
+ax.tick_params(direction="in", which="both", top=True, right=True)
+for spine in ax.spines.values(): spine.set_color("#9aabb4")
+handles, labels = ax.get_legend_handles_labels()
+if handles: ax.legend(loc="best", frameon=True, framealpha=.92, fontsize=9)
+buf = io.BytesIO()
+fig.savefig(buf, format="png", dpi=240, bbox_inches="tight", facecolor="white")
+plt.close(fig)
+tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
+`);
+    const png=py.globals.get("tjucpe_plot_png").toString();
+    image.src="data:image/png;base64,"+png;
+    image.classList.remove("hidden");
+    if(status)status.textContent="Python 3 · NumPy · Matplotlib 已完成科研图形绘制（240 DPI）";
+    return image.src;
+  }
   function readDedicatedInputs(){
     const engine=window.TJUCPE_EXPERIMENT_ENGINE;
     const def=engine?.definitions?.find(x=>x.slug===currentExperiment?.slug);
@@ -224,9 +285,16 @@
       yaxis:{title:firstSeries?.yLabel||"Y",gridcolor:"#e9eff2",zerolinecolor:"#d4e0e5",linecolor:"#bfcdd4"},
       selectdirection:"any",hovermode:"closest"
     };
+    $("pythonPlotImage").classList.add("hidden");
+    $("pythonPlotStatus").textContent="等待 Python 绘图…";
+    renderPythonMatplotlib(def,result).catch(error=>{
+      $("pythonPlotStatus").textContent="Python 绘图暂不可用："+error.message+"；下方交互选区图仍可用于选择拟合范围。";
+      $("engineWarnings").classList.remove("hidden");
+      $("engineWarnings").innerHTML="<strong>Python 绘图提示</strong><ul><li>"+escapeHtml(error.message)+"</li><li>数据和计算结果未丢失；可检查网络后重新运行。</li></ul>";
+    });
     Plotly.react("analysisPlotly",plotData,layout,{
       responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:["select2d","lasso2d"],
-      toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-origin-style",height:1000,width:1500,scale:2}
+      toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-selection",height:900,width:1400,scale:2}
     }).then(graph=>{
       plotlyGraph=graph;
       const node=$("analysisPlotly");
@@ -240,7 +308,7 @@
       });
       node.removeAllListeners?.("plotly_deselect");
       node.on("plotly_deselect",()=>{selectedFitIndices=[];$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";});
-    }).catch(error=>toast("绘图失败："+error.message,true));
+    }).catch(error=>toast("选区工具加载失败："+error.message,true));
     $("analysisResult").classList.remove("hidden");
     const metrics=(result.metrics||[]).map(([label,value,unit])=>
       '<div class="engine-metric"><span>'+escapeHtml(String(label))+'</span><strong>'+escapeHtml(formatNum(Number(value)))+'</strong><small>'+escapeHtml(String(unit||""))+'</small></div>'
@@ -637,7 +705,7 @@
     $("clearData").addEventListener("click",()=>{$("dataInput").value="";clearAnalysis();$("dataCount").textContent="等待输入数据";});
     $("dataFile").addEventListener("change",async e=>{const file=e.target.files[0];if(file)$("dataInput").value=await file.text();$("dataCount").textContent=file?file.name:"等待输入数据";});
     $("downloadCsv").addEventListener("click",downloadCsv);
-    $("downloadChart").addEventListener("click",()=>{if(window.Plotly&&plotlyGraph)Plotly.downloadImage("analysisPlotly",{format:"png",filename:(currentExperiment?.slug||"analysis")+"-origin-style",width:1800,height:1200,scale:2});else if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
+    $("downloadChart").addEventListener("click",()=>{const image=$("pythonPlotImage");if(image&&!image.classList.contains("hidden")&&image.src){const a=document.createElement("a");a.href=image.src;a.download=(currentExperiment?.slug||"analysis")+"-matplotlib.png";a.click();}else if(window.Plotly&&plotlyGraph){Plotly.downloadImage("analysisPlotly",{format:"png",filename:(currentExperiment?.slug||"analysis")+"-selection",width:1800,height:1200,scale:2});}else if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
     $("saveRecord").addEventListener("click",saveRecord);
     $("newReport").addEventListener("click",()=>{$("reportUploadPanel").classList.remove("hidden");loadClasses();});
     $("closeReportPanel").addEventListener("click",()=>$("reportUploadPanel").classList.add("hidden"));
