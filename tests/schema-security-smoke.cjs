@@ -94,6 +94,9 @@ assert.ok(rlsTuningMigration.includes("create policy assignments_insert_teacher_
 assert.ok(rlsTuningMigration.includes("reports_update_student_or_class_staff_v4"));
 assert.ok(rlsTuningMigration.includes("(select auth.uid())"));
 
+const legacyGuardMigration = fs.readFileSync("supabase/migrations/20261107181935_tjucpe_legacy_report_resubmit_guard_v10.sql", "utf8").toLowerCase();
+assert.ok(legacyGuardMigration.includes("legacy reports cannot be resubmitted without a class assignment"));
+
 const verification = fs.readFileSync("supabase/verification/post_deploy_checks.sql", "utf8").toLowerCase();
 assert.ok(verification.includes("from pg_policies"), "post-deployment policy inspection must be provided");
 assert.ok(verification.includes("from storage.buckets"), "post-deployment bucket inspection must be provided");
