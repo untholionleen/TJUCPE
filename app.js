@@ -660,7 +660,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("usersBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
     const {data,error}=await db.from("profiles").select("*").order("created_at",{ascending:false}).limit(500);
     if(error){$("usersBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
-    $("usersBody").innerHTML=(data||[]).map(p=>`<tr><td>${p.role==="student"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td><td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.student_no||"—")}</td><td><span class="status-pill">${roleName(p.role)}</span></td><td>${new Date(p.created_at).toLocaleDateString("zh-CN")}</td><td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td></tr>`).join("")||'<tr><td colspan="5" class="muted center">暂无用户。</td></tr>';
+    $("usersBody").innerHTML=(data||[]).map(p=>`<tr><td>${p.role==="student"&&m.status==="active"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td><td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.student_no||"—")}</td><td><span class="status-pill">${roleName(p.role)}</span></td><td>${new Date(p.created_at).toLocaleDateString("zh-CN")}</td><td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td></tr>`).join("")||'<tr><td colspan="5" class="muted center">暂无用户。</td></tr>';
   }
   async function changeRole(id,role){
     if(!["student","teacher","admin"].includes(role))return;
@@ -769,7 +769,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const classId=$("classTaskSelect").value;
     const ids=Array.from(document.querySelectorAll(".class-user-check:checked")).map(x=>x.value);
     if(!classId||!ids.length){toast("请先选择班级并勾选学生。",true);return;}
-    const message=action==="delete_students"?"确认永久删除选中学生账号及其报告文件？":"为选中学生生成密码恢复链接？";
+    const message=action==="delete_students"?(profile.role==="admin"?"确认永久删除选中学生账号及其报告文件？":"教师操作规则：若学生仅属于当前班级，将永久删除账号；若还属于其他有效班级，则只从本班移出。确认继续？"):"为选中学生生成密码恢复链接？";
     if(!confirm(message))return;
     const results=[];
     for(const id of ids){
@@ -792,13 +792,41 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(error||!data?.ok){toast(error?.message||data?.error||"加入班级失败",true);return;}
     activeClassId=data.class_id;toast("已成功加入班级。");loadClasses();
   }
+  function parseRosterDelimitedLine(line,delimiter){
+    const out=[];let value="",quoted=false;
+    for(let i=0;i<line.length;i++){
+      const ch=line[i];
+      if(ch==='"'&&quoted&&line[i+1]==='"'){value+='"';i++;}
+      else if(ch==='"')quoted=!quoted;
+      else if(ch===delimiter&&!quoted){out.push(value.trim());value="";}
+      else value+=ch;
+    }
+    out.push(value.trim());return out;
+  }
   async function importClassRoster(){
-    const classId=$("classTaskSelect").value,file=$("rosterFile").files[0];if(!classId||!file){toast("请选择班级和 CSV 名单。",true);return;}
-    const lines=(await file.text()).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-    const students=lines.map(line=>{const p=line.split(/[,，\t;]/).map(x=>x.trim());return {email:p[0],full_name:p[1],student_no:p[2]||""};}).filter(x=>x.email&&x.full_name);
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
-    if(error){toast("名单导入失败："+error.message,true);return;}
-    const ok=(data?.results||[]).filter(x=>x.ok).length;toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
+    const classId=$("classTaskSelect").value,file=$("rosterFile").files[0];if(!classId||!file){toast("请选择班级和 CSV/XLSX 名单。",true);return;}
+    let rows=[];
+    try{
+      if(/\.xlsx?$/i.test(file.name)){
+        if(!window.XLSX)throw new Error("Excel 读取组件未加载，请改用 CSV 或刷新页面。");
+        const workbook=XLSX.read(await file.arrayBuffer(),{type:"array"});
+        const sheet=workbook.Sheets[workbook.SheetNames[0]];
+        rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:""});
+      }else{
+        const raw=(await file.text()).replace(/^\uFEFF/,"");
+        const lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+        const first=lines[0]||"",delimiter=first.includes("\t")?"\t":first.includes(";")?";":first.includes("，")?"，":",";
+        rows=lines.map(line=>parseRosterDelimitedLine(line,delimiter));
+      }
+      if(rows.length&&/(邮箱|email|账号)/i.test(String(rows[0][0]||""))&&/(姓名|name)/i.test(String(rows[0][1]||"")))rows.shift();
+      const students=rows.map(row=>({email:String(row[0]??"").trim(),full_name:String(row[1]??"").trim(),student_no:String(row[2]??"").trim()})).filter(x=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x.email)&&x.full_name);
+      if(!students.length)throw new Error("没有识别到有效名单。列顺序应为：邮箱、姓名、学号（学号可空）。");
+      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
+      if(error)throw error;
+      const results=data?.results||[],ok=results.filter(x=>x.ok).length;
+      $("accountActionResult").textContent=results.map(x=>(x.email||x.user_id||"")+(x.ok?"：成功":"："+(x.error||"失败"))).join("\n");
+      toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
+    }catch(err){toast("名单导入失败："+(err.message||String(err)),true);}
   }
   async function loadExperimentCatalogManager(){
     const host=$("experimentCatalogAdminList");if(!host)return;
