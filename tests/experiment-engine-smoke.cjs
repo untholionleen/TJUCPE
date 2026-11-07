@@ -29,18 +29,38 @@ const pRows = conc.map((c,i) => {
 }).join("\n");
 console.log("PC01 parsed rows:", engine.parse(pRows));
 assert.equal(engine.parse(pRows).length, 7, "PC01 parser should keep seven numeric data rows");
-const r1 = run("surface-tension", {main:pRows}, {T_C:20.7,water_gamma:72.75,dp_water:1000});
-assert.ok(r1.metrics.some(x => x[0] === "分子截面积"));
-assert.ok(r1.series.some(x => x.name.includes("Szyszkowski") || x.name.includes("表面张力")));
+const r1raw = run("surface-tension", {main:pRows,processed:""}, {T_C:20.7,water_gamma:72.75,dp_water:1000});
+assert.ok(r1raw.metrics.some(x => x[0] === "分子截面积"));
+assert.ok(r1raw.series.some(x => x.name.includes("表面张力")));
+const processedSurface = [
+"0\t73.01516350449481\t0",
+"0.001507537688442211\t72.7895764641742\t0.00009185664494067093",
+"0.003015075376884422\t72.56632307976254\t0.0001818226322218891",
+"0.004522613065326633\t72.34535556273015\t0.0002699557265339945",
+"0.006030150753768844\t72.12662757760006\t0.0003563113800622677",
+"0.007537688442211055\t71.91009418363012\t0.0004409428263161111",
+"0.009045226130653266\t71.69571177939179\t0.0005239011940591242"
+].join("\n");
+const r1processed = run("surface-tension", {main:"",processed:processedSurface}, {});
+assert.ok(r1processed.metrics.some(x => x[0] === "分子截面积"));
+assert.ok(r1processed.series.some(x => x.name.includes("Excel处理数据")));
 
 // PC-02: conductivity kinetics and Arrhenius two-temperature calculation.
 const sap = [
+"0\t2.18\t2.45","1\t2.07\t2.29","2\t1.98\t2.15","3\t1.90\t2.03",
+"4\t1.82\t1.92","5\t1.76\t1.83","6\t1.70\t1.75","7\t1.66\t1.69",
+"8\t1.61\t1.65","9\t1.58\t1.61","10\t1.54\t1.58","11\t1.51\t1.55",
+"12\t1.48\t1.52","13\t1.45\t1.50"
+].join("\n");
+const r2 = run("saponification",{main:sap},{T1_C:30,T2_C:35,kappa0_1:2.18,kappaInf_1:.81,kappa0_2:2.45,kappaInf_2:.91,c0:.00999});
+assert.ok(r2.metrics.some(x => x[0] === "Ea"));
+const sapReport = [
 "0\t2.15\t2.28","1\t2.14\t2.20","2\t2.13\t2.05","3\t2.12\t1.94",
 "4\t2.08\t1.85","5\t2.06\t1.80","6\t2.03\t1.77","7\t2.00\t1.74",
 "8\t1.98\t1.72","9\t1.96\t1.71","10\t1.94\t1.68"
 ].join("\n");
-const r2 = run("saponification",{main:sap},{T1_C:25,T2_C:30,kappa0_1:2.15,kappaInf_1:.68,kappa0_2:2.28,kappaInf_2:.75,c0:.00999});
-assert.ok(r2.metrics.some(x => x[0] === "Ea"));
+const r2Report = run("saponification",{main:sapReport},{T1_C:25,T2_C:30,kappa0_1:2.15,kappaInf_1:.68,kappa0_2:2.28,kappaInf_2:.75,c0:.00999});
+assert.ok(r2Report.metrics.some(x => x[0] === "Ea"));
 
 // PC-03: calibration curve, source workbook's delta-C adsorption ordinates.
 const cal = "0\t0\n1\t.129\n2\t.345\n3\t.489\n4\t.740\n5\t.939\n6\t1.082";
