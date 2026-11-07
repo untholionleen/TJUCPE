@@ -18,7 +18,7 @@
 5. 等待 Actions 中的部署 workflow 成功。
 6. 首次注册管理员账号后，按迁移文件末尾 SQL 在数据库中授予 admin 角色。
 
-详细步骤见 `docs/DEPLOYMENT.md`、`docs/SUPABASE_SETUP.md` 和 `docs/SECURITY.md`。CI 包含 JavaScript 语法、回归拟合和数据库安全结构冒烟检查；这些检查不等于已在真实 Supabase 项目执行 SQL。
+详细步骤见 `docs/DEPLOYMENT.md`、`docs/SUPABASE_SETUP.md`、`docs/SECURITY.md` 和 `docs/DEPLOYMENT_STATUS.md`。CI 包含 JavaScript 语法、回归拟合和数据库安全结构冒烟检查；这些检查不等于已在真实 Supabase 项目执行 SQL。
 
 ## 重要安全边界
 
