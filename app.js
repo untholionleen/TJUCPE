@@ -662,6 +662,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         const original=(gradingRecord.file_name||"实验报告.pdf").replace(/\.pdf$/i,"");
         update.file_name=original+"_批阅版.pdf";
         update.review_annotations=gradingStrokes;
+        update.submission_version=(gradingRecord.submission_version||1)+1;
       }catch(err){toast(err.message||"生成批阅版 PDF 失败。",true);return;}
     }
     const {error}=await db.from("report_submissions").update(update).eq("id",gradingRecord.id);
