@@ -32,3 +32,13 @@ Last checked: 2026-11-08
 - Supabase Security Advisor reports leaked-password protection disabled. Enable this in Auth password security settings.
 - Performance Advisor may report RLS policy init-plan/multiple-permissive-policy optimizations; these are performance recommendations and do not indicate that RLS is disabled.
 - Do not import production student data until the multi-role acceptance tests pass and the production hosting environment is appropriate for authenticated student transactions.
+
+
+## Latest deployment verification
+
+- Latest source commit: `f5b3344266ce4337d94b1e94790f4dc0fd2fc0bc`.
+- Custom application deployment: GitHub Actions run `42400925071` — **success**.
+- GitHub Pages Jekyll build/deployment: run `42400925365` — **success**.
+- Verified CI steps: `node --check app.js`, `node --check experiment-engine.js`, 14-workflow calculation smoke test, regression smoke test, database-security schema smoke test, static-site assembly and Pages deployment — all passed.
+- Supabase migration history is applied through `tjucpe_legacy_report_resubmit_guard_v10`; `classroom-admin` is ACTIVE v9.
+- Remaining manual acceptance: use synthetic student/teacher/admin accounts to test invite/reset/delete, class assignment gating, report withdraw/edit/delete, PDF annotation save and student re-open. No production student data was used for this acceptance pass.
