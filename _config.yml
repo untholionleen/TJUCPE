@@ -1,0 +1,16 @@
+# Keep private teaching/design material and database migration sources out of the Pages artifact.
+exclude:
+  - .github/
+  - docs/
+  - supabase/
+  - tests/
+  - README.md
+  - "*.md"
+  - "*.sql"
+  - "*.py"
+  - "*.xlsx"
+  - "*.xls"
+  - "*.docx"
+  - "*.pdf"
+  - "*.zip"
+  - "*.csv"
