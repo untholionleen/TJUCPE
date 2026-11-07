@@ -492,7 +492,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!confirm("确认删除这份报告及其全部历史文件版本？此操作不可恢复。"))return;
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"delete_report",report_id:id}});
     if(error||!data?.ok){toast("报告删除失败："+(error?.message||data?.error||"未知错误"),true);return;}
-    toast("报告记录及 "+(data.removed_files||0)+" 个文件版本已删除。");await loadReports();await loadOverview();
+    if(data.cleanup_warning)toast("报告记录已删除，但部分历史文件清理失败，请管理员检查存储。",true);else toast("报告记录及 "+(data.removed_files||0)+" 个文件版本已删除。");await loadReports();await loadOverview();
   }
   async function showFeedback(id){
     const row=lastRecords.find(r=>r.id===id);if(!row)return;
