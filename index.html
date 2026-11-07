@@ -186,8 +186,8 @@
 
       <section id="usersPage" class="page hidden">
         <div class="page-heading"><div><div class="eyebrow">ADMINISTRATION</div><h1>用户与权限</h1><p class="muted">管理员可管理用户身份。新注册账号不会获得教师或管理员权限。</p></div></div>
-        <section class="panel"><div class="panel-heading"><div><h3>平台用户</h3><p>身份变更受数据库策略约束，并写入审计日志。</p></div><button id="refreshUsers" class="btn btn-outline btn-sm">刷新用户</button></div>
-          <div class="table-scroll"><table class="data-table"><thead><tr><th>姓名</th><th>学号 / 工号</th><th>当前身份</th><th>注册时间</th><th>身份调整</th></tr></thead><tbody id="usersBody"><tr><td colspan="5" class="muted center">正在加载……</td></tr></tbody></table></div></section>
+        <section class="panel"><div class="panel-heading"><div><h3>平台用户</h3><p>管理员可调整身份、批量重置学生密码或删除学生账号。</p></div><div><button id="bulkResetUsers" class="btn btn-outline btn-sm">批量重置密码</button> <button id="bulkDeleteUsers" class="btn btn-outline btn-sm">批量删除学生</button> <button id="refreshUsers" class="btn btn-outline btn-sm">刷新用户</button></div></div>
+          <div class="table-scroll"><table class="data-table"><thead><tr><th>选择</th><th>姓名</th><th>学号 / 工号</th><th>当前身份</th><th>注册时间</th><th>身份调整</th></tr></thead><tbody id="usersBody"><tr><td colspan="5" class="muted center">正在加载……</td></tr></tbody></table></div></section>
       </section>
 
 
