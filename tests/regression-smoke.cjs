@@ -31,7 +31,7 @@ close(cubic.r2, 1);
 assert.throws(() => polyFit([{x:0,y:1},{x:1,y:2}], 2), /至少/);
 assert.ok(source.includes("function mapExcelTable"), "experiment-specific Excel workbook importer must be present");
 for (const slug of ["surface-tension","saponification","rectorite-adsorption","galvanic-cell","phase-diagram","boiling-composition","reaction-enthalpy","freezing-point","equilibrium-constant","thermostat-viscosity","passivation"]) {
-  assert.ok(source.includes('slug === "' + slug + '"'), "Excel mapping must include " + slug);
+  assert.ok(source.includes('slug==="' + slug + '"'), "Excel mapping must include " + slug);
 }
 
 console.log("TJUCPE regression smoke tests passed (linear, quadratic, cubic, insufficient sample guard).");
