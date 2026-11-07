@@ -60,7 +60,7 @@ The v5 migration adds account lifecycle metadata, review annotation storage, and
 ## Security and remaining checks
 
 - The browser uses only the Supabase publishable key. Never place service-role or secret keys in static assets or GitHub.
-- The repository is public; do not commit rosters, student reports, grade exports, identifiers or private teaching datasets.
+- The repository is public; do not commit rosters, student reports, grade exports, identifiers or private teaching datasets. The site UI exposes Supabase diagnostics, audit logs and technical-resource links only to administrators. The Jekyll Pages build excludes `docs/`, `supabase/`, `tests/`, and office/PDF/source-data files. **The GitHub repository itself remains public**, so source code and repository documentation can still be read directly on GitHub; change repository visibility to private if those materials must be confidential.
 - RLS and Storage policies are the security boundary; UI hiding is not authorization.
 - Supabase Security Advisor currently reports leaked-password protection disabled. Enable it in Supabase Auth password-security settings.
 - Performance Advisor may continue to report RLS init-plan and multiple permissive-policy optimization suggestions. These are performance advisories, not evidence that row security is disabled; review them before scaling to large classes.
