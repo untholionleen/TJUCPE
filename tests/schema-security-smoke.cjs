@@ -45,6 +45,29 @@ assert.ok(!sql.includes("create policy reports_update_student_or_staff"),
 assert.ok(!sql.includes("create policy report_objects_update_own"),
   "the browser must not be allowed to overwrite existing report objects");
 
+
+const migrationLines = sql.split("\n");
+let currentFunction = "";
+let securityDefinerCount = 0;
+for (const line of migrationLines) {
+  const match = line.match(/create or replace function\s+([a-z0-9_.]+)/i);
+  if (match) currentFunction = match[1];
+  if (/security definer/i.test(line)) {
+    securityDefinerCount += 1;
+    assert.ok(currentFunction.startsWith("private."),
+      `SECURITY DEFINER function must be isolated in private schema: ${currentFunction}`);
+  }
+}
+assert.equal(securityDefinerCount, 4, "exactly four private SECURITY DEFINER functions are expected");
+
+const dollarTags = [...sql.matchAll(/\$[a-z_]*\$|\$\$/gi)].map(match => match[0]);
+assert.equal(dollarTags.length % 2, 0, "SQL dollar-quoted blocks must be paired");
+for (let i = 0; i < dollarTags.length; i += 2) {
+  assert.equal(dollarTags[i], dollarTags[i + 1], "SQL dollar-quote delimiters must match in pairs");
+}
+assert.ok(!migrationLines.some(line => /\bas\s+\$$/.test(line)),
+  "SQL must not contain a truncated single-dollar function opener");
+
 const verification = fs.readFileSync("supabase/verification/post_deploy_checks.sql", "utf8").toLowerCase();
 assert.ok(verification.includes("from pg_policies"), "post-deployment policy inspection must be provided");
 assert.ok(verification.includes("from storage.buckets"), "post-deployment bucket inspection must be provided");
