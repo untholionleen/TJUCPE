@@ -34,10 +34,13 @@
   const showAuth = () => { $("authView").classList.remove("hidden"); $("appView").classList.add("hidden"); };
   const showApp = () => { $("authView").classList.add("hidden"); $("appView").classList.remove("hidden"); };
   function setAuthMode(mode) {
-    authMode=mode; const register=mode==="register";
-    $("authTitle").textContent=register?"创建学生账号":"登录平台";
-    $("authSubtitle").textContent=register?"注册后系统会自动创建普通学生身份。":"使用课程账号进入实验工作区。";
+    authMode=mode; const register=mode==="register", recovery=mode==="recovery";
+    $("authTitle").textContent=recovery?"设置新密码":(register?"创建学生账号":"登录平台");
+    $("authSubtitle").textContent=recovery?"请设置一个至少 8 位的新密码。":(register?"注册后系统会自动创建普通学生身份。":"使用课程账号进入实验工作区。");
     $("registerFields").classList.toggle("hidden",!register);
+    $("authForm").classList.toggle("hidden",recovery);
+    $("resetPanel").classList.toggle("hidden",!recovery);
+    $("authLinks").classList.toggle("hidden",recovery);
     $("authSubmit").textContent=register?"注册并创建账号":"登录";
     $("toggleAuth").textContent=register?"已有账号？返回登录":"还没有账号？立即注册";
     $("password").autocomplete=register?"new-password":"current-password";
@@ -322,13 +325,32 @@
   async function start(){
     $("connectionHint").textContent=db?"已连接 Supabase 项目。":"尚未配置 Supabase 客户端。";
     if(!db){$("connectionHint").classList.add("error");$("authSubmit").disabled=true;return;}
+    db.auth.onAuthStateChange((event,session)=>{
+      if(event==="PASSWORD_RECOVERY"&&session){
+        user=session.user;profile=null;showAuth();setAuthMode("recovery");
+      }else if(!session){user=null;profile=null;showAuth();setAuthMode("login");}
+    });
     const {data:{session}}=await db.auth.getSession();
-    if(session){user=session.user;await enterApp();}else showAuth();
-    db.auth.onAuthStateChange((_event,session)=>{if(!session){user=null;profile=null;showAuth();}});
+    if(session){
+      user=session.user;
+      if(window.location.hash.includes("type=recovery")){showAuth();setAuthMode("recovery");}
+      else await enterApp();
+    }else showAuth();
   }
   function bindEvents(){
     $("authForm").addEventListener("submit",handleAuthSubmit);
     $("toggleAuth").addEventListener("click",()=>setAuthMode(authMode==="login"?"register":"login"));
+    $("backToLogin").addEventListener("click",()=>setAuthMode("login"));
+    $("saveNewPassword").addEventListener("click",async()=>{
+      const password=$("newPassword").value;
+      if(password.length<8){toast("新密码至少需要 8 位。",true);return;}
+      const {error}=await db.auth.updateUser({password});
+      if(error){toast(error.message,true);return;}
+      $("newPassword").value="";
+      toast("密码已更新，正在进入平台。");
+      window.history.replaceState(null,"",window.location.pathname+window.location.search);
+      await enterApp();
+    });
     $("forgotPassword").addEventListener("click",async()=>{if(!db)return;const email=$("email").value.trim();if(!email){toast("请先输入注册邮箱。",true);return;}const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:window.location.href});if(error)toast(error.message,true);else toast("密码重置邮件已发送，请检查邮箱。");});
     $("signOut").addEventListener("click",async()=>{await db.auth.signOut();});
     $("mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-page]");if(b)go(b.dataset.page);});
