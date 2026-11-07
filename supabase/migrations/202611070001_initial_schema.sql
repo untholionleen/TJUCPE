@@ -380,3 +380,77 @@ grant select, insert, delete on storage.objects to authenticated;
 -- where p.id=(select u.id from auth.users u where u.email='YOUR_ADMIN_EMAIL');
 -- 3) Assign teacher accounts similarly with role='teacher'.
 -- Never add a role selector to public registration.
+
+-- Fail the migration visibly if a critical security object is missing.
+do $verify$
+declare
+  secured_tables integer;
+  required_public_policies integer;
+  required_storage_policies integer;
+begin
+  select count(*) into secured_tables
+  from pg_class c
+  where c.relnamespace = 'public'::regnamespace
+    and c.relname in ('profiles','experiment_records','report_submissions','audit_logs')
+    and c.relrowsecurity;
+
+  if secured_tables <> 4 then
+    raise exception 'TJUCPE migration incomplete: expected RLS on all four public tables; found %', secured_tables;
+  end if;
+
+  select count(*) into required_public_policies
+  from pg_policies
+  where schemaname = 'public'
+    and policyname in (
+      'profiles_select_self_or_staff',
+      'profiles_update_self_or_admin',
+      'records_select_owner_or_staff',
+      'records_insert_owner',
+      'records_update_owner_or_admin',
+      'records_delete_owner_or_admin',
+      'reports_select_student_or_staff',
+      'reports_insert_own',
+      'reports_update_staff_only',
+      'reports_delete_admin_only',
+      'audit_logs_select_admin'
+    );
+
+  if required_public_policies <> 11 then
+    raise exception 'TJUCPE migration incomplete: expected 11 core public policies; found %', required_public_policies;
+  end if;
+
+  select count(*) into required_storage_policies
+  from pg_policies
+  where schemaname = 'storage'
+    and tablename = 'objects'
+    and policyname in (
+      'report_objects_insert_own',
+      'report_objects_select_own_or_staff',
+      'report_objects_delete_orphan_own_or_admin'
+    );
+
+  if required_storage_policies <> 3 then
+    raise exception 'TJUCPE migration incomplete: expected 3 report Storage policies; found %', required_storage_policies;
+  end if;
+
+  if not exists (
+    select 1 from storage.buckets
+    where id = 'lab-reports'
+      and public = false
+      and file_size_limit = 20971520
+  ) then
+    raise exception 'TJUCPE migration incomplete: lab-reports bucket must exist, be private, and have a 20 MiB limit';
+  end if;
+
+  if has_table_privilege('anon','public.profiles','select')
+     or has_table_privilege('anon','public.experiment_records','select')
+     or has_table_privilege('anon','public.report_submissions','select')
+     or has_table_privilege('anon','public.audit_logs','select') then
+    raise exception 'TJUCPE migration incomplete: anon still has SELECT grants on an application table';
+  end if;
+
+  if not has_schema_privilege('authenticated','private','usage') then
+    raise exception 'TJUCPE migration incomplete: authenticated role cannot access the private helper schema';
+  end if;
+end;
+$verify$;
