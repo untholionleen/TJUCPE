@@ -320,18 +320,17 @@
     },
     {
       slug:"thermostat-viscosity",code:"PC-12",name:"恒温槽的调节及黏度测定",workflow:"thermostat_viscosity",
-      tables:[{key:"main",title:"恒温槽与黏度原始数据",columns:["time220_s","T220_C","time110_s","T110_C","ethanol_t1_s","ethanol_t2_s","ethanol_t3_s","water_t1_s","water_t2_s","water_t3_s"],headers:["220V 时间 / s","220V 温度 / ℃","110V 时间 / s","110V 温度 / ℃","乙醇 t1 / s","乙醇 t2 / s","乙醇 t3 / s","水 t1 / s","水 t2 / s","水 t3 / s"],example:"30\t35.10\t30\t35.14\t170.53\t170.42\t170.59\t108.83\t108.90\t108.52\n60\t34.98\t60\t35.09\t\t\t\t\t\t"}],
+      tables:[{key:"wave220",title:"220V 恒温槽温度波动（将 Excel 每组横向时间行与温度行配对转为两列）",columns:["time_s","T_C"],headers:["时间 / s","温度 / ℃"],example:"30\t35.10\n60\t34.98\n90\t34.91\n120\t34.82\n150\t34.98\n180\t35.16"},{key:"wave110",title:"110V 恒温槽温度波动",columns:["time_s","T_C"],headers:["时间 / s","温度 / ℃"],example:"30\t35.14\n60\t35.09\n90\t35.03\n120\t34.98\n150\t34.95\n180\t34.93"},{key:"viscosity",title:"乌氏黏度计三次流出时间",columns:["ethanol_t1_s","ethanol_t2_s","ethanol_t3_s","water_t1_s","water_t2_s","water_t3_s"],headers:["乙醇 t1 / s","乙醇 t2 / s","乙醇 t3 / s","水 t1 / s","水 t2 / s","水 t3 / s"],example:"170.53\t170.42\t170.59\t108.83\t108.90\t108.52"}],
       settings:[{key:"rhoEthanol",label:"乙醇密度 ρ乙醇 (kg/m³)",defaultValue:776.7},{key:"rhoWater",label:"水密度 ρ水 (kg/m³)",defaultValue:993.9},{key:"etaWater_mPa_s",label:"水黏度 η水 (mPa·s)",defaultValue:0.7225}],
       note:"上传 Excel 分别记录 220V/110V 恒温槽波动以及乙醇/水三次流出时间。灵敏度 T=(tmax−tmin)/2（温度波动半幅）；乌氏黏度计相对法 η1/η2=(ρ1t1)/(ρ2t2)。",
       analyze:(t,s)=>{
-        const r=parse(t.main);const nums=r.map(x=>x.map(v=>num(v)));
-        const pair=col=>nums.map(x=>({x:x[col],y:x[col+1]})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
-        const c220=pair(0),c110=pair(2),first=nums.find(x=>x.length>=10&&x.slice(4,10).filter(Number.isFinite).length>=6);
-        if(!c220.length||!c110.length)throw new Error("请提供 220V 与 110V 两组时间-温度波动数据。");
+        const wave=key=>matrix(t[key],2).map((x,i)=>({x:x[0],y:x[1],i}));
+        const c220=wave("wave220"),c110=wave("wave110"),v=matrix(t.viscosity,6)[0];
+        if(c220.length<3||c110.length<3)throw new Error("请分别录入 220V 和 110V 时间-温度数据，每组至少 3 点。");
         const stat=a=>({min:Math.min(...a.map(p=>p.y)),max:Math.max(...a.map(p=>p.y)),mean:stats(a.map(p=>p.y)).mean});
-        const a=stat(c220),b=stat(c110),tE=first?stats(first.slice(4,7)).mean:NaN,tW=first?stats(first.slice(7,10)).mean:NaN;
+        const a=stat(c220),b=stat(c110),tE=v?stats(v.slice(0,3)).mean:NaN,tW=v?stats(v.slice(3,6)).mean:NaN;
         const eta=s.etaWater_mPa_s*(s.rhoEthanol*tE)/(s.rhoWater*tW);
-        return {series:[makeSeries("恒温槽 220V",c220,null,{x:"时间 / s",y:"温度 / ℃"}),makeSeries("恒温槽 110V",c110,null,{x:"时间 / s",y:"温度 / ℃"})],fit:null,metrics:[["220V 温度波动半幅", (a.max-a.min)/2,"℃"],["110V 温度波动半幅",(b.max-b.min)/2,"℃"],["220V 平均温度",a.mean,"℃"],["110V 平均温度",b.mean,"℃"],["乙醇平均流出时间",tE,"s"],["水平均流出时间",tW,"s"],["乙醇黏度",eta,"mPa·s"]],warnings:["请把 Excel 中温度波动数据与黏度流出时间分开录入；同一工作表第一条数据行中含有六个流出时间才会计算黏度。","乙醇、水密度和水黏度必须使用测量温度对应的查表值。"],rawRows:nums,headers:["time220_s","T220_C","time110_s","T110_C","ethanol_t1_s","ethanol_t2_s","ethanol_t3_s","water_t1_s","water_t2_s","water_t3_s"],resultRows:nums};
+        return {series:[makeSeries("恒温槽 220V",c220,null,{x:"时间 / s",y:"温度 / ℃"}),makeSeries("恒温槽 110V",c110,null,{x:"时间 / s",y:"温度 / ℃"})],fit:null,metrics:[["220V 温度波动半幅",(a.max-a.min)/2,"℃"],["110V 温度波动半幅",(b.max-b.min)/2,"℃"],["220V 平均温度",a.mean,"℃"],["110V 平均温度",b.mean,"℃"],["乙醇平均流出时间",tE,"s"],["水平均流出时间",tW,"s"],["乙醇黏度",eta,"mPa·s"]],warnings:["Excel 原表温度数据采用时间行/温度行横向排列；此工作区要求按两列时间-温度粘贴。三次流出时间在单独的黏度表中输入。","乙醇、水密度和水黏度必须使用实验温度对应的查表值。"],rawRows:{wave220:c220,wave110:c110,viscosity:v},headers:["time_s","temperature_C"],resultRows:[...c220.map(x=>[220,x.x,x.y]),...c110.map(x=>[110,x.x,x.y]),...(v||[])]};
       }
     },
     {
