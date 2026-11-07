@@ -220,10 +220,10 @@
       settings:[{key:"eutectic_C",label:"参考低共熔温度 (℃)",defaultValue:183},{key:"eutecticSn_pct",label:"参考低共熔组成 Sn (%)",defaultValue:61.9}],
       note:"上传报告和 Excel 采用 Sn-Pb 固态部分互溶体系，冷却曲线的斜率变化对应相变转折，平台对应低共熔温度。默认参考线 183℃、61.9% Sn 来自上传材料；自动识别仅作辅助，最终应由教师/学生在曲线上选区确认。",
       analyze:(tables,s,sel)=>{
-        const r=matrix(tables.main,6);if(r.length<6)throw new Error("至少录入 6 个时间点以观察冷却曲线。");
+        const r=rowsOf(tables.main).map(row=>row.slice(0,6).map(num)).filter(row=>Number.isFinite(row[0]));if(r.length<6)throw new Error("至少录入 6 个时间点以观察冷却曲线。");
         const cols=["Sn（纯）","30% Sn","61.9% Sn","80% Sn","Pb（纯）"],series=[],metrics=[];
         for(let j=1;j<6;j++){
-          const pts=r.map((x,i)=>({x:x[0],y:x[j],i}));
+          const pts=r.map((x,i)=>({x:x[0],y:x[j],i})).filter(p=>Number.isFinite(p.y));if(pts.length<3)continue;
           const chosen=selectPoints(pts,sel);
           const plateau=chosen.length>=3?{start:Math.min(...chosen.map(p=>p.i)),end:Math.max(...chosen.map(p=>p.i)),temp:stats(chosen.map(p=>p.y)).mean,manual:true}:fitPlateau(pts,Math.min(7,Math.max(3,Math.floor(pts.length/5))));
           series.push(makeSeries(cols[j-1],pts,null,{x:"时间 / s",y:"温度 / ℃"}));
