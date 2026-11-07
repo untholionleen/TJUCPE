@@ -90,7 +90,7 @@
         <h3>${e.name}</h3><p>${e.desc}</p>
         <button data-open-experiment="${e.slug}">打开数据工作区　→</button>
       </article>`).join("");
-    $("reportExperiment").innerHTML=experiments.map(e=>`<option value="${e.slug}">${e.name}</option>`).join("");
+    // Report experiment is now derived from the selected class assignment; no duplicate selector is required.
   }
   function openExperiment(slug){
     currentExperiment=experiments.find(e=>e.slug===slug)||experiments[0];
