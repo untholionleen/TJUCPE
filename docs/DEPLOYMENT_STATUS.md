@@ -1,30 +1,33 @@
 # TJUCPE deployment status
 
-Last checked: 2026-11-07
+Last checked: 2026-11-08
 
-## Confirmed
+## Confirmed on the connected Supabase project
 
-- The user manually ran the website's Supabase Auth connection check and reported HTTP 200. This confirms the Auth endpoint recognized the current publishable key at that time; it does not test the database schema or RLS.
-- The repository's `main` branch contains the latest publishable-key configuration and cache-busting script reference.
-- GitHub Actions run [42385455237](https://github.com/untholionleen/TJUCPE/actions/runs/42385455237) completed successfully for commit `11304833627523c839effad2d779b687f1e30eb7`; it passed JavaScript syntax, regression, schema-security, and Pages deployment steps.
-- The latest workflow passed JavaScript syntax, polynomial regression smoke tests, database-security schema smoke tests, Pages assembly, artifact upload and deployment.
-- The migration includes tables, RLS policies, least-privilege grants, private Storage, private role helpers, role/report guards, and fail-fast post-creation checks.
-- A read-only follow-up inspection script is available at `supabase/verification/post_deploy_checks.sql`.
+- Project `TJUCPE` is `ACTIVE_HEALTHY`.
+- Database migration history includes five applied migrations, through `tjucpe_query_performance_indexes_v6`.
+- Verified application tables: `profiles`, `experiment_records`, `report_submissions`, `audit_logs`, `classes`, `class_members`, `experiment_catalog`, `experiment_assignments`, `report_revisions`.
+- RLS is enabled on the inspected business tables.
+- `experiment_catalog` currently contains 14 experiment entries.
+- The `lab-reports` bucket exists and is private, with a 20 MiB limit and PDF/DOCX MIME allowlist.
+- Storage policies now include current-report/revision-history reads and class-staff upload of reviewed PDFs.
+- Edge Function `classroom-admin` is ACTIVE version 6 with JWT verification.
+- The existing legacy report without a class/task assignment remains intact; the new-submission trigger requires class membership and a matching open assignment for all new student submissions.
+- Migration v5 adds `profiles.account_status` and `report_submissions.review_annotations`; migration v6 adds foreign-key/audit lookup indexes.
 
-## Not yet confirmed / not yet deployed
+## Confirmed repository changes
 
-- The SQL migration has **not** been executed against Supabase project `snkokdrjxymlmyjbitbu`.
-- The live existence of `profiles`, `experiment_records`, `report_submissions`, `audit_logs`, and the `lab-reports` bucket has not been checked.
-- Live RLS behavior, table grants, Storage policy isolation, auth email delivery, administrator bootstrap, teacher workflow, and student-to-student isolation have not been tested.
-- No production student accounts, grades, reports, or class rosters should be entered yet.
+- Added class editing, class archival/reactivation and administrator teacher assignment.
+- Added experiment catalog create/edit/disable/enable UI for teachers and administrators.
+- Added embedded PDF page rendering and freehand annotation layer in the teacher grading workspace. Saving annotations uploads a new reviewed PDF version and updates the current report path; old files remain referenced by report revisions.
+- Added version-aware cache busting for the current application assets.
+- Added the deployed `classroom-admin` Edge Function source to the repository.
+- Teachers can remove students from their own class and generate password recovery links for those students. Only administrators can permanently delete Auth accounts across the platform.
 
-## Remaining Supabase deployment sequence
+## Remaining verification / cautions
 
-1. Connect the Supabase project through the Supabase integration so project-level SQL execution is available, or have the project owner execute the migration below.
-2. Run the complete `supabase/migrations/202611070001_initial_schema.sql` in SQL Editor as project owner. It ends with fail-fast checks for key tables, RLS, policies, private bucket, anon grants, and private schema access.
-3. Run `supabase/verification/post_deploy_checks.sql` and inspect every policy on `storage.objects`, including policies that existed before this migration.
-4. Register only synthetic test accounts first. Bootstrap the administrator and assign teacher accounts through the documented owner/admin workflow.
-5. Test two separate student accounts, one teacher, and one administrator against the acceptance matrix in `docs/SECURITY.md`.
-6. Only after all checks pass, consider migration away from GitHub Pages to hosting appropriate for authenticated student transactions.
-
-A successful Auth HTTP 200 or GitHub Pages build is not proof that the database migration has been applied.
+- The repository's Pages workflow file contains JavaScript syntax, experiment engine, regression and database-security smoke checks. The latest Pages run must be confirmed in GitHub Actions before declaring the public preview updated.
+- End-to-end browser testing with synthetic student/teacher/admin accounts has not been completed in this session. PDF drawing, save, student re-open and revision-history flows still need a real browser acceptance pass.
+- Supabase Security Advisor reports leaked-password protection disabled. Enable this in Auth password security settings.
+- Performance Advisor may report RLS policy init-plan/multiple-permissive-policy optimizations; these are performance recommendations and do not indicate that RLS is disabled.
+- Do not import production student data until the multi-role acceptance tests pass and the production hosting environment is appropriate for authenticated student transactions.
