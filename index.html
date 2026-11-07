@@ -191,6 +191,7 @@
           <div class="panel-heading"><div><h3>批阅报告</h3><p id="gradingTitle"></p></div><button id="closeGrading" class="icon-button">×</button></div>
           <div class="field-grid"><label>成绩（0–100）<input id="gradeScore" type="number" min="0" max="100" step="0.5"></label><label>批阅状态<select id="gradeStatus"><option value="graded">已批阅</option><option value="returned">退回修改</option></select></label></div>
           <label>教师反馈<textarea id="gradeFeedback" rows="5" placeholder="请填写计算过程、数据处理、图表或报告格式方面的意见。"></textarea></label>
+          <section class="grading-preview-panel"><div class="panel-heading"><div><h3>报告在线批阅预览</h3><p class="muted">文件直接嵌入当前批阅区，不会另开浏览器页面。</p></div><button id="closeGradingPreview" class="btn btn-outline btn-sm">关闭预览 ×</button></div><div id="gradingPreviewContent" class="grading-preview-content">点击“打开批阅”后在此处预览 PDF / DOCX。</div></section>
           <div class="form-actions"><button id="saveGrade" class="btn btn-primary">保存批阅结果</button></div>
         </div>
       </section>
@@ -208,7 +209,7 @@
         <div id="classManagerTools" class="hidden">
           <section class="panel"><h3>创建班级</h3><div class="field-grid"><label>班级名称<input id="newClassName"></label><label>课程代码<input id="newClassCode"></label><label>说明<input id="newClassDesc"></label></div><button id="createClass" class="btn btn-primary">创建班级</button></section>
           <section class="panel"><h3>批量导入学生名单</h3><p class="muted tiny">CSV 三列：邮箱、姓名、学号。系统通过 Supabase Auth 发送邀请邮件。</p><label>名单文件<input id="rosterFile" type="file" accept=".csv,.txt"></label><button id="importRoster" class="btn btn-outline">批量邀请学生</button></section>
-          <section class="panel"><h3>发布实验任务</h3><div class="field-grid"><label>管理班级<select id="classTaskSelect"></select></label><label>实验项目<select id="taskExperiment"></select></label><label>任务名称<input id="taskTitle"></label><label>截止时间<input id="taskDue" type="datetime-local"></label></div><label>任务要求<textarea id="taskInstructions" rows="3"></textarea></label><button id="publishAssignment" class="btn btn-primary">发布任务</button><div id="classAssignments" class="assignment-list"></div><div id="accountActionResult" class="tiny muted"></div></section>
+          <section class="panel"><h3>发布实验任务</h3><div class="field-grid"><label>管理班级<select id="classTaskSelect"></select></label><label>实验项目<select id="taskExperiment"></select></label><label>任务名称<input id="taskTitle"></label><label>截止时间<input id="taskDue" type="datetime-local"></label></div><label>任务要求<textarea id="taskInstructions" rows="3"></textarea></label><button id="publishAssignment" class="btn btn-primary">发布任务</button><div id="classAssignments" class="assignment-list"></div><section class="panel roster-panel"><div class="panel-heading"><div><h3>班级学生名单</h3><p class="muted">教师仅能管理自己所负责班级的学生；管理员可管理全部班级。</p></div><div><button id="classBulkReset" class="btn btn-outline btn-sm">批量重置密码</button> <button id="classBulkDelete" class="btn btn-outline btn-sm">批量删除账号</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>选择</th><th>姓名</th><th>学号</th><th>状态</th><th>加入时间</th></tr></thead><tbody id="classRosterBody"><tr><td colspan="5">请选择班级。</td></tr></tbody></table></div></section><div id="accountActionResult" class="tiny muted"></div></section>
         </div>
       </section>
       <section id="systemPage" class="page hidden admin-only">
