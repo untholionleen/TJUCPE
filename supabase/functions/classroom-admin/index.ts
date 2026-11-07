@@ -196,30 +196,35 @@ export default {
       if (action === "delete_students") {
         const ids = Array.isArray(body.user_ids) ? [...new Set(body.user_ids.map(String))].slice(0, 100) : [];
         if (!ids.length) return json({ error: "No user IDs supplied" }, 400);
-        // Teachers can remove only members of their own class; permanent account deletion is admin-only.
-        if (!isAdmin) {
-          if (actor.role !== "teacher" || !await canManageClass()) return json({ error: "Teacher access to the selected class is required" }, 403);
-          const results = [];
-          for (const id of ids) {
-            if (!await isStudentInManagedClass(id)) {
-              results.push({ user_id: id, ok: false, error: "Student is not an active member of your class" });
-              continue;
-            }
-            const { error } = await supabaseAdmin.from("class_members").update({ status: "removed" }).eq("class_id", classId).eq("student_id", id);
-            if (error) results.push({ user_id: id, ok: false, error: error.message });
-            else {
-              await audit(id, "class.student_removed_by_teacher", { class_id: classId });
-              results.push({ user_id: id, ok: true, operation: "removed_from_class" });
-            }
-          }
-          return json({ results });
+        if (!isAdmin && (actor.role !== "teacher" || !await canManageClass())) {
+          return json({ error: "Teacher access to the selected class is required" }, 403);
         }
         const results = [];
         for (const id of ids) {
           if (id === actorId) { results.push({ user_id: id, ok: false, error: "Cannot delete your own account" }); continue; }
+          if (!isAdmin) {
+            if (!await isStudentInManagedClass(id)) {
+              results.push({ user_id: id, ok: false, error: "Student is not an active member of your class" });
+              continue;
+            }
+            const { data: memberships, error: membershipError } = await supabaseAdmin.from("class_members")
+              .select("class_id").eq("student_id", id).eq("status", "active");
+            if (membershipError) { results.push({ user_id: id, ok: false, error: membershipError.message }); continue; }
+            if ((memberships ?? []).length > 1) {
+              const { error } = await supabaseAdmin.from("class_members").update({ status: "removed" })
+                .eq("class_id", classId).eq("student_id", id);
+              if (error) results.push({ user_id: id, ok: false, error: error.message });
+              else {
+                await audit(id, "class.student_removed_by_teacher", { class_id: classId, reason: "student_has_other_active_classes" });
+                results.push({ user_id: id, ok: true, operation: "removed_from_this_class" });
+              }
+              continue;
+            }
+          }
           const { data: target } = await supabaseAdmin.from("profiles").select("id,role").eq("id", id).maybeSingle();
-          if (!target || target.role !== "student") { results.push({ user_id: id, ok: false, error: "Only student accounts can be permanently deleted here" }); continue; }
-          const { data: reports, error: reportError } = await supabaseAdmin.from("report_submissions").select("id,storage_path").eq("student_id", id);
+          if (!target || target.role !== "student") { results.push({ user_id: id, ok: false, error: "Only student accounts can be deleted in this operation" }); continue; }
+          const { data: reports, error: reportError } = await supabaseAdmin.from("report_submissions")
+            .select("id,storage_path").eq("student_id", id);
           if (reportError) { results.push({ user_id: id, ok: false, error: reportError.message }); continue; }
           const reportIds = (reports ?? []).map((r: { id: string }) => r.id);
           const { data: revisions, error: revisionError } = reportIds.length
@@ -230,7 +235,10 @@ export default {
             ...(reports ?? []).map((r: { storage_path: string }) => r.storage_path),
             ...(revisions ?? []).map((r: { previous_storage_path: string }) => r.previous_storage_path)
           ].filter(Boolean))];
-          await audit(id, "account.student_permanent_delete_requested", { report_count: reports?.length ?? 0, archived_file_count: paths.length });
+          await audit(id, "account.student_permanent_delete_requested", {
+            report_count: reports?.length ?? 0, archived_file_count: paths.length,
+            scope: isAdmin ? "administrator_global" : "teacher_single_active_class"
+          });
           const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
           if (error) { results.push({ user_id: id, ok: false, error: error.message }); continue; }
           const { error: storageError } = paths.length
