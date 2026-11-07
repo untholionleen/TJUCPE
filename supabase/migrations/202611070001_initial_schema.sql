@@ -132,7 +132,7 @@ create table if not exists public.report_submissions (
 );
 
 create or replace function public.guard_report_insert_fields()
-returns trigger language plpgsql set search_path = public as $
+returns trigger language plpgsql set search_path = public as $guard$
 begin
   if not public.is_staff() and current_user not in ('postgres','supabase_admin') then
     new.student_id := auth.uid();
@@ -146,7 +146,7 @@ begin
   end if;
   return new;
 end;
-$;
+$guard$;
 
 drop trigger if exists report_insert_fields_guard_tjucpe on public.report_submissions;
 create trigger report_insert_fields_guard_tjucpe
