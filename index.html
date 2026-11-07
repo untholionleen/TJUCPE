@@ -14,9 +14,10 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-  <script defer src="experiment-engine.js?v=20261108-engine-2"></script>
+  <script defer src="experiment-engine.js?v=20261108-engine-3"></script>
+  <script defer src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-  <script defer src="app.js"></script>
+  <script defer src="app.js?v=20261108-pythonplot-1"></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status"></div>
@@ -148,7 +149,7 @@
             </section>
             <section class="panel chart-panel">
               <div class="panel-heading"><div><h3>图形分析</h3><p>支持高清 PNG 导出；原始数据可导出为 CSV，便于继续在 Origin / MATLAB 中处理。</p></div><button id="downloadChart" class="btn btn-outline btn-sm" disabled>↓ 导出 PNG</button></div>
-              <div class="chart-wrap"><div id="analysisPlotly" class="analysis-plotly"></div><canvas id="analysisChart" class="hidden"></canvas><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>图表将在分析后生成</strong><small>可使用图形工具栏的框选或套索工具选择拟合范围。</small></div></div>
+              <div class="python-plot-stage"><div class="python-plot-heading"><strong>Python 科研图形（Matplotlib）</strong><span id="pythonPlotStatus">等待运行实验计算</span></div><img id="pythonPlotImage" class="python-plot-image hidden" alt="Matplotlib 实验数据图形"><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>运行实验计算后生成 Python 图形</strong><small>支持多组数据、拟合曲线、高清 PNG 导出。</small></div></div><div class="selection-workspace"><div class="selection-workspace-heading"><strong>Origin 式拟合区间选择</strong><span>在数据点图上使用矩形框选或套索选择，再重新运行专属计算</span></div><div id="analysisPlotly" class="analysis-plotly"></div></div><canvas id="analysisChart" class="hidden"></canvas>
               <div class="chart-footer"><span id="chartCaption">当前没有图表</span><button id="downloadCsv" class="text-action" disabled>导出 Origin CSV　↓</button></div>
               <div id="engineWarnings" class="engine-warnings hidden"></div>
             </section>
