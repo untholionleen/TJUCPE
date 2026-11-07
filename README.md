@@ -17,11 +17,11 @@
 4. 等待 Actions 中的部署 workflow 成功。
 5. 首次注册管理员账号后，按迁移文件末尾 SQL 在数据库中授予 admin 角色。
 
-详细步骤见 docs/DEPLOYMENT.md 和 docs/SECURITY.md。
+详细步骤见 docs/DEPLOYMENT.md、docs/SUPABASE_SETUP.md 和 docs/SECURITY.md。
 
 ## 重要安全边界
 
-此仓库初始核验时是 Public。仓库只保存通用程序代码，不保存实验报告、学生名单或原始教学数据。浏览器只使用 Supabase publishable key；严禁将 service_role / secret key 放入前端。不要在 RLS 尚未启用时投入真实学生数据。
+此仓库初始核验时是 Public。仓库只保存通用程序代码，不保存实验报告、学生名单或原始教学数据。浏览器只使用 Supabase publishable key；严禁将 service_role / secret key 放入前端。不要在 RLS 尚未启用时投入真实学生数据。当前 GitHub Pages 地址仅作页面预览；GitHub 官方限制说明不应用 Pages 处理密码等敏感交易，正式教学前应迁移至适合认证业务的托管平台。
 
 ## 科学计算边界
 
