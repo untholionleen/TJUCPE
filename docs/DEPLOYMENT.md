@@ -12,7 +12,7 @@
   - `20261107180243_tjucpe_query_performance_indexes_v6`
 - Verified business tables include profiles, classes, class_members, experiment_catalog (14 rows), experiment_assignments, report_submissions, report_revisions, audit_logs. RLS is enabled on these tables.
 - Storage bucket `lab-reports` is private, with a 20 MiB limit and PDF/DOCX allowlist.
-- Edge Function `classroom-admin` is ACTIVE version 6 with JWT verification.
+- Edge Function `classroom-admin` is ACTIVE version 9 with JWT verification.
 - Current sample database has three profiles, one class, one class member, 14 experiment catalog rows, no experiment assignments yet, one legacy report, one report revision and three audit entries. These are counts only; no student personal details are copied into this document.
 
 ## Deploying code
@@ -31,7 +31,7 @@ The v5 migration adds account lifecycle metadata, review annotation storage, and
 
 - Students can only submit against an active membership and a currently open required assignment in their class.
 - Teachers can create/manage their own classes, import their class roster, manage class memberships, reset student passwords by generating recovery links, and review reports in their assigned classes.
-- A teacher's “delete” action removes the student from that teacher's class; it does not destroy the student's global Auth account or erase their other course records.
+- Teachers can permanently delete a student account only when that student has no other active class membership. If the student belongs to multiple active classes, the teacher action removes the student from the teacher’s own class only. Administrators can permanently delete student accounts globally.
 - Only administrators can permanently delete student Auth accounts. This operation removes associated report objects and account-linked data; use only after confirming retention requirements.
 - Password resets use Supabase Auth recovery links. Staff should deliver the one-time link securely; the platform does not reveal or display a student's existing password.
 - Administrators can assign teachers to classes, manage all classes and experiment catalog entries, assign roles, and access system diagnostics and audit logs.
