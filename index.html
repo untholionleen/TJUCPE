@@ -45,7 +45,12 @@
           <label>密码<input id="password" type="password" autocomplete="current-password" minlength="8" required placeholder="至少 8 位"></label>
           <button id="authSubmit" class="btn btn-primary full" type="submit">登录</button>
         </form>
-        <div class="auth-links"><button id="toggleAuth" class="link-button">还没有账号？立即注册</button><button id="forgotPassword" class="link-button">忘记密码</button></div>
+        <div id="resetPanel" class="auth-reset hidden">
+          <label>新密码<input id="newPassword" type="password" minlength="8" autocomplete="new-password" placeholder="至少 8 位"></label>
+          <button id="saveNewPassword" class="btn btn-primary full" type="button">保存新密码</button>
+          <button id="backToLogin" class="link-button" type="button">返回登录</button>
+        </div>
+        <div class="auth-links" id="authLinks"><button id="toggleAuth" class="link-button">还没有账号？立即注册</button><button id="forgotPassword" class="link-button">忘记密码</button></div>
         <div class="security-note"><span class="dot"></span> 账号注册后默认是学生身份，教师与管理员由授权人员在数据库中分配。</div>
         <p class="tiny muted" id="connectionHint"></p>
       </div>
