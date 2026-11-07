@@ -28,7 +28,7 @@
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
-  let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null, classEditingId = null;
+  let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.add("show");
@@ -826,7 +826,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function editCatalogItem(id){
     const {data,error}=await db.from("experiment_catalog").select("*").eq("id",id).maybeSingle();
     if(error||!data){toast(error?.message||"未找到实验项目。",true);return;}
-    catalogEditingId=id;
+    catalogEditingId=id;catalogOriginalSlug=data.slug||"";
     $("catalogSlug").value=data.slug||"";$("catalogCode").value=data.code||"";
     $("catalogName").value=data.name||"";$("catalogCategory").value=data.category||"";
     $("catalogDescription").value=data.description||"";
@@ -834,7 +834,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("catalogName").focus();
   }
   function clearCatalogForm(){
-    catalogEditingId=null;
+    catalogEditingId=null;catalogOriginalSlug=null;
     ["catalogSlug","catalogCode","catalogName","catalogCategory","catalogDescription"].forEach(id=>$(id).value="");
     $("saveCatalogItem").textContent="新增实验项目";
   }
@@ -842,10 +842,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const name=$("catalogName").value.trim(),code=$("catalogCode").value.trim().toUpperCase();
     const slug=$("catalogSlug").value.trim().toLowerCase()||code.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
     if(!name||!code||!slug){toast("项目名称、项目编号和唯一 slug 均为必填。",true);return;}
-    const payload={slug,code,name,category:$("catalogCategory").value.trim()||"其他",description:$("catalogDescription").value.trim(),config:{workflow:"generic",schema_version:1},is_active:true,updated_by:user.id};
+    if(catalogEditingId&&slug!==catalogOriginalSlug){toast("为避免破坏已绑定的专属计算流程，已有实验项目的 slug 不允许修改。",true);return;}
+    const payload={slug,code,name,category:$("catalogCategory").value.trim()||"其他",description:$("catalogDescription").value.trim(),is_active:true,updated_by:user.id};
     let result;
     if(catalogEditingId) result=await db.from("experiment_catalog").update(payload).eq("id",catalogEditingId);
-    else result=await db.from("experiment_catalog").insert({...payload,created_by:user.id});
+    else result=await db.from("experiment_catalog").insert({...payload,config:{workflow:"generic",schema_version:1},created_by:user.id});
     if(result.error){toast("实验项目保存失败："+result.error.message,true);return;}
     toast(catalogEditingId?"实验项目已更新。":"实验项目已创建。");clearCatalogForm();await renderCatalog();await loadClasses();
   }
