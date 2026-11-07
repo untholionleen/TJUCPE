@@ -68,6 +68,20 @@ for (let i = 0; i < dollarTags.length; i += 2) {
 assert.ok(!migrationLines.some(line => /\bas\s+\$$/.test(line)),
   "SQL must not contain a truncated single-dollar function opener");
 
+const reviewMigration = fs.readFileSync("supabase/migrations/20261107175451_tjucpe_full_workflow_pdf_review_v5.sql", "utf8").toLowerCase();
+for (const fragment of [
+  "add column if not exists review_annotations",
+  "report_objects_select_current_owner_and_revision_history",
+  "report_objects_insert_reviewed_pdf_class_staff",
+  "reviewed"
+]) assert.ok(reviewMigration.includes(fragment), "missing PDF review migration fragment: " + fragment);
+
+const deadlineMigration = fs.readFileSync("supabase/migrations/20261107181323_tjucpe_report_resubmission_deadline_guard_v7.sql", "utf8").toLowerCase();
+assert.ok(deadlineMigration.includes("a.due_at is null or a.due_at >= now()"),
+  "student report resubmission must enforce assignment deadlines");
+assert.ok(deadlineMigration.includes("old.class_id is null and old.assignment_id is null"),
+  "legacy reports must remain compatible without invented class/task links");
+
 const verification = fs.readFileSync("supabase/verification/post_deploy_checks.sql", "utf8").toLowerCase();
 assert.ok(verification.includes("from pg_policies"), "post-deployment policy inspection must be provided");
 assert.ok(verification.includes("from storage.buckets"), "post-deployment bucket inspection must be provided");
