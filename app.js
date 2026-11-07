@@ -232,7 +232,7 @@
     if(!["pdf","docx"].includes(ext)){toast("仅支持 PDF 或 DOCX 文件。",true);return;}
     const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
     const path=user.id+"/"+crypto.randomUUID()+"_"+safeName;
-    const {error:uploadError}=await db.storage.from("lab-reports").upload(path,file,{upsert:false,contentType:file.type||"application/octet-stream"});
+    const {error:uploadError}=await db.storage.from("lab-reports").upload(path,file,{upsert:false,contentType:file.type||(ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document")});
     if(uploadError){toast("文件上传失败："+uploadError.message+"。请确认已执行 Storage 迁移。",true);return;}
     const {error}=await db.from("report_submissions").insert({student_id:user.id,experiment_slug:slug,title,file_name:file.name,storage_path:path,status:"submitted"});
     if(error){await db.storage.from("lab-reports").remove([path]);toast("报告记录写入失败："+error.message,true);return;}
