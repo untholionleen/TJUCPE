@@ -27,6 +27,8 @@ const pRows = conc.map((c,i) => {
   const dp = gamma[i] / 73.02 * 1000;
   return [c, dp - .1, dp, dp + .1].join("\t");
 }).join("\n");
+console.log("PC01 parsed rows:", engine.parse(pRows));
+assert.equal(engine.parse(pRows).length, 7, "PC01 parser should keep seven numeric data rows");
 const r1 = run("surface-tension", {main:pRows}, {T_C:20.7,water_gamma:73.02,dp_water:1000});
 assert.ok(r1.metrics.some(x => x[0] === "分子截面积"));
 assert.ok(r1.series.some(x => x.name.includes("Szyszkowski") || x.name.includes("表面张力")));
