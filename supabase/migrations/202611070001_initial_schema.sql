@@ -4,6 +4,11 @@
 
 create extension if not exists pgcrypto;
 
+-- Private authorization helpers. Keep this schema out of Supabase's exposed API schemas.
+create schema if not exists private;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null default '',
@@ -22,25 +27,28 @@ begin
 end;
 $$;
 
-create or replace function public.is_admin()
-returns boolean language sql stable security definer set search_path = '' as $
+create or replace function private.is_admin()
+returns boolean language sql stable security definer set search_path = ''
+as $is_admin$
   select exists (
     select 1 from public.profiles p
     where p.id = auth.uid() and p.role = 'admin'
   );
-$$;
+$is_admin$;
 
-create or replace function public.is_staff()
-returns boolean language sql stable security definer set search_path = '' as $
+create or replace function private.is_staff()
+returns boolean language sql stable security definer set search_path = ''
+as $is_staff$
   select exists (
     select 1 from public.profiles p
     where p.id = auth.uid() and p.role in ('teacher','admin')
   );
-$$;
+$is_staff$;
 
 -- Do not derive role from user-editable signup metadata. Every new account is a student.
-create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = '' as $
+create or replace function private.handle_new_user()
+returns trigger language plpgsql security definer set search_path = ''
+as $handle_new_user$
 begin
   insert into public.profiles (id, full_name, student_no, role)
   values (
@@ -52,12 +60,12 @@ begin
   on conflict (id) do nothing;
   return new;
 end;
-$$;
+$handle_new_user$;
 
 drop trigger if exists on_auth_user_created_tjucpe on auth.users;
 create trigger on_auth_user_created_tjucpe
 after insert on auth.users
-for each row execute procedure public.handle_new_user();
+for each row execute procedure private.handle_new_user();
 
 -- Block role escalation through a student's own profile update.
 -- SQL Editor runs as a database owner, so authorized database administrators can assign roles there.
@@ -66,7 +74,7 @@ returns trigger language plpgsql set search_path = public as $role$
 begin
   if new.role is distinct from old.role
      and current_user not in ('postgres','supabase_admin')
-     and not public.is_admin() then
+     and not private.is_admin() then
     raise exception 'Only a platform administrator can change account roles';
   end if;
   return new;
@@ -98,7 +106,7 @@ create table if not exists public.experiment_records (
 create or replace function public.guard_experiment_owner()
 returns trigger language plpgsql set search_path = public as $$
 begin
-  if new.owner_id is distinct from old.owner_id and not public.is_admin() then
+  if new.owner_id is distinct from old.owner_id and not private.is_admin() then
     raise exception 'Experiment record owner cannot be changed';
   end if;
   return new;
@@ -134,7 +142,7 @@ create table if not exists public.report_submissions (
 create or replace function public.guard_report_insert_fields()
 returns trigger language plpgsql set search_path = public as $guard$
 begin
-  if not public.is_staff() and current_user not in ('postgres','supabase_admin') then
+  if not private.is_staff() and current_user not in ('postgres','supabase_admin') then
     new.student_id := auth.uid();
     new.score := null;
     new.feedback := null;
@@ -156,7 +164,7 @@ for each row execute procedure public.guard_report_insert_fields();
 create or replace function public.guard_report_review_fields()
 returns trigger language plpgsql set search_path = public as $review$
 begin
-  if not public.is_staff() and current_user not in ('postgres','supabase_admin') then
+  if not private.is_staff() and current_user not in ('postgres','supabase_admin') then
     if new.student_id is distinct from old.student_id
        or new.score is distinct from old.score
        or new.feedback is distinct from old.feedback
@@ -190,8 +198,9 @@ create table if not exists public.audit_logs (
   created_at timestamptz not null default now()
 );
 
-create or replace function public.log_profile_role_change()
-returns trigger language plpgsql security definer set search_path = '' as $
+create or replace function private.log_profile_role_change()
+returns trigger language plpgsql security definer set search_path = ''
+as $log_profile_role_change$
 begin
   if new.role is distinct from old.role then
     insert into public.audit_logs(actor_id,target_user_id,action,details)
@@ -200,27 +209,26 @@ begin
   end if;
   return new;
 end;
-$$;
+$log_profile_role_change$;
 
--- Client-visible helper functions are executable only by authenticated users.
--- Trigger-only functions are not directly executable by browser roles.
-revoke all on function public.is_admin() from public, anon;
-revoke all on function public.is_staff() from public, anon;
-grant execute on function public.is_admin() to authenticated;
-grant execute on function public.is_staff() to authenticated;
+-- Only authenticated users may invoke role helpers used by RLS; no browser role can invoke trigger functions.
+revoke all on function private.is_admin() from public, anon;
+revoke all on function private.is_staff() from public, anon;
+grant execute on function private.is_admin() to authenticated;
+grant execute on function private.is_staff() to authenticated;
 
 revoke all on function public.touch_updated_at() from public, anon, authenticated;
-revoke all on function public.handle_new_user() from public, anon, authenticated;
+revoke all on function private.handle_new_user() from public, anon, authenticated;
 revoke all on function public.guard_profile_role_change() from public, anon, authenticated;
 revoke all on function public.guard_experiment_owner() from public, anon, authenticated;
 revoke all on function public.guard_report_insert_fields() from public, anon, authenticated;
 revoke all on function public.guard_report_review_fields() from public, anon, authenticated;
-revoke all on function public.log_profile_role_change() from public, anon, authenticated;
+revoke all on function private.log_profile_role_change() from public, anon, authenticated;
 
 drop trigger if exists profile_role_audit_tjucpe on public.profiles;
 create trigger profile_role_audit_tjucpe
 after update on public.profiles
-for each row execute procedure public.log_profile_role_change();
+for each row execute procedure private.log_profile_role_change();
 
 create index if not exists experiment_records_owner_created_idx
   on public.experiment_records(owner_id, created_at desc);
@@ -240,18 +248,18 @@ alter table public.audit_logs enable row level security;
 drop policy if exists profiles_select_self_or_staff on public.profiles;
 create policy profiles_select_self_or_staff on public.profiles
 for select to authenticated
-using (id = auth.uid() or public.is_staff());
+using (id = auth.uid() or private.is_staff());
 
 drop policy if exists profiles_update_self_or_admin on public.profiles;
 create policy profiles_update_self_or_admin on public.profiles
 for update to authenticated
-using (id = auth.uid() or public.is_admin())
-with check (id = auth.uid() or public.is_admin());
+using (id = auth.uid() or private.is_admin())
+with check (id = auth.uid() or private.is_admin());
 
 -- Experiment records are private to their owner; teaching staff may inspect for teaching support.
 drop policy if exists records_select_owner_or_staff on public.experiment_records;
 create policy records_select_owner_or_staff on public.experiment_records
-for select to authenticated using (owner_id = auth.uid() or public.is_staff());
+for select to authenticated using (owner_id = auth.uid() or private.is_staff());
 
 drop policy if exists records_insert_owner on public.experiment_records;
 create policy records_insert_owner on public.experiment_records
@@ -259,17 +267,17 @@ for insert to authenticated with check (owner_id = auth.uid());
 
 drop policy if exists records_update_owner_or_admin on public.experiment_records;
 create policy records_update_owner_or_admin on public.experiment_records
-for update to authenticated using (owner_id = auth.uid() or public.is_admin())
-with check (owner_id = auth.uid() or public.is_admin());
+for update to authenticated using (owner_id = auth.uid() or private.is_admin())
+with check (owner_id = auth.uid() or private.is_admin());
 
 drop policy if exists records_delete_owner_or_admin on public.experiment_records;
 create policy records_delete_owner_or_admin on public.experiment_records
-for delete to authenticated using (owner_id = auth.uid() or public.is_admin());
+for delete to authenticated using (owner_id = auth.uid() or private.is_admin());
 
 -- Reports: students see their own files and submissions; teaching staff can review all.
 drop policy if exists reports_select_student_or_staff on public.report_submissions;
 create policy reports_select_student_or_staff on public.report_submissions
-for select to authenticated using (student_id = auth.uid() or public.is_staff());
+for select to authenticated using (student_id = auth.uid() or private.is_staff());
 
 drop policy if exists reports_insert_own on public.report_submissions;
 create policy reports_insert_own on public.report_submissions
@@ -283,20 +291,20 @@ drop policy if exists reports_update_student_or_staff on public.report_submissio
 drop policy if exists reports_update_staff_only on public.report_submissions;
 create policy reports_update_staff_only on public.report_submissions
 for update to authenticated
-using (public.is_staff())
-with check (public.is_staff());
+using (private.is_staff())
+with check (private.is_staff());
 
 -- Only administrators can delete report rows; this avoids students removing submissions
 -- while leaving orphaned files in Storage.
 drop policy if exists reports_delete_owner_or_admin on public.report_submissions;
 drop policy if exists reports_delete_admin_only on public.report_submissions;
 create policy reports_delete_admin_only on public.report_submissions
-for delete to authenticated using (public.is_admin());
+for delete to authenticated using (private.is_admin());
 
 -- Audit history is visible to admins only; writes are generated by database triggers.
 drop policy if exists audit_logs_select_admin on public.audit_logs;
 create policy audit_logs_select_admin on public.audit_logs
-for select to authenticated using (public.is_admin());
+for select to authenticated using (private.is_admin());
 
 -- Private report bucket. Object path convention: <auth.uid()>/<uuid>_<filename>.
 insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
@@ -322,7 +330,7 @@ create policy report_objects_select_own_or_staff on storage.objects
 for select to authenticated
 using (
   bucket_id='lab-reports'
-  and ((storage.foldername(name))[1]=auth.uid()::text or public.is_staff())
+  and ((storage.foldername(name))[1]=auth.uid()::text or private.is_staff())
 );
 
 -- The client never edits uploaded objects in place; replacement uses a new UUID path.
@@ -337,7 +345,7 @@ for delete to authenticated
 using (
   bucket_id='lab-reports'
   and (
-    public.is_admin()
+    private.is_admin()
     or (
       (storage.foldername(name))[1]=auth.uid()::text
       and not exists (
