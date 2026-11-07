@@ -644,24 +644,26 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     let visible=classesCache;
     if(profile.role==="student"){
       const {data:members}=await db.from("class_members").select("class_id").eq("student_id",user.id).eq("status","active");
-      const ids=new Set((members||[]).map(x=>x.class_id));visible=classesCache.filter(c=>ids.has(c.id));
+      const ids=new Set((members||[]).map(x=>x.class_id));visible=classesCache.filter(c=>ids.has(c.id)&&c.is_active);
     }
-    $("classList").innerHTML=visible.map(c=>`<article class="class-card"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.course_code||"课程班级")}</small><p>${escapeHtml(c.description||"")}</p>${profile.role!=="student"?`<code>加入码：${escapeHtml(c.join_code)}</code>`:""}</article>`).join("")||'<p class="muted">当前没有班级。</p>';
-    $("classTaskSelect").innerHTML=visible.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-    $("reportClass").innerHTML=visible.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-    if(!activeClassId&&visible.length)activeClassId=visible[0].id;
-    if(activeClassId)$("classTaskSelect").value=activeClassId;
+    $("classList").innerHTML=visible.map(c=>'<article class="class-card"><div class="class-card-top"><strong>'+escapeHtml(c.name)+'</strong><span class="status-pill '+(c.is_active?"graded":"draft")+'">'+(c.is_active?"启用":"停用")+'</span></div><small>'+escapeHtml(c.course_code||"课程班级")+'</small><p>'+escapeHtml(c.description||"")+'</p>'+(profile.role!=="student"?'<code>加入码：'+escapeHtml(c.join_code)+'</code><div class="class-card-actions"><button class="action-link" data-class-edit="'+c.id+'">编辑班级</button> <button class="action-link danger-text" data-class-delete="'+c.id+'">'+(c.is_active?"停用 / 删除":"删除")+'</button></div>':"")+'</article>').join("")||'<p class="muted">当前没有班级。</p>';
+    const managerClasses=visible.filter(c=>profile.role==="admin"||c.is_active);
+    $("classTaskSelect").innerHTML=managerClasses.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+(c.is_active?"":"（停用）")+'</option>').join("");
+    $("reportClass").innerHTML=visible.filter(c=>c.is_active).map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
+    if(!activeClassId&&managerClasses.length)activeClassId=managerClasses[0].id;
+    if(activeClassId&&managerClasses.some(c=>c.id===activeClassId))$("classTaskSelect").value=activeClassId;
     $("classManagerTools").classList.toggle("hidden",profile.role==="student");
+    $("joinClassCode").parentElement.classList.toggle("hidden",profile.role!=="student");
     await loadClassAssignments();
   }
   async function loadClassAssignments(){
     const classId=$("classTaskSelect").value||activeClassId;activeClassId=classId;
     if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
-    const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
+    const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,required,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=error.message;return;}
-    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span></div>`).join("")||"本班暂无实验任务。";
+    $("classAssignments").innerHTML=(data||[]).map(a=>'<div class="assignment-row"><div><strong>'+escapeHtml(a.title)+'</strong><small>'+escapeHtml(a.experiment_catalog?.name||"实验")+' · '+(a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止")+'</small><p>'+escapeHtml(a.instructions||"")+'</p></div><span class="status-pill '+(a.is_open?"graded":"draft")+'">'+(a.is_open?"开放":"关闭")+'</span>'+(profile.role!=="student"?'<div class="assignment-actions"><button class="action-link" data-assignment-toggle="'+a.id+'">'+(a.is_open?"关闭任务":"重新开放")+'</button> <button class="action-link" data-assignment-edit="'+a.id+'">编辑</button> <button class="action-link danger-text" data-assignment-delete="'+a.id+'">删除</button></div>':"")+'</div>').join("")||"本班暂无实验任务。";
     await loadClassRoster(classId);
-    $("reportAssignment").innerHTML=(data||[]).filter(a=>a.is_open).map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
+    $("reportAssignment").innerHTML=(data||[]).filter(a=>a.is_open&&a.required).map(a=>'<option value="'+a.id+'" data-slug="'+escapeHtml(a.experiment_catalog?.slug||"")+'">'+escapeHtml(a.title)+'</option>').join("");
     $("reportClass").value=classId;
   }
   async function loadClassRoster(classId){
@@ -678,21 +680,19 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const classId=$("classTaskSelect").value;
     const ids=Array.from(document.querySelectorAll(".class-user-check:checked")).map(x=>x.value);
     if(!classId||!ids.length){toast("请先选择班级并勾选学生。",true);return;}
-    const message=action==="delete_students"?"确认永久删除选中学生账号及其报告文件？":"为选中学生生成密码恢复链接？";
+    const actualAction=action==="reset_passwords"?"reset_passwords":(profile.role==="admin"?"delete_students":"remove_students_from_class");
+    const message=actualAction==="delete_students"?"确认永久删除选中学生账号及其全部报告历史文件？管理员操作不可恢复。":
+      actualAction==="remove_students_from_class"?"确认将选中学生从当前班级移出？其账号及其他班级记录会保留。":"为选中学生批量生成密码恢复链接？";
     if(!confirm(message))return;
-    const results=[];
-    for(const id of ids){
-      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action,user_id:id,user_ids:[id],class_id:classId}});
-      if(error)results.push({id,ok:false,error:error.message});
-      else if(action==="reset_password")results.push({id,ok:!!data?.action_link,email:data?.email,link:data?.action_link,error:data?.error});
-      else results.push(...(data?.results||[]));
-    }
-    if(action==="reset_password"){
-      $("accountActionResult").textContent=results.filter(x=>x.ok).map(x=>x.email+" "+x.link).join("\n")||"没有生成恢复链接。";
-      toast("已生成 "+results.filter(x=>x.ok).length+"/"+ids.length+" 个恢复链接。");
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:actualAction,user_ids:ids,class_id:classId}});
+    if(error){toast("批量操作失败："+error.message,true);return;}
+    const results=data?.results||[];
+    if(actualAction==="reset_passwords"){
+      $("accountActionResult").innerHTML=results.filter(x=>x.ok).map(x=>'<div class="reset-link-row"><strong>'+escapeHtml(x.full_name||x.email)+'</strong><a href="'+escapeHtml(x.action_link)+'" target="_blank" rel="noopener">打开密码重置链接</a></div>').join("")||"没有生成恢复链接。";
+      toast("已生成 "+results.filter(x=>x.ok).length+"/"+ids.length+" 个恢复链接，请通过安全渠道转交学生。");
     }else{
-      toast("账号删除完成："+results.filter(x=>x.ok).length+"/"+ids.length+" 个成功。");
-      await loadClassRoster(classId);
+      toast((actualAction==="delete_students"?"永久删除":"本班移除")+"完成："+results.filter(x=>x.ok).length+"/"+ids.length+" 个成功。");
+      await loadClassRoster(classId);if(actualAction==="delete_students")await loadUsers();
     }
   }
   async function joinClass(){
@@ -704,7 +704,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function importClassRoster(){
     const classId=$("classTaskSelect").value,file=$("rosterFile").files[0];if(!classId||!file){toast("请选择班级和 CSV 名单。",true);return;}
     const lines=(await file.text()).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-    const students=lines.map(line=>{const p=line.split(/[,，\t;]/).map(x=>x.trim());return {email:p[0],full_name:p[1],student_no:p[2]||""};}).filter(x=>x.email&&x.full_name);
+    const students=lines.map(line=>{const p=line.split(/[,，\t;]/).map(x=>x.trim());return {email:p[0],full_name:p[1],student_no:p[2]||""};}).filter(x=>x.email&&x.full_name&&!/^(邮箱|email)$/i.test(x.email));
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
     if(error){toast("名单导入失败："+error.message,true);return;}
     const ok=(data?.results||[]).filter(x=>x.ok).length;toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
@@ -713,6 +713,48 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const name=$("newClassName").value.trim();if(!name){toast("请填写班级名称。",true);return;}
     const {error}=await db.from("classes").insert({name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim(),teacher_id:user.id});
     if(error){toast(error.message,true);return;}toast("班级创建成功。");loadClasses();
+  }
+  async function editClass(id){
+    const c=classesCache.find(x=>x.id===id);if(!c)return;
+    const name=prompt("班级名称",c.name);if(name===null)return;
+    const code=prompt("课程代码",c.course_code||"");if(code===null)return;
+    const desc=prompt("班级说明",c.description||"");if(desc===null)return;
+    const {error}=await db.from("classes").update({name:name.trim(),course_code:code.trim(),description:desc.trim()}).eq("id",id);
+    if(error){toast("班级修改失败："+error.message,true);return;}toast("班级信息已更新。");await loadClasses();
+  }
+  async function deleteClass(id){
+    const c=classesCache.find(x=>x.id===id);if(!c)return;
+    if(!confirm("确认停用或删除班级“"+c.name+"”？如果已有任务或报告，系统只会停用，不会清除教学记录。"))return;
+    const {count:taskCount}=await db.from("experiment_assignments").select("id",{count:"exact",head:true}).eq("class_id",id);
+    const {count:reportCount}=await db.from("report_submissions").select("id",{count:"exact",head:true}).eq("class_id",id);
+    const result=(taskCount||reportCount)
+      ?await db.from("classes").update({is_active:false}).eq("id",id)
+      :await db.from("classes").delete().eq("id",id);
+    if(result.error){toast("班级操作失败："+result.error.message,true);return;}
+    if(activeClassId===id)activeClassId=null;
+    toast((taskCount||reportCount)?"班级已停用，历史任务和报告保留。":"空班级已删除。");await loadClasses();
+  }
+  async function toggleAssignment(id){
+    const {data,error:readError}=await db.from("experiment_assignments").select("is_open,title").eq("id",id).maybeSingle();
+    if(readError||!data){toast(readError?.message||"任务不存在。",true);return;}
+    const {error}=await db.from("experiment_assignments").update({is_open:!data.is_open}).eq("id",id);
+    if(error){toast(error.message,true);return;}toast(data.is_open?"任务已关闭。":"任务已重新开放。");await loadClassAssignments();
+  }
+  async function editAssignment(id){
+    const {data,error:readError}=await db.from("experiment_assignments").select("title,instructions,due_at").eq("id",id).maybeSingle();
+    if(readError||!data){toast(readError?.message||"任务不存在。",true);return;}
+    const title=prompt("任务名称",data.title);if(title===null)return;
+    const instructions=prompt("任务要求",data.instructions||"");if(instructions===null)return;
+    const due=prompt("截止时间（留空表示不限时；格式示例 2026-12-01T23:59）",data.due_at?new Date(data.due_at).toISOString().slice(0,16):"");if(due===null)return;
+    const {error}=await db.from("experiment_assignments").update({title:title.trim(),instructions,due_at:due?new Date(due).toISOString():null}).eq("id",id);
+    if(error){toast(error.message,true);return;}toast("任务已更新。");await loadClassAssignments();
+  }
+  async function deleteAssignment(id){
+    const {count,error:countError}=await db.from("report_submissions").select("id",{count:"exact",head:true}).eq("assignment_id",id);
+    if(countError){toast(countError.message,true);return;}
+    if(!confirm(count?"该任务已有学生报告，不能物理删除。是否关闭任务并保留记录？":"确认删除该实验任务？"))return;
+    const result=count?await db.from("experiment_assignments").update({is_open:false,required:false}).eq("id",id):await db.from("experiment_assignments").delete().eq("id",id);
+    if(result.error){toast(result.error.message,true);return;}toast(count?"任务已关闭，历史报告保留。":"任务已删除。");await loadClassAssignments();
   }
   async function publishAssignment(){
     const slug=$("taskExperiment").value,cls=$("classTaskSelect").value,exp=experiments.find(x=>x.slug===slug);
@@ -728,14 +770,15 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function bulkAccountAction(action){
     const ids=Array.from(document.querySelectorAll(".user-check:checked")).map(x=>x.value);
     if(!ids.length){toast("请先勾选学生账号。",true);return;}
-    if(!confirm(action==="delete_students"?"确认批量删除选中的学生账号及报告文件？":"为选中学生生成密码恢复链接？"))return;
+    if(!confirm(action==="delete_students"?"确认永久删除选中的学生账号及其全部报告历史文件？此操作不可恢复。":"为选中学生批量生成密码恢复链接？"))return;
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:action==="reset_password"?"reset_passwords":action,user_ids:ids}});
+    if(error){toast(error.message,true);return;}
+    const results=data?.results||[];
     if(action==="delete_students"){
-      const result=await db.functions.invoke("classroom-admin",{body:{action,user_ids:ids}});
-      if(result.error){toast(result.error.message,true);return;}
-      const ok=(result.data?.results||[]).filter(x=>x.ok).length;toast("批量删除完成："+ok+"/"+ids.length+" 个成功。");loadUsers();
+      toast("批量删除完成："+results.filter(x=>x.ok).length+"/"+ids.length+" 个成功。");loadUsers();
     }else{
-      const links=[];for(const id of ids){const result=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});if(!result.error&&result.data?.action_link)links.push(result.data.email+" "+result.data.action_link);}
-      $("accountActionResult").textContent=links.join("\n")||"没有生成恢复链接。";toast("已生成 "+links.length+" 个恢复链接，请安全转交学生。");
+      $("accountActionResult").innerHTML=results.filter(x=>x.ok).map(x=>'<div class="reset-link-row"><strong>'+escapeHtml(x.full_name||x.email)+'</strong><a href="'+escapeHtml(x.action_link)+'" target="_blank" rel="noopener">打开密码重置链接</a></div>').join("")||"没有生成恢复链接。";
+      toast("已生成 "+results.filter(x=>x.ok).length+" 个密码恢复链接，请安全转交学生。");
     }
   }
   async function runAdminConnectionCheck(){
