@@ -124,9 +124,9 @@
     },
     {
       slug:"saponification",code:"PC-02",name:"乙酸乙酯的皂化反应",workflow:"saponification",
-      tables:[{key:"main",title:"不同时刻电导率数据",columns:["t_min","kappa_T1","kappa_T2"],headers:["t / min","κt(T1) / mS·cm⁻¹","κt(T2) / mS·cm⁻¹"],example:"0\t2.18\t2.45\n1\t2.07\t2.29\n2\t1.98\t2.15\n3\t1.90\t2.03"}],
-      settings:[{key:"T1_C",label:"温度 T1 (℃)",defaultValue:30},{key:"T2_C",label:"温度 T2 (℃)",defaultValue:35},{key:"kappa0_1",label:"κ0(T1)",defaultValue:2.18},{key:"kappaInf_1",label:"κ∞(T1)",defaultValue:0.81},{key:"kappa0_2",label:"κ0(T2)",defaultValue:2.45},{key:"kappaInf_2",label:"κ∞(T2)",defaultValue:0.91},{key:"c0",label:"反应物初始浓度 c0 (mol/L)",defaultValue:0.005}],
-      note:"上传报告式(12)–(15)：y=1/(κt−κ∞) 对 t 作图，k=m/(c0·b)，m 为斜率，b 为截距；不同温度的 k 用 Arrhenius 两点式求 Ea。请使用混合后体系实际 c0。",
+      tables:[{key:"main",title:"不同时刻电导率数据",columns:["t_min","kappa_T1","kappa_T2"],headers:["t / min","κt(T1) / mS·cm⁻¹","κt(T2) / mS·cm⁻¹"],example:"0\t2.15\t2.28\n1\t2.14\t2.20\n2\t2.13\t2.05\n3\t2.12\t1.94\n4\t2.08\t1.85\n5\t2.06\t1.80\n6\t2.03\t1.77\n7\t2.00\t1.74\n8\t1.98\t1.72\n9\t1.96\t1.71\n10\t1.94\t1.68"}],
+      settings:[{key:"T1_C",label:"温度 T1 (℃)",defaultValue:25},{key:"T2_C",label:"温度 T2 (℃)",defaultValue:30},{key:"kappa0_1",label:"κ0(T1)",defaultValue:2.15},{key:"kappaInf_1",label:"κ∞(T1)",defaultValue:0.68},{key:"kappa0_2",label:"κ0(T2)",defaultValue:2.28},{key:"kappaInf_2",label:"κ∞(T2)",defaultValue:0.75},{key:"c0",label:"反应物初始浓度 c0 (mol/L)",defaultValue:0.00999}],
+      note:"依据上传的吴兆宇实验报告：25℃与30℃两组数据，κ0分别为2.15、2.28 mS·cm⁻¹，κ∞分别为0.68、0.75 mS·cm⁻¹。式(12)–(15)：y=1/(κt−κ∞) 对 t 作图，k=m/(c0·b)，m为斜率、b为截距；不同温度的k用Arrhenius两点式求Ea。c0应按NaOH物质的量除以加入乙酸乙酯后的实际总体积计算，默认值0.00999 mol/L仅对应报告中的100mL、0.0100mol/L NaOH与约97.9μL乙酸乙酯。",
       analyze:(tables,s,sel)=>{
         const rows=matrix(tables.main,3);if(rows.length<3)throw new Error("至少录入 3 个时间点。");
         const out=[],series=[];
@@ -137,7 +137,7 @@
         }
         const Ea=R*Math.log(out[1].k/out[0].k)/(1/out[0].K-1/out[1].K);
         series.push(makeSeries("Arrhenius ln k - 1/T",out.map(v=>({x:1/v.K,y:Math.log(v.k)})),linear(out.map(v=>({x:1/v.K,y:Math.log(v.k)}))),{x:"1/T / K⁻¹",y:"ln k"}));
-        return {series,fit:out[0].fit,metrics:[["k(T1)",out[0].k,"L·mol⁻¹·min⁻¹"],["k(T2)",out[1].k,"L·mol⁻¹·min⁻¹"],["Ea",Ea/1000,"kJ/mol"],["R²(T1)",out[0].fit.r2,""],["R²(T2)",out[1].fit.r2,""]],warnings:["Excel 工作表给出 30℃、35℃数据；请确认各温度的 κ0、κ∞ 是否来自同一次实验。","如果每次混合总体积改变，必须按实际体积重新计算 c0。"],rawRows:rows,headers:["t_min","kappa_T1","kappa_T2"],resultRows:rows.map(r=>[r[0],r[1],r[2],r[1]>s.kappaInf_1?1/(r[1]-s.kappaInf_1):null,r[2]>s.kappaInf_2?1/(r[2]-s.kappaInf_2):null])};
+        return {series,fit:out[0].fit,metrics:[["k(T1)",out[0].k,"L·mol⁻¹·min⁻¹"],["k(T2)",out[1].k,"L·mol⁻¹·min⁻¹"],["Ea",Ea/1000,"kJ/mol"],["R²(T1)",out[0].fit.r2,""],["R²(T2)",out[1].fit.r2,""]],warnings:["当前默认值按上传报告的25℃、30℃数据设置；如其他批次实验温度或κ0、κ∞不同，请使用本组实测值覆盖默认值。","如果每次混合总体积改变，必须按实际体积重新计算 c0。"],rawRows:rows,headers:["t_min","kappa_T1","kappa_T2"],resultRows:rows.map(r=>[r[0],r[1],r[2],r[1]>s.kappaInf_1?1/(r[1]-s.kappaInf_1):null,r[2]>s.kappaInf_2?1/(r[2]-s.kappaInf_2):null])};
       }
     },
     {
