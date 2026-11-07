@@ -180,12 +180,15 @@ export default {
           .select("previous_storage_path").eq("report_id", reportId);
         if (revisionError) return json({ error: revisionError.message }, 500);
         const paths = [...new Set([report.storage_path, ...(revisions ?? []).map((r: { previous_storage_path: string }) => r.previous_storage_path)].filter(Boolean))];
-        if (paths.length) {
-          const { error: storageError } = await supabaseAdmin.storage.from("lab-reports").remove(paths);
-          if (storageError) return json({ error: "Could not remove all report versions: " + storageError.message }, 500);
-        }
         const { error: deleteError } = await supabaseAdmin.from("report_submissions").delete().eq("id", reportId);
         if (deleteError) return json({ error: deleteError.message }, 500);
+        if (paths.length) {
+          const { error: storageError } = await supabaseAdmin.storage.from("lab-reports").remove(paths);
+          if (storageError) {
+            await audit(report.student_id, "report.deleted_storage_cleanup_failed", { report_id: reportId, file_count: paths.length, error: storageError.message });
+            return json({ ok: true, report_id: reportId, removed_files: 0, cleanup_warning: storageError.message });
+          }
+        }
         await audit(report.student_id, "report.deleted", { report_id: reportId, version_file_count: paths.length });
         return json({ ok: true, report_id: reportId, removed_files: paths.length });
       }
@@ -227,13 +230,13 @@ export default {
             ...(reports ?? []).map((r: { storage_path: string }) => r.storage_path),
             ...(revisions ?? []).map((r: { previous_storage_path: string }) => r.previous_storage_path)
           ].filter(Boolean))];
-          if (paths.length) {
-            const { error: storageError } = await supabaseAdmin.storage.from("lab-reports").remove(paths);
-            if (storageError) { results.push({ user_id: id, ok: false, error: "Could not remove report files: " + storageError.message }); continue; }
-          }
           await audit(id, "account.student_permanent_delete_requested", { report_count: reports?.length ?? 0, archived_file_count: paths.length });
           const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
-          if (error) results.push({ user_id: id, ok: false, error: error.message });
+          if (error) { results.push({ user_id: id, ok: false, error: error.message }); continue; }
+          const { error: storageError } = paths.length
+            ? await supabaseAdmin.storage.from("lab-reports").remove(paths)
+            : { error: null };
+          if (storageError) results.push({ user_id: id, ok: true, operation: "permanently_deleted", cleanup_warning: storageError.message });
           else results.push({ user_id: id, ok: true, operation: "permanently_deleted" });
         }
         return json({ results });
