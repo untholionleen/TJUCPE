@@ -164,6 +164,32 @@ export default {
         return json({ results });
       }
 
+      if (action === "delete_report") {
+        const reportId = String(body.report_id ?? "");
+        if (!reportId) return json({ error: "report_id required" }, 400);
+        const { data: report, error: reportError } = await supabaseAdmin.from("report_submissions")
+          .select("id,student_id,class_id,status,storage_path,file_name").eq("id", reportId).maybeSingle();
+        if (reportError || !report) return json({ error: "Report not found" }, 404);
+        const ownerCanDelete = report.student_id === actorId && ["draft","returned","withdrawn"].includes(report.status);
+        const staffCanDelete = isAdmin || (actor.role === "teacher" && !!report.class_id && await (async () => {
+          const { data } = await supabaseAdmin.from("classes").select("id").eq("id", report.class_id).eq("teacher_id", actorId).maybeSingle();
+          return !!data;
+        })());
+        if (!ownerCanDelete && !staffCanDelete) return json({ error: "You are not allowed to delete this report in its current state" }, 403);
+        const { data: revisions, error: revisionError } = await supabaseAdmin.from("report_revisions")
+          .select("previous_storage_path").eq("report_id", reportId);
+        if (revisionError) return json({ error: revisionError.message }, 500);
+        const paths = [...new Set([report.storage_path, ...(revisions ?? []).map((r: { previous_storage_path: string }) => r.previous_storage_path)].filter(Boolean))];
+        if (paths.length) {
+          const { error: storageError } = await supabaseAdmin.storage.from("lab-reports").remove(paths);
+          if (storageError) return json({ error: "Could not remove all report versions: " + storageError.message }, 500);
+        }
+        const { error: deleteError } = await supabaseAdmin.from("report_submissions").delete().eq("id", reportId);
+        if (deleteError) return json({ error: deleteError.message }, 500);
+        await audit(report.student_id, "report.deleted", { report_id: reportId, version_file_count: paths.length });
+        return json({ ok: true, report_id: reportId, removed_files: paths.length });
+      }
+
       if (action === "delete_students") {
         const ids = Array.isArray(body.user_ids) ? [...new Set(body.user_ids.map(String))].slice(0, 100) : [];
         if (!ids.length) return json({ error: "No user IDs supplied" }, 400);
