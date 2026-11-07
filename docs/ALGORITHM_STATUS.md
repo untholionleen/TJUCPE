@@ -32,7 +32,7 @@ The workbooks did not contain embedded chart objects in the inspected sheets. Th
 
 The generic regression is a mathematical visualization tool. It does not assert that a polynomial is the physically correct model for every experiment. Select the fit form only when justified by the experiment instructions.
 
-## Gemini plotting script — items to verify before scientific release
+## User-supplied Python plotting script — items to verify before scientific release
 
 The supplied script creates three useful figure concepts:
 1. surface tension γ versus concentration c, with a Szyszkowski model;
@@ -84,3 +84,28 @@ The 14-workflow calculation smoke test, generic regression smoke test, and datab
 2. For each fit-dependent experiment, select a subset of raw points and verify that the displayed fit parameters change as expected; clear the selection and verify the full-data fit returns.
 3. Verify the Matplotlib image and PNG export in current Chrome/Edge and Firefox browsers, including a cold-cache first load when Pyodide and Matplotlib must download.
 4. Confirm formula constants, units, uncertainty propagation and reaction stoichiometry with the course instructor before using results for grading or formal reports.
+
+
+## Direct Excel workbook integration audit (2026-11-08)
+
+The three supplied Excel workbooks were opened at the worksheet/cell level, not treated as opaque attachments. They contain no embedded Excel formulas or chart objects in the inspected sheets; most calculated columns are stored as values. The site therefore reproduces documented calculation paths and accepts imported processed values rather than pretending to execute hidden Excel formulas.
+
+### Source workbook mapping
+
+- `合并版【吴兆宇版】.xlsx`: `实验数据` (saponification, 30℃/35℃), `最大液泡法测定液体的表面张力` (concentration and three replicate pressure columns; measurement cells are blank in this workbook), `溶胶的制备、ζ电势与电解质聚沉值的测定`, `数据源` (about 4,000 rows of potential and logarithmic-current channels), and `原电池热力学`.
+- `合并版【学长版】.xlsx`: peroxide decomposition, rectorite/methylene-blue adsorption, binary condensed-system cooling curves, ethanol–propanol boiling composition, reaction enthalpy, thermostat/viscosity, freezing-point depression, and equilibrium-constant tables.
+- `实验处理数据结果.xlsx`: 201 rows with three explicit columns: concentration c (mol/dm³), surface tension γ (mN/m), and surface excess Γ (mol/m²).
+
+### Changes made from those workbook observations
+
+1. PC-01 now accepts **two input routes**: raw maximum-pressure replicates (with same-temperature pure-water calibration) or the already-processed `c, γ, Γ` three-column data from `实验处理数据结果.xlsx`. When the processed table contains at least four valid rows, it uses those measured/processed Γ values directly and does not apply pressure calibration a second time. The original pressure route remains available.
+2. PC-02 defaults now match the Excel `实验数据` sheet: 30℃/35℃, κ0=2.18/2.45, κ∞=0.81/0.91 mS·cm⁻¹, with the 14 time rows. The separately supplied report text shows a different 25℃/30℃ set (κ0=2.15/2.28 and κ∞=0.68/0.75). These are **not silently merged**: use the report set by changing all temperature and conductivity reference settings together. The Excel sheet does not specify c0; the default 0.00999 mol/L is derived from the separate report's stated 100 mL 0.0100 mol/L NaOH plus approximately 97.9 μL ethyl acetate, and must be recalculated if the mixing protocol differs.
+3. The supplied surface-tension Python script's 72.75 mN/m pure-water reference is the displayed default for the raw-pressure route, but the user must still enter the actual pure-water pressure measured with the same instrument at the same temperature. It is not used when importing the processed `c, γ, Γ` table.
+4. PC-03 keeps the workbook's calibration curve, dilution factors and original `qe` convention visible. Adsorption capacity in mg/g still requires the solution volume and adsorbent mass with verified units; the site does not relabel `C0-Ce` as mg/g without that conversion.
+5. The PC-06, PC-07, PC-08, PC-09, PC-10 and PC-12 table schemas are aligned to the workbook's multi-composition cooling curves, refractive-index calibration and gas/liquid compositions, calorimeter time blocks, multiple freezing curves, pressure/temperature equilibrium data, and separated thermostat/viscometer blocks. PC-14 retains all four potential/log-current channels from the long `数据源` sheet.
+
+### Remaining limits
+
+- The surface-tension raw pressure cells in the supplied workbook are blank; the 201-row processed file is the usable numeric reference for that path. Do not infer raw Δp replicates from the processed curve.
+- The workbooks do not encode every experimental equation, constant or unit definition. The 14 workflows are implemented as dedicated calculation routes, but they are not declared instructor-approved until checked against the current experiment instructions.
+- New catalog entries created by teachers use the generic data workspace until a dedicated calculation template is reviewed and added to the engine. A catalog row alone does not create a scientifically validated formula.
