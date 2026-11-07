@@ -22,10 +22,10 @@ const required = [
   "create policy report_objects_delete_orphan_own_or_admin",
   "values (\n  'lab-reports','lab-reports',false,20971520",
   "grant select, insert, delete on storage.objects to authenticated",
-  "revoke all on function public.is_admin() from public, anon",
-  "revoke all on function public.is_staff() from public, anon",
-  "grant execute on function public.is_admin() to authenticated",
-  "grant execute on function public.is_staff() to authenticated",
+  "revoke all on function private.is_admin() from public, anon",
+  "revoke all on function private.is_staff() from public, anon",
+  "grant execute on function private.is_admin() to authenticated",
+  "grant execute on function private.is_staff() to authenticated",
   "set search_path = ''"
 ];
 
