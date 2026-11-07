@@ -151,7 +151,7 @@
       analyze:(tables,s,sel)=>{
         const cal=matrix(tables.calibration,2),sam=matrix(tables.samples,4);
         if(cal.length<3||sam.length<2)throw new Error("请分别录入工作曲线（至少 3 点）和吸附平衡样品（至少 2 组）。");
-        const cf=linear(cal.map((r,i)=>({x:r[0],y:r[1],i})));if(cf.slope<=0)throw new Error("工作曲线斜率应为正值，请检查浓度和吸光度列。");
+        const cf=linearRange(cal.map((r,i)=>({x:r[0],y:r[1],i})),sel);if(cf.slope<=0)throw new Error("工作曲线斜率应为正值，请检查浓度和吸光度列。");
         const data=sam.map((r,i)=>{
           const ceDil=(r[2]-cf.intercept)/cf.slope, ce=ceDil*r[3];
           const delta=r[0]-ce, qe=s.V_mL>0&&r[1]>0?delta*(s.V_mL/1000)/r[1]:NaN;
@@ -195,7 +195,7 @@
       analyze:(tables,s)=>{
         const r=matrix(tables.main,3);if(r.length<2)throw new Error("至少需要两个温度下的电动势数据。");
         const avg=r.map((x,i)=>({x:x[0]+273.15,y:(x[1]+x[2])/2,i}));
-        const f=linear(avg);const n=s.n_e;if(!(n>0))throw new Error("电子转移数 n 必须大于 0。");
+        const f=linearRange(avg,sel);const n=s.n_e;if(!(n>0))throw new Error("电子转移数 n 必须大于 0。");
         const values=avg.map(p=>({T:p.x,E:p.y,G:-n*F*p.y,S:n*F*f.slope,H:-n*F*p.y+p.x*n*F*f.slope}));
         return {series:[makeSeries("E-T 原始数据",avg,f,{x:"T / K",y:"E / V"})],fit:f,metrics:[["dE/dT",f.slope,"V/K"],["ΔrGm（首个温度）",values[0].G/1000,"kJ/mol"],["ΔrSm",values[0].S,"J/(K·mol)"],["ΔrHm（首个温度）",values[0].H/1000,"kJ/mol"],["E 的线性拟合 R²",f.r2,""]],warnings:["本次仅计算温度系数及 ΔrGm、ΔrSm、ΔrHm；标准电动势和难溶盐溶度积还需按报告中的 Nernst 方程、活度/浓度数据单独补充。","Excel 上传表中 E1/E2 个别值量级看起来可能是 mV 或仪器刻度；请确认单位确为 V 后再计算。"],rawRows:r,headers:["t_C","E1_V","E2_V","E0_V"],resultRows:values.map(v=>[v.T,v.E,v.G,v.S,v.H])};
       }
@@ -210,7 +210,8 @@
         const cols=["Sn（纯）","30% Sn","61.9% Sn","80% Sn","Pb（纯）"],series=[],metrics=[];
         for(let j=1;j<6;j++){
           const pts=r.map((x,i)=>({x:x[0],y:x[j],i}));
-          const plateau=fitPlateau(pts,Math.min(7,Math.max(3,Math.floor(pts.length/5))));
+          const chosen=selectPoints(pts,sel);
+          const plateau=chosen.length>=3?{start:Math.min(...chosen.map(p=>p.i)),end:Math.max(...chosen.map(p=>p.i)),temp:stats(chosen.map(p=>p.y)).mean,manual:true}:fitPlateau(pts,Math.min(7,Math.max(3,Math.floor(pts.length/5)));
           series.push(makeSeries(cols[j-1],pts,null,{x:"时间 / s",y:"温度 / ℃"}));
           metrics.push([cols[j-1]+" 自动平台估计",plateau?.temp??NaN,"℃"],[cols[j-1]+" 平台区间",plateau?((plateau.start+1)+"–"+(plateau.end+1)):"—","数据点"]);
         }
@@ -229,7 +230,7 @@
       note:"依据上传 Excel：折射率标准曲线采用丙醇质量分数对 nD 的标定；气相冷凝液和液相分别由各自 nD 反算组成，绘制 T-x-y。原报告要求折射率测量温度与波长一致。",
       analyze:(tables)=>{
         const c=matrix(tables.calibration,2),r=matrix(tables.samples,3);if(c.length<3||r.length<2)throw new Error("请录入折射率标准系列与沸点/气液折射率样品。");
-        const f=linear(c.map((x,i)=>({x:x[0],y:x[1],i})));
+        const f=linearRange(c.map((x,i)=>({x:x[0],y:x[1],i})),sel);
         const inv=n=>{if(!Number.isFinite(n))return NaN;return Math.max(0,Math.min(100,(n-f.intercept)/f.slope));};
         const out=r.map((x,i)=>({T:x[0],y:inv(x[1]),x:inv(x[2]),i})).filter(x=>Number.isFinite(x.x));
         return {series:[makeSeries("标准曲线 nD-w",c.map((x,i)=>({x:x[0],y:x[1],i})),f,{x:"正丙醇质量分数 / %",y:"nD"}),makeSeries("T-x（液相）",out.map(o=>({x:o.x,y:o.T,i:o.i})),null,{x:"液相 w / %",y:"沸点 T / ℃"}),makeSeries("T-y（气相）",out.filter(o=>Number.isFinite(o.y)).map(o=>({x:o.y,y:o.T,i:o.i})),null,{x:"气相 w / %",y:"沸点 T / ℃"})],fit:f,metrics:[["标准曲线斜率",f.slope,"nD/%"],["标准曲线截距",f.intercept,"nD"],["标准曲线 R²",f.r2,""],["已换算气液样品数",out.length,"组"]],warnings:["样品 nD 为空的纯组分端点不参与折射率反算，应将其纯组分组成作为 0% 或 100% 的边界点另行录入。","若标准曲线存在非线性，应根据实验数据比较线性/二次拟合，而非强制线性外推。"],rawRows:r,headers:["boiling_C","vapor_nD","liquid_nD"],resultRows:out.map(x=>[x.T,x.y,x.x])};
@@ -246,7 +247,7 @@
       settings:[{key:"eventKCl",label:"KCl 投入时刻 (min)",defaultValue:6.5},{key:"eventRxn",label:"ZnO 投入时刻 (min)",defaultValue:6.5},{key:"massKCl_g",label:"KCl 质量 (g)",defaultValue:10.7207},{key:"water_g",label:"水质量 (g)",defaultValue:500},{key:"deltaH_KCl_kJmol",label:"该组成 KCl 积分溶解焓 (kJ/mol，查表输入)",defaultValue:""},{key:"cpWater",label:"水比热 (J·g⁻¹·K⁻¹)",defaultValue:4.184},{key:"cpKCl",label:"KCl 固体比热 (J·g⁻¹·K⁻¹)",defaultValue:""},{key:"massZnO_g",label:"ZnO 质量 (g)",defaultValue:1.0683},{key:"massHCl_g",label:"HCl 溶液质量 (g)",defaultValue:498.3},{key:"cpZnO",label:"ZnO 比热 (J·g⁻¹·K⁻¹)",defaultValue:0.46},{key:"cpHCl",label:"HCl 溶液比热 (J·g⁻¹·K⁻¹)",defaultValue:4.134}],
       note:"按上传报告流程：分别对加料前后温度-时间基线拟合并外推到加料时刻，作温度修正；先由 KCl 溶解标定量热计 K，再由 ZnO 与 0.2 mol/L HCl 反应计算 ΔrHm。KCl 积分溶解焓和 KCl 固体比热必须按教材/数据表输入。",
       analyze:(t,s)=>{
-        const getFit=(key)=>{const r=matrix(t[key],2);if(r.length<2)throw new Error("请完整录入四组量热温度基线："+key);return {r,fit:linear(r.map((x,i)=>({x:x[0],y:x[1],i})))};};
+        const getFit=(key)=>{const r=matrix(t[key],2);if(r.length<2)throw new Error("请完整录入四组量热温度基线："+key);return {r,fit:linearRange(r.map((x,i)=>({x:x[0],y:x[1],i})),sel)};};
         const kb=getFit("kclBefore"),ka=getFit("kclAfter"),rb=getFit("rxnBefore"),ra=getFit("rxnAfter");
         const dtk=ka.fit.predict(s.eventKCl)-kb.fit.predict(s.eventKCl), dtr=ra.fit.predict(s.eventRxn)-rb.fit.predict(s.eventRxn);
         let K=NaN,dh=NaN;
@@ -301,7 +302,7 @@
       analyze:(t,s)=>{
         const r=matrix(t.main,3);if(r.length<3)throw new Error("至少需要 3 组温度与压力数据。");
         const values=r.map((x,i)=>{const T=x[0]+273.15,p=x[1]+x[2],K=(p/(2*s.pStandard_kPa))**2;return{T,p,K,lnK:Math.log(K),invT:1/T,i};});
-        const f=linear(values.map(x=>({x:x.invT,y:x.lnK,i:x.i}))),dh=-f.slope*R;
+        const f=linearRange(values.map(x=>({x:x.invT,y:x.lnK,i:x.i})),sel),dh=-f.slope*R;
         return {series:[makeSeries("ln Kθ - 1/T",values.map(x=>({x:x.invT,y:x.lnK,i:x.i})),f,{x:"1/T / K⁻¹",y:"ln Kθ"})],fit:f,metrics:[["ΔrHm",dh/1000,"kJ/mol"],["van’t Hoff R²",f.r2,""],["30℃ 平衡总压",values[0].p,"kPa"],["30℃ Kθ（按分压计量式）",values[0].K,""]],warnings:["请核对上传 Excel 的 Kθ 列：用 p_total=16.6 kPa、pθ=100 kPa 代入 Kθ=(p/2pθ)² 得到约 0.00689，与工作簿记录的 0.000678 不一致。当前按报告反应的 1:1 分压关系计算，需教师确认工作簿公式。"],rawRows:r,headers:["t_C","gauge_kPa","atmosphere_kPa"],resultRows:values.map(x=>[x.T,x.p,x.K,x.lnK,x.invT])};
       }
     },
@@ -313,7 +314,7 @@
       analyze:(t,s)=>{
         const r=matrix(t.main,3);if(r.length<3)throw new Error("至少需要 3 组温度和压力数据。");
         const values=r.map((x,i)=>{const T=x[0]+273.15,p=x[1]+x[2];return{T,p,invT:1/T,lnp:Math.log(p*1000),i};}).filter(x=>x.p>0);
-        const f=linear(values.map(x=>({x:x.invT,y:x.lnp,i:x.i}))),dh=-f.slope*R;
+        const f=linearRange(values.map(x=>({x:x.invT,y:x.lnp,i:x.i})),sel),dh=-f.slope*R;
         const boil=1/((Math.log(s.normalPressure_kPa*1000)-f.intercept)/f.slope)-273.15;
         return {series:[makeSeries("Clausius–Clapeyron ln p - 1/T",values.map(x=>({x:x.invT,y:x.lnp,i:x.i})),f,{x:"1/T / K⁻¹",y:"ln(p/Pa)"})],fit:f,metrics:[["平均汽化焓",dh/1000,"kJ/mol"],["拟合正常沸点",boil,"℃"],["R²",f.r2,""]],warnings:["请确认压力计是相对大气压的负压示数，且两液面平衡时 p_sat=p_atm+p_gauge。","拟合正常沸点属于区间外推时，需查看数据覆盖范围并谨慎解释。"],rawRows:r,headers:["T_C","pGauge_kPa","pAtmosphere_kPa"],resultRows:values.map(x=>[x.T,x.p,x.lnp,x.invT])};
       }
@@ -369,8 +370,9 @@
   const map=Object.fromEntries(defs.map(d=>[d.slug,d]));
   function analyze(slug, tables, settings, selected) {
     const def=map[slug]; if(!def) throw new Error("未找到该实验的专属算法模块。");
+    const numericSettings=Object.fromEntries(Object.entries(settings||{}).map(([key,value])=>[key,num(value)]));
     // Pass original textarea strings through: each workflow parses its own distinct table schema.
-    return def.analyze(tables||{},settings||{},selected||[]);
+    return def.analyze(tables||{},numericSettings,selected||[]);
   }
   function renderSetup(slug, root, settingsRoot, values={}) {
     const def=map[slug];if(!def)return;
