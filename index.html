@@ -109,14 +109,14 @@
         <div class="analysis-layout">
           <div class="analysis-main">
             <section class="panel">
-              <div class="panel-heading"><div><h3>原始数据</h3><p>可直接粘贴 Excel 中的两列或多列数据（Tab / 逗号分隔）。</p></div><span class="small-tag">RAW DATA</span></div>
+              <div class="panel-heading"><div><h3>原始数据</h3><p>可直接粘贴 Excel 中的两列或多列数据：第一列为 X，后续各列为独立 Y 曲线（Tab / 逗号分隔）。</p></div><span class="small-tag">RAW DATA</span></div>
               <div class="field-grid">
                 <label>X 轴列名<input id="xLabel" value="浓度 c"></label>
                 <label>Y 轴列名<input id="yLabel" value="表面张力 γ"></label>
                 <label>X 单位<input id="xUnit" value="mol·L⁻¹"></label>
                 <label>Y 单位<input id="yUnit" value="mN·m⁻¹"></label>
               </div>
-              <label class="data-label">数据区 <span>每行一个数据点，第一列为 X，第二列为 Y；可包含标题行。</span></label>
+              <label class="data-label">数据区 <span>每行一个数据点，第一列为 X，后续各列为 Y 系列；可包含标题行。</span></label>
               <textarea id="dataInput" class="data-editor" spellcheck="false" placeholder="0.00&#9;72.8&#10;0.05&#9;68.4&#10;0.10&#9;64.2&#10;……"></textarea>
               <div class="editor-actions"><label class="file-pick">导入 CSV / TXT<input id="dataFile" type="file" accept=".csv,.txt,.tsv"></label><button id="clearData" class="btn btn-quiet">清空数据</button><span id="dataCount" class="muted tiny">等待输入数据</span></div>
             </section>
