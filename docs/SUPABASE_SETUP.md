@@ -41,6 +41,25 @@ Supabase 项目引用：`snkokdrjxymlmyjbitbu`
 - API keys：https://supabase.com/docs/guides/getting-started/api-keys
 - Securing your data：https://supabase.com/docs/guides/database/secure-data
 
+## API key 报错：Invalid API key
+
+如果登录或注册时显示 `Invalid API key`，这表示 Supabase API 网关没有把请求中的 key 匹配到该项目当前可接受的 API key。它不是“密码输错”，也不能靠重新执行 SQL 修复。
+
+按顺序检查：
+
+1. 打开本项目 Dashboard → Settings → API Keys。
+2. 在 **Publishable and secret API keys** 区域复制 **Publishable key**，确认它是名为 `default` 的那一项（不要选 secret key，也不要选其他自定义名称的 key）。
+3. 在同一个项目页复制 Project URL。应为 `https://<project-ref>.supabase.co`，不能使用 Dashboard 的网址。
+4. 核对 URL 和 key 来自同一个项目；复制时不要带引号、空格、换行或隐藏字符。
+5. 将正确的 Project URL 和 Publishable key 更新到仓库 `config.js` 的 `SUPABASE_URL` 与 `SUPABASE_PUBLISHABLE_KEY`，提交后等待 Pages workflow 成功，再用 Ctrl+F5 刷新。
+6. 登录页的“检测 Supabase 连接”按钮会请求 Auth 的公开设置接口：HTTP 200 表示 API key 已被识别；HTTP 401 / Invalid API key 表示仍需重新核对 key 与项目。该检测不会创建账户、发送邮件或读取学生数据。
+
+`sb_publishable_...` 是浏览器端应使用的密钥类型。不要把 `sb_secret_...` 或旧式 `service_role` key 放进网页，也不要把任何 secret key 发到聊天中。新版 key 不是 JWT，Supabase SDK 会以 `apikey` header 传递它，不应自行拼接成 Bearer token。
+
+官方说明：
+- API key 类型与使用：https://supabase.com/docs/guides/getting-started/api-keys
+- 新旧 API key 迁移：https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys
+
 ## 三、执行数据库迁移 SQL（最重要）
 
 迁移文件路径：
