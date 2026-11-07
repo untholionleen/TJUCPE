@@ -8,3 +8,36 @@
 .connection-check{display:flex;align-items:center;gap:10px;margin-top:18px;flex-wrap:wrap}.connection-diagnostic{display:block;line-height:1.7;margin:9px 0 0;padding:10px 12px;border-radius:8px;background:#f5f8fa;color:#6f8490;overflow-wrap:anywhere}.connection-diagnostic.ok{background:#edf7f2;color:#39795d}.connection-diagnostic.error{background:#fff2ee;color:#a35447}
 
 .class-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.class-card{border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:8px;background:#fff}.class-card strong{color:#24475b}.class-card small{color:#8799a5}.class-card code{font-size:11px;color:#168b83}.assignment-list{display:grid;gap:10px;margin-top:16px}.assignment-row{display:flex;justify-content:space-between;gap:16px;border-top:1px solid var(--line);padding:14px 0}.assignment-row small{display:block;color:#8799a5;margin-top:6px}.assignment-row p{font-size:11px;color:#718591}.report-viewer{width:min(1100px,96vw);height:min(92vh,900px);max-width:96vw;max-height:92vh}.report-viewer .modal-head{height:58px}.report-frame{width:100%;height:calc(100% - 58px);border:0}.docx-preview{overflow:auto;height:calc(100% - 58px);padding:30px 7%;line-height:1.8;color:#263d4e}.docx-preview img{max-width:100%}.docx-preview table{border-collapse:collapse}.docx-preview td,.docx-preview th{border:1px solid #cdd8de;padding:6px}@media(max-width:600px){.assignment-row{flex-direction:column}}
+
+
+/* Dedicated experiment workflows / Origin-style scientific plotting */
+.experiment-engine-panel{display:grid;gap:18px;border-top:3px solid #168b83}
+.experiment-input-grid{display:grid;gap:15px}
+.experiment-data-block{display:grid;gap:8px;padding:15px;border:1px solid var(--line);border-radius:10px;background:#fbfcfd}
+.experiment-data-title{display:grid;gap:5px}
+.experiment-data-title strong{font-size:13px;color:#264b60}
+.experiment-data-title span{font-size:11px;color:#7b8e99;line-height:1.6}
+.experiment-specific-editor{min-height:150px;width:100%;font-family:Consolas,"Noto Sans Mono CJK SC",monospace;font-size:12px;line-height:1.65;white-space:pre;overflow:auto}
+.engine-settings-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:15px;color:#284a5d;font-size:13px}
+.experiment-settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.engine-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.engine-actions .muted{flex:1;min-width:220px}
+.analysis-plotly{width:100%;height:470px;min-height:360px}
+.engine-result-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid #dbe7ea}
+.engine-result-heading strong{color:#176f67}
+.engine-result-heading span{font-size:11px;color:#6d8490}
+.engine-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:12px}
+.engine-metric{display:grid;gap:4px;padding:10px 12px;border:1px solid #e0e9ec;border-radius:9px;background:#f8fbfc}
+.engine-metric span{font-size:11px;color:#728793}
+.engine-metric strong{font-size:17px;color:#1f4358;overflow-wrap:anywhere}
+.engine-metric small{font-size:10px;color:#82949e}
+.engine-warnings{margin-top:12px;padding:13px 15px;border:1px solid #e8d6af;border-radius:9px;background:#fffaf0;color:#715a31;font-size:12px;line-height:1.75}
+.engine-warnings ul{margin:7px 0 0;padding-left:20px}
+.engine-warnings li+li{margin-top:5px}
+#analysisResult{display:block;padding:0;overflow:hidden}
+@media(max-width:720px){
+  .analysis-plotly{height:390px;min-height:320px}
+  .engine-result-heading{align-items:flex-start}
+  .engine-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .engine-actions{align-items:flex-start}
+}
