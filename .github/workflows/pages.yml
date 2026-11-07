@@ -25,6 +25,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Check JavaScript syntax
         run: node --check app.js
+      - name: Test regression engine
+        run: node tests/regression-smoke.cjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload static site
