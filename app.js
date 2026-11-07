@@ -2,9 +2,11 @@
 (() => {
   "use strict";
   const CONFIG = window.TJUCPE_CONFIG || {};
-  const hasConfig = !!(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_PUBLISHABLE_KEY);
+  const SUPABASE_URL = String(CONFIG.SUPABASE_URL || "").trim().replace(/\\/+$/, "");
+  const SUPABASE_PUBLISHABLE_KEY = String(CONFIG.SUPABASE_PUBLISHABLE_KEY || "").trim();
+  const hasConfig = !!(SUPABASE_URL && /^sb_publishable_[A-Za-z0-9_-]+$/.test(SUPABASE_PUBLISHABLE_KEY));
   const db = hasConfig && window.supabase?.createClient
-    ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
     : null;
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
   const $ = (id) => document.getElementById(id);
@@ -315,17 +317,65 @@
         const {data,error}=await db.auth.signInWithPassword({email,password});if(error)throw error;
         user=data.user;await enterApp();
       }
-    }catch(err){toast(err.message||"认证失败。",true);}
+    }catch(err){
+      const message=err.message||"认证失败。";
+      if(/invalid api key/i.test(message)){
+        $("connectionDiagnostic").className="connection-diagnostic error";
+        $("connectionDiagnostic").textContent="Supabase 已拒绝当前 API key。请点击“检测 Supabase 连接”；若仍是 401，请在同一项目 Settings → API Keys 复制名为 default 的 Publishable key，并核对 Project URL。不要使用 Secret key。";
+      }
+      toast(message,true);
+    }
     finally{$("authSubmit").disabled=false;}
   }
   async function enterApp(){
     try{await loadProfile();showApp();updateUserChrome();renderCatalog();$("todayDate").textContent=new Date().toLocaleDateString("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"});go("overview");}
     catch(err){showAuth();toast(err.message||"读取用户资料失败。",true);await db.auth.signOut();}
   }
+  async function testSupabaseConnection(){
+    const button=$("testConnection");
+    const output=$("connectionDiagnostic");
+    if(!SUPABASE_URL||!SUPABASE_PUBLISHABLE_KEY){
+      output.className="connection-diagnostic error";
+      output.textContent="config.js 中缺少 Project URL 或 Publishable key。";
+      return;
+    }
+    button.disabled=true;button.textContent="正在检测…";
+    output.className="connection-diagnostic";
+    output.textContent="正在请求 Supabase Auth 公开设置接口；不会创建账号、发送邮件或读取学生数据。";
+    try{
+      const response=await fetch(SUPABASE_URL+"/auth/v1/settings",{
+        method:"GET",
+        headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Accept:"application/json"}
+      });
+      const payload=await response.json().catch(()=>null);
+      if(response.ok){
+        output.className="connection-diagnostic ok";
+        output.textContent="连接成功：Supabase Auth 已响应，当前 Publishable key 已通过网关识别。下一步仍需执行数据库 SQL 迁移，再检查 profiles / RLS / Storage。";
+      }else{
+        const detail=payload?.msg||payload?.message||payload?.error_description||payload?.error||("HTTP "+response.status);
+        output.className="connection-diagnostic error";
+        if(response.status===401||/invalid api key/i.test(String(detail))){
+          output.textContent="认证失败（HTTP "+response.status+"）：Supabase 没有识别这个 API key。到该项目 Settings → API Keys → Publishable and secret API keys，复制名为 default 的 Publishable key；同时核对 Project URL 来自同一个项目。不要复制 Secret key，也不要发给我。";
+        }else if(response.status===404){
+          output.textContent="接口返回 404：请核对 Project URL 是否为该项目的 https://项目引用.supabase.co，不能填 Dashboard 网页地址。详情："+detail;
+        }else{
+          output.textContent="Supabase 返回 HTTP "+response.status+"："+detail+"。请把此检测结果截图发来。";
+        }
+      }
+    }catch(err){
+      output.className="connection-diagnostic error";
+      output.textContent="浏览器无法访问 Supabase Auth。请检查网络、浏览器扩展/代理或项目 URL。详情："+(err.message||String(err));
+    }finally{
+      button.disabled=false;button.textContent="重新检测 Supabase 连接";
+    }
+  }
   async function start(){
-    $("connectionHint").textContent=db?"已连接 Supabase 项目。":"尚未配置 Supabase 客户端。";
-    if(!db){$("connectionHint").classList.add("error");$("authSubmit").disabled=true;return;}
-    db.auth.onAuthStateChange((event,session)=>{
+    $("connectionHint").textContent=db?"前端密钥格式通过检查；请检测 Supabase 连接。":"Supabase 配置缺失或 Publishable key 格式不正确。";
+    if(!hasConfig||!window.supabase?.createClient){
+      $("connectionHint").classList.add("error");$("authSubmit").disabled=true;
+    }
+    $("testConnection").addEventListener("click",testSupabaseConnection);
+    db?.auth.onAuthStateChange((event,session)=>{
       if(event==="PASSWORD_RECOVERY"&&session){
         user=session.user;profile=null;showAuth();setAuthMode("recovery");
       }else if(!session){user=null;profile=null;showAuth();setAuthMode("login");}
