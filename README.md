@@ -21,7 +21,7 @@ Supabase 项目 `TJUCPE` 已连接并完成以下迁移：
 - `20261107175451_tjucpe_full_workflow_pdf_review_v5`
 - `20261107180243_tjucpe_query_performance_indexes_v6`
 
-当前已检查到 `profiles`、`classes`、`class_members`、`experiment_catalog`、`experiment_assignments`、`report_submissions`、`report_revisions` 和 `audit_logs`；相关业务表已启用 RLS。 `lab-reports` 是私有 Storage bucket。 `classroom-admin` Edge Function 当前为 ACTIVE v6。
+当前已检查到 `profiles`、`classes`、`class_members`、`experiment_catalog`、`experiment_assignments`、`report_submissions`、`report_revisions` 和 `audit_logs`；相关业务表已启用 RLS。 `lab-reports` 是私有 Storage bucket。 `classroom-admin` Edge Function 当前为 ACTIVE v9。
 
 **兼容性说明**：已有的旧报告即使没有 `class_id` / `assignment_id` 也会保留，不会被伪造归班；新报告必须关联有效班级和教师发布的实验任务。
 
