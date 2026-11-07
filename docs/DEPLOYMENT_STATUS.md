@@ -27,7 +27,7 @@ Last checked: 2026-11-08
 
 ## Remaining verification / cautions
 
-- The repository's Pages workflow file contains JavaScript syntax, experiment engine, regression and database-security smoke checks. The latest Pages run must be confirmed in GitHub Actions before declaring the public preview updated.
+- The repository's Pages workflow checks JavaScript syntax, experiment engine, regression and database-security smoke tests. The Jekyll Pages configuration excludes design/deployment docs, Supabase migrations, tests and source-data file types from the website artifact. The GitHub repository itself remains public.
 - End-to-end browser testing with synthetic student/teacher/admin accounts has not been completed in this session. PDF drawing, save, student re-open and revision-history flows still need a real browser acceptance pass.
 - Supabase Security Advisor reports leaked-password protection disabled. Enable this in Auth password security settings.
 - Performance Advisor may report RLS policy init-plan/multiple-permissive-policy optimizations; these are performance recommendations and do not indicate that RLS is disabled.
