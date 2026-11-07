@@ -6,7 +6,7 @@ Last checked: 2026-11-07
 
 - The user manually ran the website's Supabase Auth connection check and reported HTTP 200. This confirms the Auth endpoint recognized the current publishable key at that time; it does not test the database schema or RLS.
 - The repository's `main` branch contains the latest publishable-key configuration and cache-busting script reference.
-- GitHub Actions run [42385334817](https://github.com/untholionleen/TJUCPE/actions/runs/42385334817) completed successfully for commit `59606a0f7283fbb4d148385a9a46b3841898c8aa`.
+- GitHub Actions run [42385455237](https://github.com/untholionleen/TJUCPE/actions/runs/42385455237) completed successfully for commit `11304833627523c839effad2d779b687f1e30eb7`; it passed JavaScript syntax, regression, schema-security, and Pages deployment steps.
 - The latest workflow passed JavaScript syntax, polynomial regression smoke tests, database-security schema smoke tests, Pages assembly, artifact upload and deployment.
 - The migration includes tables, RLS policies, least-privilege grants, private Storage, private role helpers, role/report guards, and fail-fast post-creation checks.
 - A read-only follow-up inspection script is available at `supabase/verification/post_deploy_checks.sql`.
