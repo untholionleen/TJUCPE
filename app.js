@@ -104,6 +104,107 @@
     $("taskExperiment").innerHTML=shown.map(e=>'<option value="'+escapeHtml(e.slug)+'">'+escapeHtml(e.code+" · "+e.name)+'</option>').join("");
     if(["teacher","admin"].includes(profile?.role)) await loadExperimentCatalogManager();
   }
+  function excelNum(value){
+    if(typeof value==="number")return Number.isFinite(value)?value:NaN;
+    const text=String(value??"").trim().replace(/,/g,"");
+    if(!text||text==="—"||text==="–")return NaN;
+    const sci=text.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*[×x]\s*10\s*([+-]?\d+)$/i);
+    if(sci)return Number(sci[1])*Math.pow(10,Number(sci[2]));
+    const n=Number(text);return Number.isFinite(n)?n:NaN;
+  }
+  function excelSheetRows(workbook,hint){
+    const name=hint?workbook.SheetNames.find(x=>x.includes(hint)):workbook.SheetNames[0];
+    if(!name)return {name:null,rows:[]};
+    return {name,rows:XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true})};
+  }
+  function excelNumericRows(rows,indices){
+    return rows.map(r=>indices.map(i=>excelNum(r[i]))).filter(r=>r.every(Number.isFinite));
+  }
+  function mapExcelTable(slug,key,workbook){
+    let picked,rows,out=[];
+    if(slug==="surface-tension"&&key==="processed"){
+      picked=excelSheetRows(workbook);out=excelNumericRows(picked.rows,[0,1,2]);
+    }else if(slug==="surface-tension"&&key==="main"){
+      picked=excelSheetRows(workbook,"最大液泡法");
+      out=excelNumericRows(picked.rows,[0,1,2,3]);
+    }else if(slug==="saponification"&&key==="main"){
+      picked=excelSheetRows(workbook,"实验数据");
+      out=excelNumericRows(picked.rows,[0,1,4]);
+    }else if(slug==="rectorite-adsorption"&&key==="calibration"){
+      picked=excelSheetRows(workbook,"累托石吸附亚甲基蓝");rows=picked.rows;
+      if(rows.length>=2)for(let i=1;i<Math.min(rows[0].length,rows[1].length);i++){
+        const c=excelNum(rows[0][i]),a=excelNum(rows[1][i]);if(Number.isFinite(c)&&Number.isFinite(a))out.push([c,a]);
+      }
+    }else if(slug==="rectorite-adsorption"&&key==="samples"){
+      picked=excelSheetRows(workbook,"累托石吸附亚甲基蓝");out=excelNumericRows(picked.rows,[10,11,12,13]);
+    }else if(slug==="galvanic-cell"&&key==="main"){
+      picked=excelSheetRows(workbook,"原电池热力学");out=excelNumericRows(picked.rows,[1,4,5]);
+    }else if(slug==="phase-diagram"&&key==="main"){
+      picked=excelSheetRows(workbook,"二组分凝聚系统湘图");
+      out=picked.rows.filter(r=>Number.isFinite(excelNum(r[0]))).map(r=>[excelNum(r[0]),...Array.from({length:5},(_,j)=>excelNum(r[j+1]))]);
+    }else if(slug==="boiling-composition"&&key==="calibration"){
+      picked=excelSheetRows(workbook,"二组分液相完全互溶系统沸点组成图数据计算表");rows=picked.rows;
+      if(rows.length>=4)for(let i=1;i<Math.min(rows[2].length,rows[3].length);i++){
+        const x=excelNum(rows[2][i]),y=excelNum(rows[3][i]);if(Number.isFinite(x)&&Number.isFinite(y))out.push([x,y]);
+      }
+    }else if(slug==="boiling-composition"&&key==="samples"){
+      picked=excelSheetRows(workbook,"二组分液相完全互溶系统沸点组成图数据计算表");
+      out=excelNumericRows(picked.rows,[1,2,4]);
+    }else if(slug==="reaction-enthalpy"){
+      picked=excelSheetRows(workbook,"反应焓数据计算表");rows=picked.rows;
+      const cols={kclBefore:[4,8],rxnBefore:[5,9],kclAfter:[6,10],rxnAfter:[7,11]}[key];
+      if(cols)out=excelNumericRows(rows,cols);
+    }else if(slug==="freezing-point"&&(key==="solvent"||key==="solution")){
+      picked=excelSheetRows(workbook,"凝固点降低");rows=picked.rows;
+      const title=key==="solvent"?"环己烷温差-时间数据":"萘溶液温差-时间数据";
+      const start=rows.findIndex(r=>r.some(v=>String(v??"").includes(title)))+3;
+      if(start>=3)out=rows.slice(start).filter(r=>Number.isFinite(excelNum(r[0]))).map(r=>Array.from({length:9},(_,j)=>excelNum(r[j])));
+    }else if(slug==="equilibrium-constant"&&key==="main"){
+      picked=excelSheetRows(workbook,"平衡常数计算表");out=excelNumericRows(picked.rows,[0,1,2]);
+    }else if(slug==="thermostat-viscosity"&&(key==="wave220"||key==="wave110")){
+      picked=excelSheetRows(workbook,"恒温槽表格");rows=picked.rows;
+      const start=key==="wave220"?1:13;
+      for(let r=start;r<start+6;r+=2){
+        const timeRow=rows[r]||[],tempRow=rows[r+1]||[];
+        for(let c=1;c<Math.min(timeRow.length,tempRow.length);c++){
+          const t=excelNum(timeRow[c]),temp=excelNum(tempRow[c]);if(Number.isFinite(t)&&Number.isFinite(temp))out.push([t,temp]);
+        }
+      }
+    }else if(slug==="thermostat-viscosity"&&key==="viscosity"){
+      picked=excelSheetRows(workbook,"恒温槽表格");rows=picked.rows;
+      const ethanol=rows.find(r=>String(r[13]??"").includes("乙醇"));
+      const water=rows.find(r=>String(r[13]??"").includes("蒸馏水"));
+      if(ethanol&&water)out=[[excelNum(ethanol[14]),excelNum(ethanol[15]),excelNum(ethanol[16]),excelNum(water[14]),excelNum(water[15]),excelNum(water[16])]].filter(r=>r.every(Number.isFinite));
+    }else if(slug==="passivation"&&key==="main"){
+      picked=excelSheetRows(workbook,"数据源");
+      out=excelNumericRows(picked.rows.slice(3),[0,1,2,3,4,5,6,7]);
+    }else{
+      return {name:null,rows:[],message:"该实验表格尚无安全的自动列映射，请先在 Excel 中整理成表格后另存为 CSV/TSV 再导入，避免误读原始数据。"};
+    }
+    return {name:picked?.name||null,rows:out};
+  }
+  async function importExperimentTableFile(input){
+    const file=input.files?.[0],key=input.dataset.tableKey;
+    if(!file||!currentExperiment||!key)return;
+    const target=$("expData_"+key);
+    if(!target){toast("没有找到对应的数据表。",true);input.value="";return;}
+    try{
+      if(/\.(csv|tsv|txt)$/i.test(file.name)){
+        target.value=(await file.text()).replace(/^\uFEFF/,"");
+        toast("已导入文件文本；请确认列顺序与当前实验表格一致。");
+      }else{
+        if(!window.XLSX)throw new Error("Excel 解析组件未加载，请刷新页面后重试。");
+        const workbook=XLSX.read(await file.arrayBuffer(),{type:"array"});
+        const mapped=mapExcelTable(currentExperiment.slug,key,workbook);
+        if(mapped.message)throw new Error(mapped.message);
+        if(!mapped.rows?.length)throw new Error("在工作簿对应工作表中没有找到可映射的数值行。请核对工作表与实验类型。");
+        target.value=mapped.rows.map(row=>row.map(v=>Number.isFinite(v)?String(v):"").join("\t")).join("\n");
+        toast("已从工作表“"+mapped.name+"”导入 "+mapped.rows.length+" 行数据。");
+      }
+      target.dispatchEvent(new Event("input",{bubbles:true}));
+    }catch(err){toast("Excel/CSV 导入失败："+(err.message||String(err)),true);}
+    input.value="";
+  }
   function openExperiment(slug){
     currentExperiment=experiments.find(e=>e.slug===slug)||experiments[0];
     $("analysisGroup").textContent=currentExperiment.code+" · "+currentExperiment.group;
@@ -1008,6 +1109,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     }else showAuth();
   }
   function bindEvents(){
+    document.body.addEventListener("change",e=>{const fileInput=e.target.closest(".experiment-table-file");if(fileInput)importExperimentTableFile(fileInput);});
     $("authForm").addEventListener("submit",handleAuthSubmit);
     $("toggleAuth").addEventListener("click",()=>setAuthMode(authMode==="login"?"register":"login"));
     $("backToLogin").addEventListener("click",()=>setAuthMode("login"));
