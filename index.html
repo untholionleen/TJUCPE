@@ -13,6 +13,7 @@
   <script src="config.js?v=20261107-publishable-key-2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body>
@@ -52,11 +53,7 @@
         </div>
         <div class="auth-links" id="authLinks"><button id="toggleAuth" class="link-button">还没有账号？立即注册</button><button id="forgotPassword" class="link-button">忘记密码</button></div>
         <div class="security-note"><span class="dot"></span> 账号注册后默认是学生身份，教师与管理员由授权人员在数据库中分配。</div>
-        <div class="connection-check">
-          <button id="testConnection" class="btn btn-outline btn-sm" type="button">检测 Supabase 连接</button>
-          <span id="connectionHint" class="tiny muted"></span>
-        </div>
-        <p id="connectionDiagnostic" class="connection-diagnostic tiny muted" role="status">首次使用前，请检测项目 URL 与 Publishable key 是否匹配。</p>
+        <div class="connection-check hidden"><button id="testConnection" type="button"></button><span id="connectionHint"></span></div><p id="connectionDiagnostic" class="hidden"></p>
       </div>
     </div>
   </section>
@@ -72,8 +69,10 @@
         <button class="nav-item active" data-page="overview"><span class="nav-icon">▦</span> 工作台</button>
         <button class="nav-item" data-page="experiments"><span class="nav-icon">◈</span> 实验与数据分析</button>
         <button class="nav-item" data-page="reports"><span class="nav-icon">▤</span> 我的实验报告</button>
+        <button class="nav-item" data-page="classes"><span class="nav-icon">▦</span> 班级与任务</button>
         <button class="nav-item staff-only hidden" data-page="review"><span class="nav-icon">☷</span> 报告批阅</button>
         <button class="nav-item admin-only hidden" data-page="users"><span class="nav-icon">♙</span> 用户与权限</button>
+        <button class="nav-item admin-only hidden" data-page="system"><span class="nav-icon">⚙</span> 系统管理</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="sidebar-help"><span class="help-mark">?</span><div><strong>需要帮助？</strong><small>查看平台使用说明</small></div></div>
@@ -190,9 +189,26 @@
           <div class="table-scroll"><table class="data-table"><thead><tr><th>姓名</th><th>学号 / 工号</th><th>当前身份</th><th>注册时间</th><th>身份调整</th></tr></thead><tbody id="usersBody"><tr><td colspan="5" class="muted center">正在加载……</td></tr></tbody></table></div></section>
       </section>
 
+
+      <section id="classesPage" class="page hidden">
+        <div class="page-heading"><div><div class="eyebrow">CLASSROOM MANAGEMENT</div><h1>班级与实验任务</h1><p class="muted">教师创建班级、发布实验任务；学生加入班级后按任务提交。</p></div></div>
+        <section class="panel"><div class="panel-heading"><div><h3>班级列表</h3><p>学生仅能查看已加入的班级。</p></div></div><div id="classList" class="class-grid">加载中…</div></section>
+        <div id="classManagerTools" class="hidden">
+          <section class="panel"><h3>创建班级</h3><div class="field-grid"><label>班级名称<input id="newClassName"></label><label>课程代码<input id="newClassCode"></label><label>说明<input id="newClassDesc"></label></div><button id="createClass" class="btn btn-primary">创建班级</button></section>
+          <section class="panel"><h3>发布实验任务</h3><div class="field-grid"><label>管理班级<select id="classTaskSelect"></select></label><label>实验项目<select id="taskExperiment"></select></label><label>任务名称<input id="taskTitle"></label><label>截止时间<input id="taskDue" type="datetime-local"></label></div><label>任务要求<textarea id="taskInstructions" rows="3"></textarea></label><button id="publishAssignment" class="btn btn-primary">发布任务</button><div id="classAssignments" class="assignment-list"></div></section>
+        </div>
+      </section>
+      <section id="systemPage" class="page hidden admin-only">
+        <div class="page-heading"><div><div class="eyebrow">ADMIN ONLY</div><h1>系统管理与审计</h1><p class="muted">管理员专属诊断、审计记录与技术资料入口。</p></div></div>
+        <section class="panel"><h3>Supabase 连接检测</h3><button id="adminTestConnection" class="btn btn-outline">检测 Auth 网关</button><p id="adminConnectionDiagnostic" class="connection-diagnostic">尚未检测</p></section>
+        <section class="panel"><h3>修复与审计日志</h3><div class="table-scroll"><table class="data-table"><thead><tr><th>时间</th><th>事件</th><th>详情</th></tr></thead><tbody id="auditLogBody"></tbody></table></div></section>
+        <section class="panel"><h3>技术资料</h3><a href="https://github.com/untholionleen/TJUCPE" target="_blank" rel="noopener">项目源代码、迁移与部署文档</a></section>
+      </section>
+
       <footer class="app-footer"><span>物理化学实验教学与电子报告管理平台</span><span>教学数据仅用于课程实验教学 · TJUCPE</span></footer>
     </main>
   </div>
+  <dialog id="reportViewerDialog" class="modal report-viewer"><div class="modal-head"><strong id="reportViewerTitle">报告预览</strong><button id="closeReportViewer" class="icon-button">×</button></div><iframe id="reportViewerFrame" title="PDF报告预览" class="report-frame hidden"></iframe><article id="reportViewerDocx" class="docx-preview hidden"></article></dialog>
   <dialog id="feedbackDialog" class="modal"><div class="modal-head"><strong>教师反馈</strong><button id="closeFeedback" class="icon-button">×</button></div><div id="feedbackContent" class="feedback-content"></div></dialog>
 </body>
 </html>
