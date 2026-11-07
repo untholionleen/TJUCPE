@@ -11,7 +11,7 @@ Last checked: 2026-11-08
 - `experiment_catalog` currently contains 14 experiment entries.
 - The `lab-reports` bucket exists and is private, with a 20 MiB limit and PDF/DOCX MIME allowlist.
 - Storage policies now include current-report/revision-history reads and class-staff upload of reviewed PDFs.
-- Edge Function `classroom-admin` is ACTIVE version 6 with JWT verification.
+- Edge Function `classroom-admin` is ACTIVE version 9 with JWT verification.
 - The existing legacy report without a class/task assignment remains intact; the new-submission trigger requires class membership and a matching open assignment for all new student submissions.
 - Migration v5 adds `profiles.account_status` and `report_submissions.review_annotations`; migration v6 adds foreign-key/audit lookup indexes.
 
@@ -22,7 +22,7 @@ Last checked: 2026-11-08
 - Added embedded PDF page rendering and freehand annotation layer in the teacher grading workspace. Saving annotations uploads a new reviewed PDF version and updates the current report path; old files remain referenced by report revisions.
 - Added version-aware cache busting for the current application assets.
 - Added the deployed `classroom-admin` Edge Function source to the repository.
-- Teachers can remove students from their own class and generate password recovery links for those students. Only administrators can permanently delete Auth accounts across the platform.
+- Teachers can generate recovery links for students in their own classes. A teacher can permanently delete an account only when the student has no other active class membership; otherwise the teacher can only remove that student from their own class. Administrators can permanently delete student accounts globally.
 
 ## Remaining verification / cautions
 
