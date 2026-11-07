@@ -10,7 +10,7 @@
     : null;
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
   const $ = (id) => document.getElementById(id);
-  const experiments = [
+  let experiments = [
     {slug:"surface-tension",code:"PC-01",name:"最大泡压法测定液体的表面张力",group:"界面化学",desc:"整理不同浓度下的最大泡压测量结果，绘制表面张力–浓度关系曲线。",x:"浓度 c",y:"表面张力 γ",xu:"mol·L⁻¹",yu:"mN·m⁻¹",note:"建议先核对微压差测量仪读数与表面张力换算关系，再使用本页拟合。若采用 Szyszkowski 方程或 Gibbs 吸附公式，应按实验指导书确认浓度单位、温度和常数。"},
     {slug:"saponification",code:"PC-02",name:"乙酸乙酯的皂化反应",group:"化学动力学",desc:"按温度分组录入电导率–时间数据，比较线性化关系与反应速率常数。",x:"时间 t",y:"电导率 κ",xu:"min",yu:"mS·cm⁻¹",note:"可分别绘制 κ–t、(κt−κ∞)–t 与 1/(κt−κ∞)–t。κ∞ 的取值、温度分组和反应级数判定请按实验指导书核对。"},
     {slug:"rectorite-adsorption",code:"PC-03",name:"累托石吸附亚甲基蓝",group:"界面化学",desc:"绘制吸附等温线，比较 Langmuir / Freundlich 模型并输出 Origin 可用数据。",x:"平衡浓度 ce",y:"平衡吸附量 qe",xu:"mg·L⁻¹",yu:"mg·g⁻¹",note:"吸附量需依据初始浓度、平衡浓度、溶液体积和吸附剂质量计算。工作曲线及稀释倍数要保留来源和单位。"},
@@ -28,6 +28,7 @@
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
+  let catalogRows = [], catalogEditingId = null, excelWorkbooks = {};
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.add("show");
@@ -86,19 +87,91 @@
   function renderCatalog(){
     $("experimentCatalog").innerHTML=experiments.map(e=>`
       <article class="experiment-card">
-        <div class="experiment-top"><span class="experiment-code">${e.code}</span><span class="experiment-type">${e.group}</span></div>
-        <h3>${e.name}</h3><p>${e.desc}</p>
-        <button data-open-experiment="${e.slug}">打开数据工作区　→</button>
+        <div class="experiment-top"><span class="experiment-code">${escapeHtml(e.code)}</span><span class="experiment-type">${escapeHtml(e.group)}</span></div>
+        <h3>${escapeHtml(e.name)}</h3><p>${escapeHtml(e.desc)}</p>
+        <button data-open-experiment="${escapeHtml(e.slug)}">打开数据工作区　→</button>
       </article>`).join("");
-    // Report experiment is now derived from the selected class assignment; no duplicate selector is required.
+    const task=$("taskExperiment");
+    if(task)task.innerHTML=experiments.map(e=>'<option value="'+escapeHtml(e.slug)+'">'+escapeHtml(e.code+" · "+e.name)+'</option>').join("");
+  }
+  async function loadCatalog(){
+    const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,config,is_active,created_at,updated_at").order("code");
+    if(error){console.warn("实验目录读取失败：",error.message);return;}
+    catalogRows=data||[];
+    const base=[...experiments];
+    experiments=catalogRows.filter(r=>r.is_active).map(r=>{
+      const original=base.find(x=>x.slug===r.slug)||{},cfg=r.config||{};
+      return {...original,slug:r.slug,code:r.code,name:r.name,group:r.category,desc:r.description,
+        x:cfg.xLabel||original.x||"X",y:cfg.yLabel||original.y||"Y",
+        xu:cfg.xUnit||original.xu||"",yu:cfg.yUnit||original.yu||"",
+        note:cfg.note||original.note||"教师自定义实验项目；请按任务要求录入数据。",
+        catalogId:r.id,config:cfg,custom:cfg.custom===true};
+    });
+    renderCatalog();
+    if(profile&&["teacher","admin"].includes(profile.role))loadCatalogManager();
+  }
+  function resetCatalogForm(){
+    catalogEditingId=null;
+    ["catalogSlug","catalogCode","catalogName","catalogCategory","catalogDescription","catalogXLabel","catalogYLabel","catalogXUnit","catalogYUnit","catalogNote"].forEach(id=>{if($(id))$(id).value="";});
+    $("catalogFormTitle").textContent="新增实验项目";
+    $("saveCatalogItem").textContent="新增到实验目录";
+  }
+  async function loadCatalogManager(){
+    if(!profile||!["teacher","admin"].includes(profile.role))return;
+    const host=$("experimentCatalogManager");if(!host)return;
+    const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,is_active,config").order("code");
+    if(error){host.textContent=error.message;return;}
+    catalogRows=data||[];
+    host.innerHTML=catalogRows.map(r=>'<div class="catalog-manager-row"><div><strong>'+escapeHtml(r.code+" · "+r.name)+'</strong><small>'+escapeHtml(r.slug+" · "+r.category)+(r.is_active?" · 已启用":" · 已停用")+'</small></div><div><button class="action-link" data-catalog-edit="'+r.id+'">编辑</button> <button class="action-link" data-catalog-toggle="'+r.id+'">'+(r.is_active?"停用":"启用")+'</button> <button class="action-link danger-text" data-catalog-delete="'+r.id+'">删除</button></div></div>').join("")||'<p class="muted">尚无实验项目。</p>';
+  }
+  function editCatalogItem(id){
+    const r=catalogRows.find(x=>x.id===id);if(!r)return;
+    catalogEditingId=id;const c=r.config||{};
+    $("catalogSlug").value=r.slug;$("catalogCode").value=r.code;$("catalogName").value=r.name;
+    $("catalogCategory").value=r.category;$("catalogDescription").value=r.description||"";
+    $("catalogXLabel").value=c.xLabel||"X";$("catalogYLabel").value=c.yLabel||"Y";
+    $("catalogXUnit").value=c.xUnit||"";$("catalogYUnit").value=c.yUnit||"";
+    $("catalogNote").value=c.note||"";
+    $("catalogFormTitle").textContent="编辑实验项目 · "+r.code;
+    $("saveCatalogItem").textContent="保存修改";
+    $("catalogName").scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  async function saveCatalogItem(){
+    const name=$("catalogName").value.trim(),code=$("catalogCode").value.trim().toUpperCase();
+    const slug=($("catalogSlug").value.trim()||name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""));
+    if(!name||!code||!slug){toast("实验名称、项目代码和唯一标识不能为空。",true);return;}
+    const old=catalogRows.find(x=>x.id===catalogEditingId);
+    const config=old?.config?.custom===true?{...old.config,xLabel:$("catalogXLabel").value.trim()||"X",yLabel:$("catalogYLabel").value.trim()||"Y",xUnit:$("catalogXUnit").value.trim(),yUnit:$("catalogYUnit").value.trim(),note:$("catalogNote").value.trim()}:{
+      custom:true,xLabel:$("catalogXLabel").value.trim()||"X",yLabel:$("catalogYLabel").value.trim()||"Y",
+      xUnit:$("catalogXUnit").value.trim(),yUnit:$("catalogYUnit").value.trim(),note:$("catalogNote").value.trim()
+    };
+    const payload={slug,code,name,category:$("catalogCategory").value.trim()||"综合实验",description:$("catalogDescription").value.trim(),config,is_active:true,updated_by:user.id};
+    const result=catalogEditingId?await db.from("experiment_catalog").update(payload).eq("id",catalogEditingId):await db.from("experiment_catalog").insert({...payload,created_by:user.id});
+    if(result.error){toast("实验项目保存失败："+result.error.message,true);return;}
+    toast(catalogEditingId?"实验项目已更新。":"实验项目已新增。");resetCatalogForm();await loadCatalog();await loadCatalogManager();
+  }
+  async function toggleCatalogItem(id){
+    const r=catalogRows.find(x=>x.id===id);if(!r)return;
+    const {error}=await db.from("experiment_catalog").update({is_active:!r.is_active,updated_by:user.id}).eq("id",id);
+    if(error){toast(error.message,true);return;}await loadCatalog();await loadCatalogManager();
+  }
+  async function deleteCatalogItem(id){
+    const r=catalogRows.find(x=>x.id===id);if(!r)return;
+    if(!confirm("删除/停用实验项目“"+r.name+"”？已关联报告和任务的项目将保留历史记录并停用。"))return;
+    const {count}=await db.from("experiment_assignments").select("id",{count:"exact",head:true}).eq("experiment_id",id);
+    const {count:reportCount}=await db.from("report_submissions").select("id",{count:"exact",head:true}).eq("experiment_slug",r.slug);
+    const result=(count||reportCount)?await db.from("experiment_catalog").update({is_active:false,updated_by:user.id}).eq("id",id):await db.from("experiment_catalog").delete().eq("id",id);
+    if(result.error){toast("项目不能删除："+result.error.message,true);return;}
+    toast((count||reportCount)?"项目已停用，历史任务和报告保留。":"项目已删除。");await loadCatalog();await loadCatalogManager();
   }
   function openExperiment(slug){
     currentExperiment=experiments.find(e=>e.slug===slug)||experiments[0];
     $("analysisGroup").textContent=currentExperiment.code+" · "+currentExperiment.group;
     $("analysisTitle").textContent=currentExperiment.name;
     $("analysisDescription").textContent=currentExperiment.desc;
-    $("xLabel").value=currentExperiment.x; $("yLabel").value=currentExperiment.y;
-    $("xUnit").value=currentExperiment.xu; $("yUnit").value=currentExperiment.yu;
+    const cfg=currentExperiment.config||{};
+    $("xLabel").value=currentExperiment.x||cfg.xLabel||"X"; $("yLabel").value=currentExperiment.y||cfg.yLabel||"Y";
+    $("xUnit").value=currentExperiment.xu||cfg.xUnit||""; $("yUnit").value=currentExperiment.yu||cfg.yUnit||"";
     $("dataInput").value=""; $("dataCount").textContent="等待输入数据";
     $("experimentMethodNote").textContent=currentExperiment.note;
     const engine=window.TJUCPE_EXPERIMENT_ENGINE;
@@ -698,7 +771,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     finally{$("authSubmit").disabled=false;}
   }
   async function enterApp(){
-    try{await loadProfile();showApp();updateUserChrome();renderCatalog();$("todayDate").textContent=new Date().toLocaleDateString("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"});go("overview");}
+    try{await loadProfile();showApp();updateUserChrome();await loadCatalog();$("todayDate").textContent=new Date().toLocaleDateString("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"});go("overview");}
     catch(err){showAuth();toast(err.message||"读取用户资料失败。",true);await db.auth.signOut();}
   }
   async function testSupabaseConnection(){
