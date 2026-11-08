@@ -361,7 +361,7 @@ export default {
             continue;
           }
           const { error } = await supabaseAdmin.from("class_members")
-            .update({ status: "removed" }).eq("class_id", classId).eq("student_id", id);
+            .update({ status: "inactive" }).eq("class_id", classId).eq("student_id", id);
           if (error) results.push({ user_id: id, ok: false, error: error.message });
           else {
             await audit(id, "class.student_removed", { class_id: classId });
@@ -418,7 +418,7 @@ export default {
               .select("class_id").eq("student_id", id).eq("status", "active");
             if (membershipError) { results.push({ user_id: id, ok: false, error: membershipError.message }); continue; }
             if ((memberships ?? []).length > 1) {
-              const { error } = await supabaseAdmin.from("class_members").update({ status: "removed" })
+              const { error } = await supabaseAdmin.from("class_members").update({ status: "inactive" })
                 .eq("class_id", classId).eq("student_id", id);
               if (error) results.push({ user_id: id, ok: false, error: error.message });
               else {
