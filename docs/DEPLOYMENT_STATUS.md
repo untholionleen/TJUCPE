@@ -96,3 +96,9 @@ Last checked: 2026-11-08
 - `classroom-admin` Edge Function deployed ACTIVE v23 with JWT verification enabled.
 - The `export_assignment_reports` action now fetches independent assignment/class, catalog/report/roster and profile/analysis/signed-URL data in parallel. It also reuses one profile lookup for submitted, missing and analysis rows instead of issuing repeated profile queries. Export scope remains exact `assignment_id` matching; no time-window guessing was introduced.
 - This is a code-level latency optimization. A real authenticated large-class ZIP download has not yet been exercised after deployment, so no end-to-end export success is claimed.
+
+## 2026-11-08 20:00 — Request timeout separation and role-check verification
+
+- Supabase client timeout is now request-specific: ordinary database/API calls 15 seconds, Auth 30 seconds, Edge Functions 45 seconds, Storage uploads/downloads 60 seconds. The custom fetch also preserves an AbortSignal supplied on a Request object. This avoids terminating a legitimate PDF transfer or class export at the same 15-second threshold used for ordinary queries.
+- Direct role-helper checks were executed under the `authenticated` database role with test JWT subjects: teacher → `is_staff=true`, `is_admin=false`; admin → both true; student → both false. The test transactions were rolled back and did not change application records.
+- The report currently in the database remains a submitted student report; its stored PDF object exists. It was not edited during this audit. Its annotation save/reopen/history path still needs a real teacher-browser acceptance pass.
