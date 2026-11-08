@@ -84,7 +84,7 @@
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, activeAssignmentId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
-  let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
+  let gradingPdfBlob = null, gradingStrokes = {}, catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   function friendlyError(input){
     const raw=typeof input==="string"?input:(input?.message||String(input??""));
@@ -1032,14 +1032,15 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       ctx.stroke();
     });
   }
-  async function renderPdfAnnotation(bytes){
+  async function renderPdfAnnotation(pdfBlob){
     const host=$("gradingPreviewContent");
     if(!window.pdfjsLib){host.textContent="PDF.js 未能加载，当前可预览但暂不可进行页面标注。请刷新后重试。";return;}
     pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    // PDF.js transfers the supplied typed-array buffer to its worker. Always give it
-    // a disposable copy; gradingPdfBytes is the canonical save buffer and must survive.
-    const previewBytes=bytes instanceof Uint8Array?bytes.slice():new Uint8Array(bytes).slice();
-    const task=pdfjsLib.getDocument({data:previewBytes}),pdf=await task.promise;
+    // A Blob is the immutable canonical source. Give PDF.js a fresh ArrayBuffer on every
+    // render because PDF.js transfers/detaches the buffer it receives to its worker.
+    if(!(pdfBlob instanceof Blob))throw new Error("原始 PDF 文件缓存不可用，请重新打开报告。");
+    const previewBuffer=await pdfBlob.arrayBuffer();
+    const task=pdfjsLib.getDocument({data:previewBuffer}),pdf=await task.promise;
     host.innerHTML='<div id="pdfAnnotationPages" class="pdf-annotation-pages"></div>';
     const pages=$("pdfAnnotationPages");
     for(let pageNo=1;pageNo<=pdf.numPages;pageNo++){
@@ -1072,11 +1073,12 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     }
   }
   async function buildAnnotatedPdf(){
-    if(!gradingPdfBytes||!window.PDFLib?.PDFDocument)throw new Error("PDF 批注组件尚未就绪，请刷新页面后重新打开报告。");
-    // Work on a detached copy. PDF.js and PDF-Lib must never share a transferable byte buffer.
-    if(!(gradingPdfBytes instanceof Uint8Array)||gradingPdfBytes.byteLength===0)throw new Error("PDF 原始数据缓冲区不可用。请关闭批阅窗口并重新打开报告，勿重复保存。");
-    const sourceBytes=gradingPdfBytes.slice();
-    if(sourceBytes.length<8||String.fromCharCode(...sourceBytes.slice(0,5))!=="%PDF-")throw new Error("原始文件不是有效 PDF，无法生成批阅版。");
+    if(!(gradingPdfBlob instanceof Blob)||!window.PDFLib?.PDFDocument)throw new Error("PDF 批注组件尚未就绪，请刷新页面后重新打开报告。");
+    // Never retain or reuse an ArrayBuffer passed to PDF.js. Blob.arrayBuffer() creates
+    // a fresh, independent buffer for PDF-Lib on each save attempt.
+    if(gradingPdfBlob.size<8)throw new Error("PDF 原始文件为空或不完整，请重新打开报告。");
+    const sourceBytes=new Uint8Array(await gradingPdfBlob.arrayBuffer());
+    if(sourceBytes.length<8||String.fromCharCode(sourceBytes[0],sourceBytes[1],sourceBytes[2],sourceBytes[3],sourceBytes[4])!=="%PDF-")throw new Error("原始文件不是有效 PDF，无法生成批阅版。");
     const pdf=await PDFLib.PDFDocument.load(sourceBytes,{ignoreEncryption:true,updateMetadata:false});
     const pages=pdf.getPages();
     for(const [pageKey,strokes] of Object.entries(gradingStrokes)){
@@ -1095,7 +1097,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       }
     }
     const output=await pdf.save({useObjectStreams:true});
-    if(!(output instanceof Uint8Array)||output.length<8||String.fromCharCode(...output.slice(0,5))!=="%PDF-")throw new Error("PDF 批阅版生成结果校验失败，原始报告未被修改。");
+    if(!(output instanceof Uint8Array)||output.length<8||String.fromCharCode(output[0],output[1],output[2],output[3],output[4])!=="%PDF-")throw new Error("PDF 批阅版生成结果校验失败，原始报告未被修改。");
     return output;
   }
   function undoPdfAnnotation(){
@@ -1113,15 +1115,16 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function loadGradingPreview(row){
     const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
-    gradingPdfBytes=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
+    gradingPdfBlob=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
     const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
     if(error){host.textContent="报告读取失败："+friendlyError(error);return;}
     if((row.file_name||"").toLowerCase().endsWith(".pdf")){
-      // Keep a canonical Uint8Array for PDF-Lib. The preview renderer receives a copy.
-      gradingPdfBytes=new Uint8Array(await data.arrayBuffer());
+      // Keep the original Blob as canonical immutable bytes. PDF.js gets a disposable
+      // ArrayBuffer; PDF-Lib obtains a new one later, so worker transfer cannot detach it.
+      gradingPdfBlob=data;
       if(!window.PDFLib){host.textContent="PDF 编辑组件未加载，暂时不能保存页面批注。";return;}
       $("pdfAnnotationToolbar")?.classList.remove("hidden");
-      try{await renderPdfAnnotation(gradingPdfBytes);}
+      try{await renderPdfAnnotation(gradingPdfBlob);}
       catch(err){host.textContent="PDF 页面渲染失败："+err.message+"。请重新加载文件或检查 PDF 是否损坏。";$("pdfAnnotationToolbar")?.classList.add("hidden");}
     }else if((row.file_name||"").toLowerCase().endsWith(".docx")){
       if(!window.mammoth){host.textContent="Word 预览组件未加载。";return;}
@@ -1132,7 +1135,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   function closeGradingPreview(){
     if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
-    gradingPdfBytes=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
+    gradingPdfBlob=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
     $("gradingPreviewContent").innerHTML="点击“打开批阅”后在此处预览 PDF / DOCX。";
   }
 
@@ -1149,7 +1152,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const hasAnnotations=Object.values(gradingStrokes).some(list=>Array.isArray(list)&&list.length);
     saveButtons.forEach(button=>{button.disabled=true;button.dataset.originalText=button.textContent;button.textContent="正在保存…";});
     try{
-      if(gradingPdfBytes&&hasAnnotations){
+      if(gradingPdfBlob&&hasAnnotations){
         stage="生成带批注的 PDF";
         const bytes=await buildAnnotatedPdf();
         stage="准备批阅版文件";
