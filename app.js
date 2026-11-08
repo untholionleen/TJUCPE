@@ -6,12 +6,19 @@
   const SUPABASE_PUBLISHABLE_KEY = String(CONFIG.SUPABASE_PUBLISHABLE_KEY || "").trim();
   const hasConfig = !!(SUPABASE_URL && /^sb_publishable_[A-Za-z0-9_-]+$/.test(SUPABASE_PUBLISHABLE_KEY));
   const supabaseFetch = async (input, init={}) => {
-    const controller=new AbortController(),originalSignal=init?.signal;
+    const controller=new AbortController(),originalSignal=init?.signal||input?.signal;
+    const requestUrl=typeof input==="string"?input:String(input?.url||"");
+    const isStorageRequest=/\/storage\/v1\//i.test(requestUrl);
+    const isFunctionRequest=/\/functions\/v1\//i.test(requestUrl);
+    const isAuthRequest=/\/auth\/v1\//i.test(requestUrl);
+    // File transfers and server-side class exports need more time than ordinary table queries.
+    const timeoutMs=isStorageRequest?60000:isFunctionRequest?45000:isAuthRequest?30000:15000;
+    const timeoutSeconds=Math.round(timeoutMs/1000);
     const relayAbort=()=>controller.abort(originalSignal?.reason);
     if(originalSignal){if(originalSignal.aborted)controller.abort(originalSignal.reason);else originalSignal.addEventListener("abort",relayAbort,{once:true});}
-    const timer=window.setTimeout(()=>controller.abort(new DOMException("Supabase request timeout","TimeoutError")),15000);
+    const timer=window.setTimeout(()=>controller.abort(new DOMException("Supabase request timeout","TimeoutError")),timeoutMs);
     try{return await window.fetch(input,{...init,signal:controller.signal});}
-    catch(err){if(controller.signal.aborted&&!originalSignal?.aborted)throw new Error("连接 Supabase 超时（15 秒仍未响应）。请检查网络、稍后重试；不要连续重复提交。");throw err;}
+    catch(err){if(controller.signal.aborted&&!originalSignal?.aborted)throw new Error("连接 Supabase 超时（"+timeoutSeconds+" 秒仍未响应）。请检查网络、稍后重试；不要连续重复提交。");throw err;}
     finally{window.clearTimeout(timer);if(originalSignal)originalSignal.removeEventListener("abort",relayAbort);}
   };
   const db = hasConfig && window.supabase?.createClient
