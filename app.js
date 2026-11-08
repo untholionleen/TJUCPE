@@ -953,13 +953,61 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(error){toast("班级状态更新失败："+error.message,true);return;}
     toast(next?"班级已重新启用。":"班级已停用并归档。");await loadClasses();
   }
+  function safeFileName(value){
+    return String(value||"未命名").replace(/[\\/:*?"<>|]/g,"_").replace(/\\s+/g,"_").slice(0,80);
+  }
+  function downloadBlob(blob,fileName){
+    const url=URL.createObjectURL(blob),link=document.createElement("a");
+    link.href=url;link.download=fileName;link.style.display="none";
+    document.body.appendChild(link);link.click();link.remove();
+    window.setTimeout(()=>URL.revokeObjectURL(url),3000);
+  }
+  async function exportAssignmentReports(assignmentId,button){
+    const classId=$("classTaskSelect").value||activeClassId;
+    if(!classId||!assignmentId){toast("请先选择班级和实验任务。",true);return;}
+    if(!window.JSZip){toast("ZIP 导出组件尚未加载，请刷新页面后重试。",true);return;}
+    if(button){button.disabled=true;button.textContent="正在打包…";}
+    try{
+      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"export_assignment_reports",class_id:classId,assignment_id:assignmentId}});
+      if(error||!data?.ok)throw error||new Error(data?.error||"导出清单读取失败");
+      const zip=new JSZip(),folder=zip.folder(safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title));
+      const headers=["学生姓名","学号","实验项目","报告文件","提交状态","成绩","教师评语","上传时间","提交时间","报告版本"];
+      const csvCell=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+      const rows=data.rows||[];
+      const csv="\uFEFF"+[headers,...rows.map(r=>[r.student_name,r.student_no,r.experiment_name,r.file_name,statusLabel(r.status),r.score,r.feedback,r.created_at,r.submitted_at,r.submission_version])].map(r=>r.map(csvCell).join(",")).join("\r\n");
+      folder.file("00_任务报告汇总.csv",csv);
+      folder.file("数据说明.txt","本压缩包由 TJUCPE 物理化学实验平台导出。\n包含本班该次实验任务的报告文件与汇总表。\n报告文件为提交时的当前有效版本；教师批阅版会反映为当前报告文件。\n学生姓名、学号和成绩仅用于课程教学管理。");
+      const reportFolder=folder.folder("报告文件");
+      let downloaded=0,failed=0;
+      for(let i=0;i<rows.length;i+=3){
+        const batch=rows.slice(i,i+3);
+        const results=await Promise.all(batch.map(async row=>{
+          if(!row.signed_url)return {row,blob:null};
+          try{const response=await fetch(row.signed_url);if(!response.ok)throw new Error("HTTP "+response.status);return {row,blob:await response.blob()};}
+          catch(err){return {row,blob:null,error:err};}
+        }));
+        for(const item of results){
+          if(!item.blob){failed++;continue;}
+          const ext=(item.row.file_name||"报告.pdf").split(".").pop();
+          const fileName=safeFileName((item.row.student_no||"无学号")+"_"+item.row.student_name+"_"+item.row.file_name);
+          reportFolder.file(fileName,item.blob);downloaded++;
+        }
+        if(button)button.textContent="已打包 "+Math.min(i+3,rows.length)+"/"+rows.length;
+      }
+      folder.file("导出说明.txt","任务："+data.assignment_title+"\n实验："+data.experiment_name+"\n报告记录："+rows.length+"\n成功下载文件："+downloaded+"\n未获取到文件："+failed+"\n未获取文件的记录仍保留在汇总 CSV 中。");
+      const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
+      downloadBlob(blob,safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title)+"_全班实验数据.zip");
+      toast("导出完成：汇总 "+rows.length+" 条，报告文件 "+downloaded+" 份"+(failed?"，"+failed+" 份未能下载。":"。"));
+    }catch(err){toast("班级任务导出失败："+friendlyError(err),true);}
+    finally{if(button){button.disabled=false;button.textContent="导出本次班级数据";}}
+  }
   async function loadClassAssignments(){
     const classId=$("classTaskSelect").value||activeClassId;activeClassId=classId;
     if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=error.message;return;}
     const openTasks=(data||[]).filter(a=>a.is_open);
-    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span><span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button></span></div>`).join("")||"本班暂无实验任务。";
+    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span><span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button><button class="btn btn-outline btn-sm" data-assignment-export="${a.id}">导出本次班级数据</button></span></div>`).join("")||"本班暂无实验任务。";
     if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>`<article class="student-task-card"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"请按教师要求完成实验并提交 PDF 报告。")}</p></div><button class="btn btn-primary btn-sm" data-task-submit="${a.id}" data-class-id="${classId}">提交报告</button></article>`).join("")||"<p class=\"muted\">当前班级暂无开放任务。</p>";
     await loadClassRoster(classId);
     $("reportAssignment").innerHTML=openTasks.map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
@@ -1329,6 +1377,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const classToggle=e.target.closest("[data-class-toggle]");if(classToggle)toggleClass(classToggle.dataset.classToggle);
       const assignmentEdit=e.target.closest("[data-assignment-edit]");if(assignmentEdit)editAssignment(assignmentEdit.dataset.assignmentEdit);
       const assignmentToggle=e.target.closest("[data-assignment-toggle]");if(assignmentToggle)toggleAssignment(assignmentToggle.dataset.assignmentToggle,assignmentToggle.dataset.open==="true");
+      const assignmentExport=e.target.closest("[data-assignment-export]");if(assignmentExport)exportAssignmentReports(assignmentExport.dataset.assignmentExport,assignmentExport);
       const catalogEdit=e.target.closest("[data-catalog-edit]");if(catalogEdit)editCatalogItem(catalogEdit.dataset.catalogEdit);
       const catalogToggle=e.target.closest("[data-catalog-toggle]");if(catalogToggle)toggleCatalogItem(catalogToggle.dataset.catalogToggle,catalogToggle.dataset.active==="true");
       const resetUser=e.target.closest("[data-user-reset]");if(resetUser)resetOneUser(resetUser.dataset.userReset);
