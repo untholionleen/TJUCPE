@@ -42,3 +42,15 @@ Last checked: 2026-11-08
 - Verified CI steps: `node --check app.js`, `node --check experiment-engine.js`, 14-workflow calculation smoke test, regression smoke test, database-security schema smoke test, static-site assembly and Pages deployment — all passed.
 - Supabase migration history is applied through `tjucpe_legacy_report_resubmit_guard_v10`; `classroom-admin` is ACTIVE v9.
 - Remaining manual acceptance: use synthetic student/teacher/admin accounts to test invite/reset/delete, class assignment gating, report withdraw/edit/delete, PDF annotation save and student re-open. No production student data was used for this acceptance pass.
+
+
+## 2026-11-08 follow-up correction
+
+- classroom-admin Edge Function deployed and ACTIVE v10; new delete_class action allows teacher/admin permanent deletion only when no report records exist. Classes with reports must be archived to preserve teaching history.
+- Experiment workspaces now expose a per-table TXT template and a multi-sheet XLSX template. The same templates can be uploaded; XLSX import matches expected column headers. Manual entry remains available.
+- Student report center now loads open assignments from active class memberships and displays them as actionable task cards.
+- Staff dashboard now displays teaching metrics and management shortcuts rather than student personal activity or student-oriented metrics.
+- Fixed student account checkbox rendering in the admin user table.
+- CI run 42441486227 succeeded on commit 3c7aab70bb618e53c679cba31be203f5b0c29fd0, including all 14 experiment workflow smoke tests, regression, schema security and Pages deployment.
+- Reset all existing Auth users and teaching test records on 2026-11-08. Post-reset counts: Auth users 0; profiles 0; classes 0; memberships 0; assignments 0; reports 0; experiment records 0; audit logs 0. The 14 experiment catalog entries, schema, policies, migrations and private report bucket remain.
+- First administrator setup is documented in docs/RESET_AND_FIRST_ADMIN.md. After first registration, project owner must promote the selected account to admin in Supabase SQL Editor.
