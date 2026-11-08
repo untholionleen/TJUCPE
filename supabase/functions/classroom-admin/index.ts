@@ -62,17 +62,16 @@ export default {
         if (authError || !authUser.user?.email) {
           return { user_id: targetId, ok: false, error: "Student email unavailable" };
         }
-        const { data: link, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-          type: "recovery", email: authUser.user.email,
-          options: { redirectTo: APP_REDIRECT_URL }
-        });
-        if (linkError || !link.properties?.action_link) {
-          return { user_id: targetId, ok: false, error: linkError?.message ?? "Recovery link unavailable" };
+        const { error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(
+          authUser.user.email, { redirectTo: APP_REDIRECT_URL }
+        );
+        if (resetError) {
+          return { user_id: targetId, email: authUser.user.email, ok: false, error: resetError.message };
         }
-        await audit(targetId, "account.password_recovery_link_generated", { class_id: classId || null });
+        await audit(targetId, "account.password_recovery_email_sent", { class_id: classId || null });
         return {
           user_id: targetId, full_name: target.full_name, email: authUser.user.email,
-          ok: true, action_link: link.properties.action_link
+          ok: true, email_sent: true
         };
       };
 
