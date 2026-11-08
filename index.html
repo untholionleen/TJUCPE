@@ -95,8 +95,9 @@
       </header>
 
       <section id="overviewPage" class="page">
-        <div class="welcome-row"><div><div class="eyebrow">YOUR LAB SPACE</div><h1>早上好，<span id="welcomeName">同学</span></h1><p class="muted">从实验数据开始，完成分析、作图与报告提交。</p></div><div class="date-pill" id="todayDate"></div></div>
-        <div class="metric-grid">
+        <div class="welcome-row"><div><div id="overviewEyebrow" class="eyebrow">YOUR LAB SPACE</div><h1 id="overviewTitle">早上好，<span id="welcomeName">同学</span></h1><p id="overviewSubtitle" class="muted">从实验数据开始，完成分析、作图与报告提交。</p></div><div class="date-pill" id="todayDate"></div></div>
+        <section id="overviewStaffPanel" class="hidden"><div class="metric-grid"><article class="metric-card"><div class="metric-label">管理班级</div><div class="metric-number" id="staffMetricClasses">0</div><div class="metric-foot">当前可管理教学班</div></article><article class="metric-card"><div class="metric-label">开放任务</div><div class="metric-number" id="staffMetricTasks">0</div><div class="metric-foot">正在开放的实验任务</div></article><article class="metric-card"><div class="metric-label">待批阅报告</div><div class="metric-number" id="staffMetricReports">0</div><div class="metric-foot">等待教师处理的提交</div></article></div><div class="quick-grid" style="margin-top:20px"><button class="quick-card" data-goto="classes"><span class="quick-icon sea">▦</span><strong>班级与任务</strong><small>创建班级、布置实验、管理名单</small><b>进入管理　→</b></button><button class="quick-card" data-goto="review"><span class="quick-icon sky">▤</span><strong>报告批阅</strong><small>查看提交、在线批注与成绩确认</small><b>进入批阅　→</b></button><button class="quick-card" data-goto="classes"><span class="quick-icon sand">＋</span><strong>发布实验任务</strong><small>为教学班创建新的实验任务</small><b>管理任务　→</b></button></div></section>
+        <div id="overviewStudentPanel"> <div class="metric-grid">
           <article class="metric-card"><div class="metric-label">实验项目</div><div class="metric-number" id="metricExperiments">14</div><div class="metric-foot">已建立实验工作区</div><div class="metric-symbol teal">◈</div></article>
           <article class="metric-card"><div class="metric-label">数据记录</div><div class="metric-number" id="metricRecords">0</div><div class="metric-foot">保存在个人空间</div><div class="metric-symbol blue">⌁</div></article>
           <article class="metric-card"><div class="metric-label">报告提交</div><div class="metric-number" id="metricReports">0</div><div class="metric-foot">含草稿与已提交报告</div><div class="metric-symbol amber">▤</div></article>
@@ -110,6 +111,7 @@
         </div>
         <div class="section-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>最近记录</h2></div><button class="text-action" data-goto="reports">查看全部 →</button></div>
         <div class="panel"><div id="recentActivity" class="empty-state"><div class="empty-icon">▧</div><strong>还没有实验记录</strong><p>选择一个实验项目，开始录入你的第一组数据。</p><button class="btn btn-outline" data-goto="experiments">浏览实验项目</button></div></div>
+        </div>
       </section>
 
       <section id="experimentsPage" class="page hidden">
@@ -170,6 +172,7 @@
 
       <section id="reportsPage" class="page hidden">
         <div class="page-heading"><div><div class="eyebrow">REPORT CENTER</div><h1>我的实验报告</h1><p class="muted">上传 PDF / Word 报告，查看提交进度与批阅意见。</p></div><button id="newReport" class="btn btn-primary">＋ 提交新报告</button></div>
+        <section class="panel student-only" id="studentTaskPanel"><div class="panel-heading"><div><h3>我的待完成实验任务</h3><p>教师发布并向您开放的任务会显示在这里。</p></div></div><div id="studentTaskList" class="student-task-list"><p class="muted">正在加载任务……</p></div></section>
         <section class="panel">
           <div class="panel-heading"><div><h3>报告记录</h3><p>仅本人和有权限的课程教师可查看报告文件。</p></div><span class="small-tag">PRIVATE STORAGE</span></div>
           <div class="table-scroll"><table class="data-table"><thead><tr><th>实验项目</th><th>报告文件</th><th>提交时间</th><th>状态</th><th>成绩</th><th>操作</th></tr></thead><tbody id="reportsBody"><tr><td colspan="6" class="muted center">正在加载……</td></tr></tbody></table></div>
