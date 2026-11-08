@@ -199,15 +199,22 @@ export default {
           : { data: [], error: null };
         if (studentsError) return json({ error: studentsError.message }, 500);
         const studentMap = new Map((students ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
+        // Create signed URLs in batches. One request per student made large-class exports
+        // unnecessarily slow and could outlive the Edge Function execution budget.
+        const reportPaths = [...new Set((reports ?? []).map((r: { storage_path: string }) => r.storage_path).filter(Boolean))];
+        const signedUrlMap = new Map<string, string>();
+        for (let offset = 0; offset < reportPaths.length; offset += 100) {
+          const chunk = reportPaths.slice(offset, offset + 100);
+          const { data: signedItems, error: signedBatchError } = await supabaseAdmin.storage
+            .from("lab-reports").createSignedUrls(chunk, 900);
+          if (signedBatchError) return json({ error: "Report download links could not be prepared: " + signedBatchError.message }, 500);
+          for (const item of signedItems ?? []) {
+            if (item.path && item.signedUrl && !item.error) signedUrlMap.set(item.path, item.signedUrl);
+          }
+        }
         const rows = [];
         for (const report of reports ?? []) {
           const student = studentMap.get(report.student_id) ?? {};
-          let signedUrl: string | null = null;
-          if (report.storage_path) {
-            const { data: signed, error: signedError } = await supabaseAdmin.storage.from("lab-reports")
-              .createSignedUrl(report.storage_path, 900);
-            if (!signedError) signedUrl = signed?.signedUrl ?? null;
-          }
           rows.push({
             report_id: report.id, student_id: report.student_id,
             student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
@@ -215,7 +222,8 @@ export default {
             file_name: report.file_name ?? "", status: report.status,
             score: report.score, feedback: report.feedback ?? "",
             created_at: report.created_at, submitted_at: report.submitted_at,
-            submission_version: report.submission_version ?? 1, signed_url: signedUrl
+            submission_version: report.submission_version ?? 1,
+            signed_url: report.storage_path ? signedUrlMap.get(report.storage_path) ?? null : null
           });
         }
         const { data: members, error: membersError } = await supabaseAdmin.from("class_members")
@@ -253,8 +261,8 @@ export default {
           return {
             record_id: record.id, student_id: record.owner_id,
             student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
-            experiment_name: catalog?.name ?? record.experiment_slug, title: record.title ?? "",
-            created_at: record.created_at, engine_version: record.engine_version ?? "",
+            experiment_name: catalog?.name ?? record.experiment_slug, experiment_slug: record.experiment_slug,
+            title: record.title ?? "", created_at: record.created_at, engine_version: record.engine_version ?? "",
             raw_data: record.raw_data ?? {}, analysis: record.analysis ?? {}
           };
         });
