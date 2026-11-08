@@ -1120,39 +1120,52 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
 
   async function loadClasses(){
-    const {data,error}=await db.from("classes").select("id,name,course_code,description,teacher_id,join_code,is_active").order("created_at",{ascending:false});
-    if(error){$("classList").textContent=friendlyError(error);return;}
-    classesCache=data||[];
+    const staff=["teacher","admin"].includes(profile?.role);
+    const classesPromise=db.from("classes").select("id,name,course_code,description,teacher_id,join_code,is_active").order("created_at",{ascending:false});
+    const auxiliaryPromise=profile.role==="admin"
+      ?db.from("profiles").select("id,full_name,student_no,role").in("role",["teacher","admin"]).order("full_name")
+      :profile.role==="student"
+        ?db.from("class_members").select("class_id").eq("student_id",user.id).eq("status","active")
+        :Promise.resolve({data:[],error:null});
+    const [classResult,auxiliary]=await Promise.all([classesPromise,auxiliaryPromise]);
+    if(classResult.error){$("classList").textContent=friendlyError(classResult.error);return;}
+    classesCache=classResult.data||[];
     const teacherLabel=$("newClassTeacher")?.closest("label");
     if(profile.role==="admin"&&$("newClassTeacher")){
-      const {data:teacherRows}=await db.from("profiles").select("id,full_name,student_no,role").in("role",["teacher","admin"]).order("full_name");
-      $("newClassTeacher").innerHTML=(teacherRows||[]).map(t=>'<option value="'+t.id+'">'+escapeHtml((t.full_name||"未命名")+" · "+(t.student_no||t.role))+'</option>').join("");
+      if(auxiliary.error){toast("教师列表读取失败："+friendlyError(auxiliary.error),true);}
+      $("newClassTeacher").innerHTML=(auxiliary.data||[]).map(t=>'<option value="'+t.id+'">'+escapeHtml((t.full_name||"未命名")+" · "+(t.student_no||t.role))+'</option>').join("");
       if(!classEditingId)$("newClassTeacher").value=user.id;
       teacherLabel?.classList.remove("hidden");
     }else teacherLabel?.classList.add("hidden");
     let visible=classesCache;
     if(profile.role==="student"){
-      const {data:members}=await db.from("class_members").select("class_id").eq("student_id",user.id).eq("status","active");
-      const ids=new Set((members||[]).map(x=>x.class_id));
+      if(auxiliary.error){$("classList").textContent=friendlyError(auxiliary.error);return;}
+      const ids=new Set((auxiliary.data||[]).map(x=>x.class_id));
       visible=classesCache.filter(c=>ids.has(c.id)&&c.is_active);
     }
-    const staff=["teacher","admin"].includes(profile.role);
     $("classList").innerHTML=visible.map(c=>`<article class="class-card ${c.is_active?"":"class-inactive"}">
       <strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.course_code||"课程班级")}</small>
       <p>${escapeHtml(c.description||"")}</p>
       ${staff?`<code>加入码：${escapeHtml(c.join_code||"—")}</code>
       <div class="class-card-actions"><button class="btn btn-outline btn-sm" data-class-edit="${c.id}">修改</button>
-      <button class="btn btn-outline btn-sm" data-class-toggle="${c.id}">${c.is_active?"停用/归档":"重新启用"}</button><button class="btn btn-outline btn-sm" data-class-delete="${c.id}">删除班级</button></div>`: ""}
+      <button class="btn btn-outline btn-sm" data-class-toggle="${c.id}">${c.is_active?"停用/归档":"重新启用"}</button>
+      <button class="btn btn-outline btn-sm" data-class-delete="${c.id}">删除班级</button></div>`: ""}
       ${!c.is_active?'<small class="muted">已停用，历史报告保留</small>':""}
     </article>`).join("")||'<p class="muted">当前没有班级。</p>';
     const active=visible.filter(c=>c.is_active);
     $("classTaskSelect").innerHTML=active.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
     $("reportClass").innerHTML=active.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
     if(!activeClassId||!active.some(c=>c.id===activeClassId))activeClassId=active[0]?.id||null;
-    if(activeClassId)$("classTaskSelect").value=activeClassId;
+    if(activeClassId){$("classTaskSelect").value=activeClassId;$("reportClass").value=activeClassId;}
     $("classManagerTools").classList.toggle("hidden",!staff);
     if($("classBulkDelete"))$("classBulkDelete").textContent=profile.role==="admin"?"批量永久删除学生账号":"批量删除/移出学生";
-    if(!activeClassId){$("classAssignments").textContent="请先创建或加入有效班级。";$("classRosterBody").innerHTML='<tr><td colspan="5">暂无有效班级。</td></tr>';return;}
+    if(!activeClassId){
+      $("classAssignments").textContent="请先创建或加入有效班级。";
+      $("classRosterBody").innerHTML='<tr><td colspan="5">暂无有效班级。</td></tr>';
+      if($("studentTaskList"))$("studentTaskList").innerHTML='<p class="muted">您尚未加入有效班级，暂时没有可提交任务。</p>';
+      $("reportAssignment").innerHTML="";
+      return;
+    }
     await loadClassAssignments();
   }
   async function deleteClass(id){
@@ -1253,12 +1266,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function loadClassAssignments(){
     const classId=$("classTaskSelect").value||activeClassId;activeClassId=classId;
     if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
-    const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
+    const tasksPromise=db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
+    const rosterPromise=profile.role==="student"?Promise.resolve():loadClassRoster(classId);
+    const [taskResult]=await Promise.all([tasksPromise,rosterPromise]);
+    const {data,error}=taskResult;
     if(error){$("classAssignments").textContent=friendlyError(error);return;}
-    const openTasks=(data||[]).filter(a=>a.is_open);
+    const openTasks=(data||[]).filter(x=>x.is_open);
     $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span>${["teacher","admin"].includes(profile.role)?`<span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button><button class="btn btn-outline btn-sm" data-assignment-export="${a.id}">导出本次班级数据</button></span>`:""}</div>`).join("")||"本班暂无实验任务。";
-    if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>`<article class="student-task-card"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"请按教师要求完成实验并提交 PDF 报告。")}</p></div><div class="student-task-actions"><button class="btn btn-outline btn-sm" data-task-open-experiment="${escapeHtml(a.experiment_catalog?.slug||"")}" data-task-id="${a.id}" data-class-id="${classId}">开始实验</button><button class="btn btn-primary btn-sm" data-task-submit="${a.id}" data-class-id="${classId}">提交报告</button></div></article>`).join("")||"<p class=\"muted\">当前班级暂无开放任务。</p>";
-    await loadClassRoster(classId);
+    if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>`<article class="student-task-card"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"请按教师要求完成实验并提交 PDF 报告。")}</p></div><div class="student-task-actions"><button class="btn btn-outline btn-sm" data-task-open-experiment="${escapeHtml(a.experiment_catalog?.slug||"")}" data-task-id="${a.id}" data-class-id="${classId}">开始实验</button><button class="btn btn-primary btn-sm" data-task-submit="${a.id}" data-class-id="${classId}">提交报告</button></div></article>`).join("")||'<p class="muted">当前班级暂无开放任务。</p>';
     $("reportAssignment").innerHTML=openTasks.map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
     $("reportClass").value=classId;
   }
@@ -1647,6 +1662,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("runAnalysis").addEventListener("click",runAnalysis);
     $("runDedicatedAnalysis").addEventListener("click",runDedicatedAnalysis);
     $("clearFitSelection").addEventListener("click",clearDedicatedSelection);
+    $("applyFitRange")?.addEventListener("click",applyFitRange);
     $("clearData").addEventListener("click",()=>{$("dataInput").value="";clearAnalysis();$("dataCount").textContent="等待输入数据";});
     $("dataFile").addEventListener("change",async e=>{const file=e.target.files[0];if(file)$("dataInput").value=await file.text();$("dataCount").textContent=file?file.name:"等待输入数据";});
     $("downloadCsv").addEventListener("click",downloadCsv);
