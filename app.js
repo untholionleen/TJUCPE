@@ -322,10 +322,11 @@
   function spreadsheetXmlEscape(value){
     return String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
   }
-  function downloadExperimentWorkbook(slug){
+  async function downloadExperimentWorkbook(slug){
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
     if(!def){toast("未找到该实验的数据表结构。",true);return;}
     try{
+      await ensureExternalLibrary("XLSX",["https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"]);
       if(window.XLSX?.utils){
         const wb=XLSX.utils.book_new();
         def.tables.forEach((table,i)=>{
