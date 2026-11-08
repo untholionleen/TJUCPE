@@ -34,4 +34,9 @@ for (const slug of ["surface-tension","saponification","rectorite-adsorption","g
   assert.ok(source.includes('slug==="' + slug + '"'), "Excel mapping must include " + slug);
 }
 
+assert.ok(source.includes('queryParams.get("token_hash")'), "email recovery must support token_hash links to avoid scanner-prefetched ConfirmationURL links");
+assert.ok(source.includes("db.auth.verifyOtp({token_hash:tokenHash,type:tokenType})"), "email token hash must be verified through Auth verifyOtp");
+assert.ok(source.includes("async function generatePythonPlot"), "Matplotlib runtime must be explicit/optional, not auto-started for every run");
+assert.ok(!source.includes("renderPythonMatplotlib(def,result).catch"), "analysis must not download Pyodide automatically");
+assert.ok(source.includes("renderPythonPlot").includes ? true : source.includes('$("renderPythonPlot").addEventListener'), "Python plot button must be wired");
 console.log("TJUCPE regression smoke tests passed (linear, quadratic, cubic, insufficient sample guard).");
