@@ -57,6 +57,7 @@
   }
 
   let recoveryCompletionRunning = false;
+  let pendingEmailToken = null;
   const $ = (id) => document.getElementById(id);
   const experiments = [
     {slug:"surface-tension",code:"PC-01",name:"最大泡压法测定液体的表面张力",group:"界面化学",desc:"整理不同浓度下的最大泡压测量结果，绘制表面张力–浓度关系曲线。",x:"浓度 c",y:"表面张力 γ",xu:"mol·L⁻¹",yu:"mN·m⁻¹",note:"建议先核对微压差测量仪读数与表面张力换算关系，再使用本页拟合。若采用 Szyszkowski 方程或 Gibbs 吸附公式，应按实验指导书确认浓度单位、温度和常数。"},
@@ -181,21 +182,33 @@
   const showApp = () => { $("authView").classList.add("hidden"); $("appView").classList.remove("hidden"); };
   function setAuthMode(mode) {
     authMode=mode;
-    const register=mode==="register", recovery=mode==="recovery", forced=mode==="forced-change", resetForm=recovery||forced;
-    $("authTitle").textContent=forced?"设置个人登录密码":recovery?"确认密码重置":register?"创建学生账号":"登录平台";
-    $("authSubtitle").textContent=forced
-      ?"邮箱已验证，请设置仅本人知道的新密码。"
+    const register=mode==="register", recovery=mode==="recovery", forced=mode==="forced-change";
+    const confirming=mode==="confirm-email", resetForm=recovery||forced;
+    $("authTitle").textContent=confirming?"确认邮箱验证":forced?"设置个人登录密码":recovery?"确认密码重置":register?"创建学生账号":"登录平台";
+    $("authSubtitle").textContent=confirming
+      ?"邮件链接已打开。为避免邮件安全扫描提前使用一次性令牌，请确认后再继续。"
+      :forced?"邮箱已验证，请设置仅本人知道的新密码。"
       :recovery?"邮箱验证已通过，请在下方设置新的个人密码。"
       :register?"注册后系统会自动创建普通学生身份。":"使用课程账号进入实验工作区。";
     $("registerFields").classList.toggle("hidden",!register);
-    $("authForm").classList.toggle("hidden",resetForm);
+    $("authForm").classList.toggle("hidden",resetForm||confirming);
     $("resetPanel").classList.toggle("hidden",!resetForm);
-    $("authLinks").classList.toggle("hidden",resetForm);
+    $("emailConfirmPanel").classList.toggle("hidden",!confirming);
+    $("authLinks").classList.toggle("hidden",resetForm||confirming);
     $("authSubmit").textContent=register?"注册并创建账号":"登录";
     $("toggleAuth").textContent=register?"已有账号？返回登录":"还没有账号？立即注册";
     $("password").autocomplete=register?"new-password":"current-password";
     $("newPassword").autocomplete="new-password";
     $("saveNewPassword").textContent=forced?"保存个人密码并进入平台":"确认并保存";
+    if(confirming){
+      const type=pendingEmailToken?.type;
+      $("emailConfirmMessage").textContent=type==="recovery"
+        ?"您正在重置账号密码。确认邮箱后，系统会让您自己设置新的个人密码。"
+        :type==="invite"
+          ?"您正在接受平台账号邀请。确认邮箱后，需要设置自己的首次登录密码。"
+          :"确认该邮箱地址后，系统会完成注册验证并进入平台。";
+      $("confirmEmailToken").textContent=type==="recovery"?"验证邮箱并重置密码":type==="invite"?"接受邀请并设置密码":"确认邮箱并继续";
+    }
   }
   function roleName(role){return ({student:"学生",teacher:"教师",admin:"管理员"})[role]||"学生";}
   function initials(name){return (name||"U").trim().slice(0,1).toUpperCase();}
@@ -1689,6 +1702,32 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       button.disabled=false;button.textContent="重新检测 Supabase 连接";
     }
   }
+  async function confirmPendingEmailToken(){
+    if(!pendingEmailToken)return;
+    const pending=pendingEmailToken,button=$("confirmEmailToken");
+    button.disabled=true;button.textContent="正在验证邮箱…";
+    try{
+      const {data,error}=await db.auth.verifyOtp({token_hash:pending.tokenHash,type:pending.type});
+      if(error)throw error;
+      user=data?.user||data?.session?.user||null;
+      if(!user)throw new Error("邮箱验证已完成，但 Supabase 没有建立登录会话。请重新发送验证邮件。");
+      pendingEmailToken=null;
+      window.history.replaceState(null,"",APP_REDIRECT_URL);
+      if(pending.type==="recovery"||pending.type==="invite"){
+        await completeVerifiedPasswordRecovery(pending.type==="invite"?"invite":"recovery");
+      }else{
+        await enterApp();
+      }
+    }catch(err){
+      pendingEmailToken=null;
+      window.history.replaceState(null,"",APP_REDIRECT_URL);
+      showAuth();setAuthMode("login");
+      toast("邮箱验证失败："+friendlyError(err)+"。请重新发送最新验证邮件，再点击邮件链接。",true);
+    }finally{
+      button.disabled=false;
+      button.textContent="确认邮箱并继续";
+    }
+  }
   async function start(){
     $("connectionHint").textContent=db?"前端密钥格式通过检查；请检测 Supabase 连接。":"Supabase 配置缺失或 Publishable key 格式不正确。";
     if(!hasConfig||!window.supabase?.createClient){
@@ -1712,28 +1751,16 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const tokenHash=queryParams.get("token_hash");
     const tokenType=queryParams.get("type");
     if(tokenHash){
-      handlingEmailToken=true;
-      try{
-        const allowedTypes=["email","recovery","invite","signup","magiclink","email_change"];
-        if(!allowedTypes.includes(tokenType||""))throw new Error("邮箱链接类型无效。请重新发送验证邮件。");
-        const {data,error}=await db.auth.verifyOtp({token_hash:tokenHash,type:tokenType});
-        if(error)throw error;
-        user=data?.user||data?.session?.user||null;
-        if(!user)throw new Error("邮箱验证已完成，但没有建立登录会话。请返回登录页重试。");
-        window.history.replaceState(null,"",APP_REDIRECT_URL);
-        if(tokenType==="recovery"||tokenType==="invite"){
-          recoveryDetected=true;
-          await completeVerifiedPasswordRecovery(tokenType==="invite"?"invite":"recovery");
-        }else{
-          await enterApp();
-        }
-        return;
-      }catch(err){
+      const allowedTypes=["email","recovery","invite","signup","magiclink","email_change"];
+      if(!allowedTypes.includes(tokenType||"")){
         window.history.replaceState(null,"",APP_REDIRECT_URL);
         showAuth();setAuthMode("login");
-        toast("邮箱验证失败："+friendlyError(err)+"。请回到登录页重新发送邮件。",true);
+        toast("邮箱链接类型无效，请重新发送验证邮件。",true);
         return;
-      }finally{handlingEmailToken=false;}
+      }
+      pendingEmailToken={tokenHash,type:tokenType};
+      showAuth();setAuthMode("confirm-email");
+      return;
     }
 
     const {data:{session},error:sessionError}=await db.auth.getSession();
@@ -1751,6 +1778,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   function bindEvents(){
     document.body.addEventListener("change",e=>{const fileInput=e.target.closest(".experiment-table-file");if(fileInput)importExperimentTableFile(fileInput);});
     $("authForm").addEventListener("submit",handleAuthSubmit);
+    $("confirmEmailToken").addEventListener("click",confirmPendingEmailToken);
+    $("cancelEmailToken").addEventListener("click",()=>{pendingEmailToken=null;window.history.replaceState(null,"",APP_REDIRECT_URL);setAuthMode("login");});
     $("toggleAuth").addEventListener("click",()=>setAuthMode(authMode==="login"?"register":"login"));
     $("backToLogin").addEventListener("click",()=>setAuthMode("login"));
     $("saveNewPassword").addEventListener("click",async()=>{
