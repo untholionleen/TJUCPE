@@ -5,8 +5,17 @@
   const SUPABASE_URL = String(CONFIG.SUPABASE_URL || "").trim().replace(/\/+$/, "");
   const SUPABASE_PUBLISHABLE_KEY = String(CONFIG.SUPABASE_PUBLISHABLE_KEY || "").trim();
   const hasConfig = !!(SUPABASE_URL && /^sb_publishable_[A-Za-z0-9_-]+$/.test(SUPABASE_PUBLISHABLE_KEY));
+  const supabaseFetch = async (input, init={}) => {
+    const controller=new AbortController(),originalSignal=init?.signal;
+    const relayAbort=()=>controller.abort(originalSignal?.reason);
+    if(originalSignal){if(originalSignal.aborted)controller.abort(originalSignal.reason);else originalSignal.addEventListener("abort",relayAbort,{once:true});}
+    const timer=window.setTimeout(()=>controller.abort(new DOMException("Supabase request timeout","TimeoutError")),30000);
+    try{return await window.fetch(input,{...init,signal:controller.signal});}
+    catch(err){if(controller.signal.aborted&&!originalSignal?.aborted)throw new Error("连接 Supabase 超时（30 秒无响应）。请检查网络后重试。");throw err;}
+    finally{window.clearTimeout(timer);if(originalSignal)originalSignal.removeEventListener("abort",relayAbort);}
+  };
   const db = hasConfig && window.supabase?.createClient
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {global:{fetch:supabaseFetch},auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}})
     : null;
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
   const APP_REDIRECT_URL = "https://untholionleen.github.io/TJUCPE/";
@@ -959,7 +968,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function resetOneUser(id){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
-    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？用户点击邮件后，系统会设置临时密码 TJUCPE123，并要求其立即设置个人密码。"))return;
+    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？验证通过后会设置临时密码 TJUCPE123，并要求立即修改为个人密码。"))return;
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});
     if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
     toast("密码重置验证邮件已发送至 "+target.email+"。");
@@ -980,7 +989,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
 
   async function loadClasses(){
     const {data,error}=await db.from("classes").select("id,name,course_code,description,teacher_id,join_code,is_active").order("created_at",{ascending:false});
-    if(error){$("classList").textContent=error.message;return;}
+    if(error){$("classList").textContent=friendlyError(error);return;}
     classesCache=data||[];
     const teacherLabel=$("newClassTeacher")?.closest("label");
     if(profile.role==="admin"&&$("newClassTeacher")){
@@ -1097,7 +1106,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const classId=$("classTaskSelect").value||activeClassId;activeClassId=classId;
     if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
-    if(error){$("classAssignments").textContent=error.message;return;}
+    if(error){$("classAssignments").textContent=friendlyError(error);return;}
     const openTasks=(data||[]).filter(a=>a.is_open);
     $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span><span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button><button class="btn btn-outline btn-sm" data-assignment-export="${a.id}">导出本次班级数据</button></span></div>`).join("")||"本班暂无实验任务。";
     if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>`<article class="student-task-card"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"请按教师要求完成实验并提交 PDF 报告。")}</p></div><button class="btn btn-primary btn-sm" data-task-submit="${a.id}" data-class-id="${classId}">提交报告</button></article>`).join("")||"<p class=\"muted\">当前班级暂无开放任务。</p>";
@@ -1124,7 +1133,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const host=$("classRosterBody");if(!host)return;
     if(profile.role==="student"){host.innerHTML='<tr><td colspan="5">学生不可管理班级名单。</td></tr>';return;}
     const {data:members,error}=await db.from("class_members").select("student_id,status,joined_at").eq("class_id",classId).order("joined_at",{ascending:false});
-    if(error){host.innerHTML='<tr><td colspan="5">'+escapeHtml(error.message)+'</td></tr>';return;}
+    if(error){host.innerHTML='<tr><td colspan="5">'+escapeHtml(friendlyError(error))+'</td></tr>';return;}
     const ids=(members||[]).map(x=>x.student_id);
     const {data:people}=ids.length?await db.from("profiles").select("id,full_name,student_no,role").in("id",ids):{data:[]};
     const map=Object.fromEntries((people||[]).map(x=>[x.id,x]));
@@ -1450,6 +1459,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       finally{$("forgotPassword").disabled=false;}
     });
     $("signOut").addEventListener("click",async()=>{await db.auth.signOut();});
+    $("signOutMobile")?.addEventListener("click",async()=>{await db.auth.signOut();});
     $("mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-page]");if(b)go(b.dataset.page);});
     document.body.addEventListener("click",e=>{
       const goto=e.target.closest("[data-goto]");if(goto){if(goto.dataset.experiment)openExperiment(goto.dataset.experiment);else go(goto.dataset.goto);}
