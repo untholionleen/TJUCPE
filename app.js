@@ -739,7 +739,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function loadReports(){
     const body=$("reportsBody");body.innerHTML='<tr><td colspan="6" class="muted center">正在加载……</td></tr>';
     const {data,error}=await db.from("report_submissions").select("*").eq("student_id",user.id).order("created_at",{ascending:false});
-    if(error){body.innerHTML=`<tr><td colspan="6" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
+    if(error){body.innerHTML=`<tr><td colspan="6" class="center">${escapeHtml(friendlyError(error))}</td></tr>`;return;}
     lastRecords=data||[];
     if(!lastRecords.length){body.innerHTML='<tr><td colspan="6" class="muted center">暂无报告记录，点击右上角提交第一份实验报告。</td></tr>';return;}
     body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">预览</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button> ${r.status==="submitted"?`<button class="action-link" data-report-withdraw="${r.id}">撤回</button>`:""} ${["draft","returned","withdrawn"].includes(r.status)?`${r.class_id&&r.assignment_id?`<button class="action-link" data-report-edit="${r.id}">修改并重交</button> `:""}<button class="action-link" data-report-delete="${r.id}">删除</button>`:""}</td></tr>`).join("");
