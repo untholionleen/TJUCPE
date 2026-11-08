@@ -26,8 +26,11 @@
       for (const url of urls) {
         try {
           await new Promise((resolve,reject) => {
-            const script=document.createElement("script");script.src=url;script.async=true;script.onload=resolve;
-            script.onerror=()=>{script.remove();reject(new Error("组件加载失败："+url));};document.head.appendChild(script);
+            const script=document.createElement("script");script.src=url;script.async=true;
+            const timer=window.setTimeout(()=>{script.remove();reject(new Error("组件加载超时："+globalName));},6500);
+            script.onload=()=>{window.clearTimeout(timer);if(window[globalName])resolve();else reject(new Error("组件未能正确初始化："+globalName));};
+            script.onerror=()=>{window.clearTimeout(timer);script.remove();reject(new Error("组件加载失败："+globalName));};
+            document.head.appendChild(script);
           });
           if(window[globalName])return window[globalName];
         } catch(err) { lastError=err; }
@@ -38,6 +41,21 @@
   }
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
   const APP_REDIRECT_URL = "https://untholionleen.github.io/TJUCPE/";
+  const emailSendTimes=new Map();
+  function emailCooldownRemaining(email){
+    const key=String(email||"").trim().toLowerCase();
+    if(!key)return 0;
+    return Math.max(0,60000-(Date.now()-(emailSendTimes.get(key)||0)));
+  }
+  function markEmailSent(email){
+    const key=String(email||"").trim().toLowerCase();
+    if(key)emailSendTimes.set(key,Date.now());
+  }
+  function assertEmailCooldown(email){
+    const ms=emailCooldownRemaining(email);
+    if(ms>0)throw new Error("刚刚已向该邮箱发送邮件，请等待约 "+Math.ceil(ms/1000)+" 秒后再试。");
+  }
+
   let recoveryCompletionRunning = false;
   const $ = (id) => document.getElementById(id);
   const experiments = [
@@ -65,6 +83,12 @@
     const code=String(input?.code||input?.status||"");
     const rules=[
       [/invalid login credentials|invalid_credentials/i,"邮箱或密码不正确，请检查后重试。"],
+      [/one-time token not found|token has expired or is invalid|email link is invalid or has expired/i,"邮箱验证链接已经被邮件安全扫描程序打开、已经使用或已过期。请回到平台重新发送验证邮件，然后只点击最新的一封。"],
+      [/over_email_send_rate_limit|security purposes.*request this after/i,"邮件发送过于频繁。请等待页面提示的时间后再试，不要连续点击发送。"],
+      [/refresh_token_not_found|invalid refresh token/i,"登录状态已过期或在其他标签页更新。请重新登录；不会影响已保存的实验和报告数据。"],
+      [/email.*already|user already registered/i,"这个邮箱已经注册，请直接登录或使用密码重置。"],
+      [/invalid.*redirect|redirect.*(mismatch|not allowed)/i,"邮件跳转地址不在 Supabase 允许列表中。请管理员检查 Site URL 和 Redirect URLs。"],
+
       [/email address.*not authorized|email.*not allowed/i,"当前邮箱不允许注册或接收邮件，请联系平台管理员检查邮件服务设置。"],
       [/user.*(banned|disabled)|this account is disabled/i,"该账号已被管理员停用，请联系管理员恢复。"],
       [/email.*(already|exists)|user already registered/i,"该邮箱已经注册，请直接登录或使用密码重置。"],
@@ -640,15 +664,34 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!window.TJUCPE_EXPERIMENT_ENGINE){toast("实验算法组件尚未加载，请刷新页面后重试。",true);return;}
     const button=$("runDedicatedAnalysis");if(button){button.disabled=true;button.textContent="正在计算…";}
     try{
-      if(!window.Plotly)ensureExternalLibrary("Plotly",["https://cdn.plot.ly/plotly-2.35.2.min.js"]).catch(()=>{});
       const {def,tables,settings}=readDedicatedInputs();
       const result=window.TJUCPE_EXPERIMENT_ENGINE.analyze(def.slug,tables,settings,selectedFitIndices);
       dedicatedTables=tables;dedicatedResult=result;
-      renderDedicatedResult(def,result,tables,settings);
+      let plotlyReady=!!window.Plotly;
+      if(!plotlyReady){
+        const load=ensureExternalLibrary("Plotly",["https://cdn.plot.ly/plotly-2.35.2.min.js","https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"]).then(()=>true).catch(()=>false);
+        plotlyReady=await Promise.race([load,new Promise(resolve=>window.setTimeout(()=>resolve(false),5000))]);
+      }
+      renderDedicatedResult(def,result,tables,settings,plotlyReady);
     }catch(error){toast(friendlyError(error)||"实验计算失败。",true);}
     finally{if(button){button.disabled=false;button.textContent="运行本实验专属计算";}}
   }
-  function renderDedicatedResult(def,result,tables,settings){
+  async function generatePythonPlot(){
+    if(!dedicatedResult||!currentExperiment){toast("请先运行本实验计算，再生成 Python 高清图。",true);return;}
+    const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===currentExperiment.slug);
+    if(!def)return;
+    const button=$("renderPythonPlot"),status=$("pythonPlotStatus");
+    button.disabled=true;button.textContent="Python 正在准备…";
+    status.textContent="正在按需加载浏览器内 Python、NumPy 和 Matplotlib。首次使用需要下载绘图运行环境；页面的交互图不受影响。";
+    try{
+      await renderPythonMatplotlib(def,dedicatedResult);
+      toast("Python 高清科研图已生成。");
+    }catch(err){
+      status.textContent="Python 高清图暂不可用："+friendlyError(err)+"。交互图和计算结果仍可继续使用。";
+      toast("Python 绘图失败："+friendlyError(err),true);
+    }finally{button.disabled=false;button.textContent="生成 Python 高清图";}
+  }
+  function renderDedicatedResult(def,result,tables,settings,plotlyReady=false){
     const firstSeries=result.series?.[0],basePoints=(firstSeries?.points||[]).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
     const yValues=basePoints.map(p=>p.y),summaryMean=yValues.length?yValues.reduce((a,b)=>a+b,0)/yValues.length:NaN;
     const summarySd=yValues.length>1?Math.sqrt(yValues.reduce((a,b)=>a+(b-summaryMean)**2,0)/(yValues.length-1)):NaN;
@@ -682,13 +725,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       selectdirection:"any",hovermode:"closest"
     };
     $("pythonPlotImage").classList.add("hidden");
-    $("pythonPlotStatus").textContent="等待 Python 绘图…";
-    renderPythonMatplotlib(def,result).catch(error=>{
-      $("pythonPlotStatus").textContent="Python 绘图暂不可用："+friendlyError(error)+"；下方交互选区图仍可用于选择拟合范围。";
-      $("engineWarnings").classList.remove("hidden");
-      $("engineWarnings").innerHTML="<strong>Python 绘图提示</strong><ul><li>"+escapeHtml(friendlyError(error))+"</li><li>数据和计算结果未丢失；可检查网络后重新运行。</li></ul>";
-    });
-    if(window.Plotly&&typeof Plotly.react==="function"){
+    $("pythonPlotStatus").textContent="交互图已准备好。需要高分辨率科研图片时，再点击“生成 Python 高清图”。";
+    $("renderPythonPlot").classList.remove("hidden");
+    if(plotlyReady&&window.Plotly&&typeof Plotly.react==="function"){
       $("analysisPlotly").classList.remove("hidden");$("analysisChart").classList.add("hidden");$("fitRangeFallback").classList.add("hidden");
       Plotly.react("analysisPlotly",plotData,layout,{
         responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:["select2d","lasso2d"],
@@ -1124,9 +1163,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function resetOneUser(id){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
     if(!confirm("向 "+target.email+" 发送密码重置验证邮件？邮箱验证后由本人直接设置个人新密码，不使用统一默认密码。"))return;
+    try{assertEmailCooldown(target.email);}catch(err){toast(err,true);return;}
     const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"reset_password",user_id:id}});
     if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
-    toast("密码重置验证邮件已发送至 "+target.email+"。请让对方查看邮箱并及时打开链接。");
+    markEmailSent(target.email);
+    toast("密码重置验证邮件已发送至 "+target.email+"。60 秒内请勿重复发送；邮箱验证后由本人设置新密码。");
   }
   async function changeAccountStatus(id,status){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
@@ -1139,11 +1180,12 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function inviteAdminAccount(){
     const email=$("adminInviteEmail").value.trim(),full_name=$("adminInviteName").value.trim(),student_no=$("adminInviteNo").value.trim(),role=$("adminInviteRole").value;
     if(!email||!full_name){toast("请填写邮箱和姓名。",true);return;}
+    try{assertEmailCooldown(email);}catch(err){toast(err,true);return;}
     const btn=$("adminInviteButton");btn.disabled=true;
     try{
       const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"admin_invite_account",email,full_name,student_no,role}});
       if(error||!data?.ok)throw error||new Error(data?.error||"邀请账号失败");
-      toast("邀请邮件已发送："+email+"（"+roleName(role)+"）");
+      markEmailSent(email);toast("邀请邮件已发送："+email+"（"+roleName(role)+"）。60 秒内请勿重复发送。");
       $("adminInviteEmail").value="";$("adminInviteName").value="";$("adminInviteNo").value="";
       await loadUsers();
     }catch(err){toast(err,true);}
@@ -1648,7 +1690,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     }
     $("testConnection").addEventListener("click",testSupabaseConnection);
     if(!db)return;
-    let recoveryDetected=false;
+    let recoveryDetected=false,handlingEmailToken=false;
     const redirectParams=new URLSearchParams(window.location.hash.replace(/^#/,""));
     const queryParams=new URLSearchParams(window.location.search);
     const redirectError=redirectParams.get("error_description")||queryParams.get("error_description");
@@ -1656,16 +1698,47 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     db.auth.onAuthStateChange((event,session)=>{
       if(event==="PASSWORD_RECOVERY"&&session){
         recoveryDetected=true;user=session.user;profile=null;showAuth();setAuthMode("recovery");
-        window.setTimeout(()=>completeVerifiedPasswordRecovery(),0);
-      }else if(!session){user=null;profile=null;showAuth();setAuthMode("login");}
+        // Do not make another async Auth call inside this callback. The start() flow below
+        // completes the recovery exactly once after the verified session is available.
+      }else if(!session&&!handlingEmailToken){user=null;profile=null;showAuth();setAuthMode("login");}
     });
+
+    const tokenHash=queryParams.get("token_hash");
+    const tokenType=queryParams.get("type");
+    if(tokenHash){
+      handlingEmailToken=true;
+      try{
+        const allowedTypes=["email","recovery","invite","signup","magiclink","email_change"];
+        if(!allowedTypes.includes(tokenType||""))throw new Error("邮箱链接类型无效。请重新发送验证邮件。");
+        const {data,error}=await db.auth.verifyOtp({token_hash:tokenHash,type:tokenType});
+        if(error)throw error;
+        user=data?.user||data?.session?.user||null;
+        if(!user)throw new Error("邮箱验证已完成，但没有建立登录会话。请返回登录页重试。");
+        window.history.replaceState(null,"",APP_REDIRECT_URL);
+        if(tokenType==="recovery"){
+          recoveryDetected=true;showAuth();setAuthMode("recovery");
+          await completeVerifiedPasswordRecovery();
+        }else{
+          await enterApp();
+        }
+        return;
+      }catch(err){
+        window.history.replaceState(null,"",APP_REDIRECT_URL);
+        showAuth();setAuthMode("login");
+        toast("邮箱验证失败："+friendlyError(err)+"。请回到登录页重新发送邮件。",true);
+        return;
+      }finally{handlingEmailToken=false;}
+    }
+
     const {data:{session},error:sessionError}=await db.auth.getSession();
     if(sessionError)toast(sessionError,true);
     if(session){
       user=session.user;
-      if(recoveryDetected||redirectParams.get("type")==="recovery"||queryParams.get("auth")==="recovery"){
+      const recoveryInUrl=recoveryDetected||redirectParams.get("type")==="recovery"||queryParams.get("auth")==="recovery";
+      if(recoveryInUrl){
         showAuth();setAuthMode("recovery");
-        if(!recoveryDetected)window.setTimeout(()=>completeVerifiedPasswordRecovery(),0);
+        await completeVerifiedPasswordRecovery();
+        window.history.replaceState(null,"",APP_REDIRECT_URL);
       }else await enterApp();
     }else showAuth();
   }
@@ -1696,9 +1769,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       if(!email){toast("请先输入注册邮箱。",true);return;}
       $("forgotPassword").disabled=true;
       try{
+        assertEmailCooldown(email);
         const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:APP_REDIRECT_URL});
         if(error)throw error;
-        toast("重置验证邮件已发送。点击邮件中的链接后，系统会确认本次重置，并让您直接设置个人新密码；不会向您发送或使用统一默认密码。");
+        markEmailSent(email);toast("重置验证邮件已发送。请只打开最新的一封邮件；60 秒内请勿重复请求。邮箱验证通过后，可在网页直接设置个人新密码。");
       }catch(err){toast(err,true);}
       finally{$("forgotPassword").disabled=false;}
     });
@@ -1733,6 +1807,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("backExperiments").addEventListener("click",()=>go("experiments"));
     $("runAnalysis").addEventListener("click",runAnalysis);
     $("runDedicatedAnalysis").addEventListener("click",runDedicatedAnalysis);
+    $("renderPythonPlot").addEventListener("click",generatePythonPlot);
     $("clearFitSelection").addEventListener("click",clearDedicatedSelection);
     $("applyFitRange")?.addEventListener("click",applyFitRange);
     $("clearData").addEventListener("click",()=>{$("dataInput").value="";clearAnalysis();$("dataCount").textContent="等待输入数据";});
