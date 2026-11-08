@@ -90,3 +90,9 @@ Last checked: 2026-11-08
 - Postgres error-log review after 2026-11-08 11:52 UTC returned no new ERROR entries. Earlier `permission denied for function is_staff/is_admin` entries predate the helper correction and are retained in historical logs; do not treat historical entries as current failures.
 - Supabase project region is `us-west-2` while recent Edge Function execution was served from `us-west-1`; this project is therefore hosted in the US West region, not Europe. Recent observed storage request latency was about 252 ms average / 844 ms p95 across 30 requests (max about 971 ms). One historical `classroom-admin` request took about 5.7 seconds. This supports the user's latency concern but does not show a sustained database outage. Moving the project to an EU region would require a separate project and a planned data/auth/storage migration; region cannot be safely changed in place.
 - The latest test workflow was triggered after the v14/v15 test additions; final completion status is tracked in GitHub Actions. No authenticated browser test has been fabricated or marked as passed.
+
+## 2026-11-08 19:57 — Assignment export latency optimization
+
+- `classroom-admin` Edge Function deployed ACTIVE v23 with JWT verification enabled.
+- The `export_assignment_reports` action now fetches independent assignment/class, catalog/report/roster and profile/analysis/signed-URL data in parallel. It also reuses one profile lookup for submitted, missing and analysis rows instead of issuing repeated profile queries. Export scope remains exact `assignment_id` matching; no time-window guessing was introduced.
+- This is a code-level latency optimization. A real authenticated large-class ZIP download has not yet been exercised after deployment, so no end-to-end export success is claimed.
