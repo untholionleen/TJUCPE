@@ -254,6 +254,27 @@
   }
   function mapExcelTable(slug,key,workbook){
     let picked,rows,out=[];
+    // First recognize the platform's own downloaded workbook by its Chinese or
+    // internal header row, before applying legacy source-workbook-specific mappings.
+    // This lets a student download -> fill -> upload the exact same template.
+    const templateDef=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
+    const templateTable=templateDef?.tables?.find(x=>x.key===key);
+    if(templateTable&&window.XLSX?.utils){
+      const expectedHeaders=[templateTable.headers||[],templateTable.columns||[]]
+        .filter(list=>list.length===templateTable.columns.length&&list.length>0);
+      for(const sheetName of workbook.SheetNames){
+        const sheetRows=XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:null,raw:true});
+        const headerIndex=sheetRows.findIndex(row=>expectedHeaders.some(labels=>
+          labels.every((label,i)=>String(row?.[i]??"").trim()===String(label).trim())
+        ));
+        if(headerIndex<0)continue;
+        const imported=sheetRows.slice(headerIndex+1).map(row=>
+          templateTable.columns.map((_,i)=>excelNum(row?.[i]))
+        );
+        const usable=imported.filter(row=>Number.isFinite(row[0])&&row.slice(1).some(Number.isFinite));
+        if(usable.length)return {name:sheetName,rows:usable};
+      }
+    }
     if(slug==="surface-tension"&&key==="processed"){
       picked=excelSheetRows(workbook);out=excelNumericRows(picked.rows,[0,1,2]);
     }else if(slug==="surface-tension"&&key==="main"){
