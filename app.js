@@ -17,6 +17,25 @@
   const db = hasConfig && window.supabase?.createClient
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {global:{fetch:supabaseFetch},auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}})
     : null;
+  const externalLibraryLoads = new Map();
+  function ensureExternalLibrary(globalName, urls) {
+    if (window[globalName]) return Promise.resolve(window[globalName]);
+    if (externalLibraryLoads.has(globalName)) return externalLibraryLoads.get(globalName);
+    const promise = (async () => {
+      let lastError = null;
+      for (const url of urls) {
+        try {
+          await new Promise((resolve,reject) => {
+            const script=document.createElement("script");script.src=url;script.async=true;script.onload=resolve;
+            script.onerror=()=>{script.remove();reject(new Error("组件加载失败："+url));};document.head.appendChild(script);
+          });
+          if(window[globalName])return window[globalName];
+        } catch(err) { lastError=err; }
+      }
+      throw lastError || new Error("组件 "+globalName+" 加载失败。");
+    })().catch(err=>{externalLibraryLoads.delete(globalName);throw err;});
+    externalLibraryLoads.set(globalName,promise);return promise;
+  }
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
   const APP_REDIRECT_URL = "https://untholionleen.github.io/TJUCPE/";
   let recoveryCompletionRunning = false;
@@ -38,7 +57,7 @@
     {slug:"passivation",code:"PC-14",name:"金属钝化行为和极化曲线",group:"电化学",desc:"导入电位–电流数据，绘制极化曲线并观察钝化区间。",x:"电位 E",y:"电流对数 log i",xu:"mV",yu:"log(mA)",note:"需确认电位参比电极、扫描方向、电流密度换算和对数底数。原始数据与变换数据应同时保存。"}
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
-  let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
+  let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, activeAssignmentId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
   let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   function friendlyError(input){
@@ -269,7 +288,7 @@
         target.value=(await file.text()).replace(/^\uFEFF/,"");
         toast("已导入文件文本；请确认列顺序与当前实验表格一致。");
       }else{
-        if(!window.XLSX)throw new Error("Excel 解析组件未加载，请刷新页面后重试。");
+        await ensureExternalLibrary("XLSX",["https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"]);
         const workbook=XLSX.read(await file.arrayBuffer(),{type:"array"});
         const mapped=mapExcelTable(currentExperiment.slug,key,workbook);
         if(mapped.message)throw new Error(mapped.message);
@@ -695,7 +714,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function saveRecord(){
     if(!user||!latestAnalysis){toast("请先运行分析，再保存记录。",true);return;}
-    const record={owner_id:user.id,experiment_slug:currentExperiment?.slug||"custom",title:currentExperiment?.name||"数据分析",raw_data:{headers:latestAnalysis.seriesLabels,rows:latestAnalysis.rawRows,source_tables:latestAnalysis.sourceTables||null,export_headers:latestAnalysis.exportHeaders||null,export_rows:latestAnalysis.exportRows||null},analysis:{model:latestAnalysis.model,coefficients:latestAnalysis.fit?.coefficients||null,r2:latestAnalysis.fit?.r2??null,sse:latestAnalysis.fit?.sse??null,mean:latestAnalysis.mean,sd:latestAnalysis.sd,x_label:latestAnalysis.xLabel,y_label:latestAnalysis.yLabel,x_unit:latestAnalysis.xUnit,y_unit:latestAnalysis.yUnit,summary:latestAnalysis.analysisSummary||null,settings:latestAnalysis.settings||null},engine_version:latestAnalysis.engine||ENGINE_VERSION};
+    const record={owner_id:user.id,assignment_id:activeAssignmentId||null,experiment_slug:currentExperiment?.slug||"custom",title:currentExperiment?.name||"数据分析",raw_data:{headers:latestAnalysis.seriesLabels,rows:latestAnalysis.rawRows,source_tables:latestAnalysis.sourceTables||null,export_headers:latestAnalysis.exportHeaders||null,export_rows:latestAnalysis.exportRows||null},analysis:{model:latestAnalysis.model,coefficients:latestAnalysis.fit?.coefficients||null,r2:latestAnalysis.fit?.r2??null,sse:latestAnalysis.fit?.sse??null,mean:latestAnalysis.mean,sd:latestAnalysis.sd,x_label:latestAnalysis.xLabel,y_label:latestAnalysis.yLabel,x_unit:latestAnalysis.xUnit,y_unit:latestAnalysis.yUnit,summary:latestAnalysis.analysisSummary||null,settings:latestAnalysis.settings||null},engine_version:latestAnalysis.engine||ENGINE_VERSION};
     const {error}=await db.from("experiment_records").insert(record);
     if(error){toast("保存失败："+error.message,true);return;}
     toast("分析记录已保存到个人空间。"); loadOverview();
@@ -741,7 +760,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       $("recentActivity").innerHTML=items.map(i=>`<div class="activity-row"><span>${escapeHtml(i.label)}</span><span>${escapeHtml(i.kind)}</span><small>${new Date(i.date).toLocaleString("zh-CN")}</small></div>`).join("");
     }
   }
-  function statusLabel(status){return ({draft:"草稿",submitted:"已提交",graded:"已批阅",returned:"退回修改",withdrawn:"已撤回"})[status]||status;}
+  function statusLabel(status){return ({draft:"草稿",submitted:"已提交",graded:"已批阅",returned:"退回修改",withdrawn:"已撤回",missing:"未提交"})[status]||status;}
   function statusClass(status){return status||"draft";}
   async function loadReports(){
     const body=$("reportsBody");body.innerHTML='<tr><td colspan="6" class="muted center">正在加载……</td></tr>';
@@ -760,9 +779,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
     const path=user.id+"/"+crypto.randomUUID()+"_"+safeName;
     const {error:uploadError}=await db.storage.from("lab-reports").upload(path,file,{upsert:false,contentType:file.type||(ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document")});
-    if(uploadError){toast("文件上传失败："+uploadError.message+"。请确认已执行 Storage 迁移。",true);return;}
+    if(uploadError){toast("文件上传失败："+friendlyError(uploadError)+"。请确认已执行 Storage 迁移。",true);return;}
     const {error}=await db.from("report_submissions").insert({student_id:user.id,class_id:classId,assignment_id:assignmentId,experiment_slug:slug,title,file_name:file.name,storage_path:path,status:"submitted"});
-    if(error){await db.storage.from("lab-reports").remove([path]);toast("报告记录写入失败："+error.message,true);return;}
+    if(error){await db.storage.from("lab-reports").remove([path]);toast("报告记录写入失败："+friendlyError(error),true);return;}
     toast("报告已提交。");$("reportUploadPanel").classList.add("hidden");$("reportFile").value="";$("reportFileName").textContent="点击选择报告文件";$("reportTitle").value="";loadReports();loadOverview();
   }
   async function downloadReport(id){const row=lastRecords.find(r=>r.id===id);if(row)await openReportViewer(row);}
@@ -988,7 +1007,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function resetOneUser(id){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
-    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？点击邮件链接完成验证后，网页会要求您自行设置新密码。"))return;
+    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？邮箱验证通过后系统会设置临时密码，并要求本人立即设置个人新密码。"))return;
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});
     if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
     toast("密码重置验证邮件已发送至 "+target.email+"。");
@@ -1094,9 +1113,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function exportAssignmentReports(assignmentId,button){
     const classId=$("classTaskSelect").value||activeClassId;
     if(!classId||!assignmentId){toast("请先选择班级和实验任务。",true);return;}
-    if(!window.JSZip){toast("ZIP 导出组件尚未加载，请刷新页面后重试。",true);return;}
     if(button){button.disabled=true;button.textContent="正在打包…";}
     try{
+      await ensureExternalLibrary("JSZip",["https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"]);
       const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"export_assignment_reports",class_id:classId,assignment_id:assignmentId}});
       if(error||!data?.ok)throw error||new Error(data?.error||"导出清单读取失败");
       const zip=new JSZip(),folder=zip.folder(safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title));
@@ -1114,7 +1133,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         const safeBase=safeFileName((record.student_no||"无学号")+"_"+record.student_name+"_"+record.title+"_"+record.record_id);
         const rawFile="原始数据_"+safeBase+".json",analysisFile="分析结果_"+safeBase+".json";
         const common={记录编号:record.record_id,学生姓名:record.student_name,学号:record.student_no,实验项目:record.experiment_name,记录名称:record.title,保存时间:record.created_at,算法版本:record.engine_version};
-        analysisFolder.file(rawFile,JSON.stringify({元数据:common,原始数据:record.raw_data},null,2));
+        const raw=record.raw_data||{};
+         const chineseData={字段名称:raw.export_headers||raw.headers||[],数据行:raw.export_rows||raw.rows||[]};
+         analysisFolder.file(rawFile,JSON.stringify({元数据:common,原始数据:chineseData,原始结构:raw},null,2));
         analysisFolder.file(analysisFile,JSON.stringify({元数据:common,分析结果:record.analysis},null,2));
         return [record.student_name,record.student_no,record.experiment_name,record.title,record.created_at,record.engine_version,rawFile,analysisFile];
       });
@@ -1124,11 +1145,12 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       for(let i=0;i<rows.length;i+=3){
         const batch=rows.slice(i,i+3);
         const results=await Promise.all(batch.map(async row=>{
-          if(!row.signed_url)return {row,blob:null};
+          if(!row.signed_url)return {row,blob:null,missing:row.status==="missing"};
           try{const response=await fetch(row.signed_url);if(!response.ok)throw new Error("HTTP "+response.status);return {row,blob:await response.blob()};}
           catch(err){return {row,blob:null,error:err};}
         }));
         for(const item of results){
+          if(item.missing)continue;
           if(!item.blob){failed++;continue;}
           const ext=(item.row.file_name||"报告.pdf").split(".").pop();
           const fileName=safeFileName((item.row.student_no||"无学号")+"_"+item.row.student_name+"_"+item.row.file_name);
@@ -1335,7 +1357,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if((row.file_name||"").toLowerCase().endsWith(".pdf")){
       $("reportViewerFrame").src=URL.createObjectURL(data);$("reportViewerFrame").classList.remove("hidden");
     }else if((row.file_name||"").toLowerCase().endsWith(".docx")){
-      if(!window.mammoth){toast("Word 预览组件未加载。",true);return;}
+      await ensureExternalLibrary("mammoth",["https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js","https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"]);
       const result=await mammoth.convertToHtml({arrayBuffer:await data.arrayBuffer()});
       $("reportViewerDocx").innerHTML=result.value;$("reportViewerDocx").classList.remove("hidden");
     }else{toast("仅支持 PDF / DOCX 在线预览。",true);return;}
@@ -1396,7 +1418,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       setAuthMode("recovery");
       $("newPassword").value="";
       $("newPassword").focus();
-      toast("邮箱验证成功。请在下方设置新的个人密码。");
+      toast("邮箱验证成功，系统已启用临时密码并锁定账号工作区。请立即设置新的个人密码。");
     }catch(err){
       setAuthMode("recovery");
       toast("邮箱验证成功，但账号安全状态更新失败："+friendlyError(err),true);
@@ -1497,7 +1519,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       try{
         const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:APP_REDIRECT_URL});
         if(error)throw error;
-        toast("重置验证邮件已发送，请打开邮件中的链接。点击邮件链接完成验证后，网页会要求您自行设置新密码。");
+        toast("重置验证邮件已发送。邮箱仅用于确认本次重置；验证通过后系统会设置临时密码，并立即要求您设置个人新密码。");
       }catch(err){toast(err,true);}
       finally{$("forgotPassword").disabled=false;}
     });
@@ -1506,7 +1528,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-page]");if(b)go(b.dataset.page);});
     document.body.addEventListener("click",e=>{
       const goto=e.target.closest("[data-goto]");if(goto){if(goto.dataset.experiment)openExperiment(goto.dataset.experiment);else go(goto.dataset.goto);}
-      const open=e.target.closest("[data-open-experiment]");if(open)openExperiment(open.dataset.openExperiment);
+      const taskOpen=e.target.closest("[data-task-open-experiment]");if(taskOpen){activeAssignmentId=taskOpen.dataset.taskId;activeClassId=taskOpen.dataset.classId;openExperiment(taskOpen.dataset.taskOpenExperiment);toast("已进入本次实验任务；保存的数据分析记录将关联到该任务。");}
+      const open=e.target.closest("[data-open-experiment]");if(open){activeAssignmentId=null;openExperiment(open.dataset.openExperiment);}
       const txtTemplate=e.target.closest("[data-template-txt]");if(txtTemplate&&currentExperiment)downloadExperimentTxt(currentExperiment.slug,txtTemplate.dataset.templateTxt);
       const xlsxTemplate=e.target.closest("[data-template-xlsx]");if(xlsxTemplate&&currentExperiment)downloadExperimentWorkbook(currentExperiment.slug);
       const report=e.target.closest("[data-report-download]");if(report)downloadReport(report.dataset.reportDownload);
@@ -1518,7 +1541,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const reviewDownload=e.target.closest("[data-review-download]");if(reviewDownload)downloadReviewFile(reviewDownload.dataset.reviewDownload);
       const classEdit=e.target.closest("[data-class-edit]");if(classEdit)editClass(classEdit.dataset.classEdit);
       const classDelete=e.target.closest("[data-class-delete]");if(classDelete)deleteClass(classDelete.dataset.classDelete);
-      const taskSubmit=e.target.closest("[data-task-submit]");if(taskSubmit){$("reportUploadPanel").classList.remove("hidden");$("reportClass").value=taskSubmit.dataset.classId;$("classTaskSelect").value=taskSubmit.dataset.classId;loadClassAssignments().then(()=>{$("reportAssignment").value=taskSubmit.dataset.taskSubmit;$("reportTitle").value=taskSubmit.closest(".student-task-card").querySelector("strong").textContent;$("reportUploadPanel").scrollIntoView({behavior:"smooth",block:"center"});});}
+      const taskSubmit=e.target.closest("[data-task-submit]");if(taskSubmit){activeAssignmentId=taskSubmit.dataset.taskSubmit;$("reportUploadPanel").classList.remove("hidden");$("reportClass").value=taskSubmit.dataset.classId;$("classTaskSelect").value=taskSubmit.dataset.classId;loadClassAssignments().then(()=>{$("reportAssignment").value=taskSubmit.dataset.taskSubmit;$("reportTitle").value=taskSubmit.closest(".student-task-card").querySelector("strong").textContent;$("reportUploadPanel").scrollIntoView({behavior:"smooth",block:"center"});});}
       const classToggle=e.target.closest("[data-class-toggle]");if(classToggle)toggleClass(classToggle.dataset.classToggle);
       const assignmentEdit=e.target.closest("[data-assignment-edit]");if(assignmentEdit)editAssignment(assignmentEdit.dataset.assignmentEdit);
       const assignmentToggle=e.target.closest("[data-assignment-toggle]");if(assignmentToggle)toggleAssignment(assignmentToggle.dataset.assignmentToggle,assignmentToggle.dataset.open==="true");
@@ -1541,6 +1564,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("newReport").addEventListener("click",()=>{$("reportUploadPanel").classList.remove("hidden");loadClasses();});
     $("closeReportPanel").addEventListener("click",()=>$("reportUploadPanel").classList.add("hidden"));
     $("reportFile").addEventListener("change",e=>$("reportFileName").textContent=e.target.files[0]?.name||"点击选择报告文件");
+    $("reportAssignment").addEventListener("change",e=>{activeAssignmentId=e.target.value||null;});
     $("submitReport").addEventListener("click",submitReport);
     $("refreshReviews").addEventListener("click",loadReviews);
     $("refreshUsers").addEventListener("click",loadUsers);
