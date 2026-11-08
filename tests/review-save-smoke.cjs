@@ -41,4 +41,11 @@ assert.match(save, /if\(!confirmError&&confirmedRow\?\.storage_path===newPath\)/
 assert.match(save, /数据库确认请求也未成功，临时文件已保留/, "ambiguous commit must preserve the uploaded file");
 assert.match(save, /失败阶段：\"\+failedStage/, "the user must see the stage that actually failed");
 
+
+assert.match(source, /let gradingPdfBlob = null/, "canonical PDF source must be an immutable Blob");
+assert.doesNotMatch(source, /gradingPdfBytes/, "detached typed-array state must not be retained across PDF.js worker transfers");
+assert.match(builder, /await gradingPdfBlob\.arrayBuffer\(\)/, "PDF-Lib must receive a fresh ArrayBuffer from the canonical Blob on each save");
+assert.match(source, /const previewBuffer=await pdfBlob\.arrayBuffer\(\)/, "PDF.js must receive a disposable ArrayBuffer from the Blob");
+assert.doesNotMatch(source, /gradingPdfBlob\.slice\(/, "the canonical Blob should not be mutated or sliced");
+
 console.log("PDF review-save safety smoke test passed.");
