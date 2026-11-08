@@ -393,8 +393,9 @@
     root.innerHTML=def.tables.map((t,i)=>{
       const id="expData_"+t.key;
       const current=values[t.key]||"";
-      return '<div class="experiment-data-block"><div class="experiment-data-title"><strong>'+t.title+'</strong><span>'+t.headers.join(" · ")+'</span><label class="experiment-table-import">导入 Excel / CSV<input type="file" class="experiment-table-file" data-table-key="'+t.key+'" accept=".xlsx,.xls,.csv,.tsv,text/csv"></label></div><textarea class="data-editor experiment-specific-editor" id="'+id+'" spellcheck="false" placeholder="'+t.example.replace(/"/g,"&quot;")+'">'+current+'</textarea><small class="muted tiny">列顺序：'+t.columns.join(" / ")+'；导入后仍可手动修正</small></div>';
+      return '<div class="experiment-data-block"><div class="experiment-data-title"><strong>'+t.title+'</strong><span>'+t.headers.join(" · ")+'</span><label class="experiment-table-import">导入 Excel / CSV / TXT<input type="file" class="experiment-table-file" data-table-key="'+t.key+'" accept=".xlsx,.xls,.csv,.tsv,.txt,text/plain,text/csv"></label><button type="button" class="btn btn-outline btn-sm" data-template-txt="'+t.key+'">下载 TXT 模板</button></div><textarea class="data-editor experiment-specific-editor" id="'+id+'" spellcheck="false" placeholder="按字段顺序逐行录入；支持 Tab、逗号分隔或直接粘贴">'+current+'</textarea><small class="muted tiny">字段顺序：'+t.columns.join(" / ")+'；对应单位：'+t.headers.join(" / ")+'；可手动录入或导入文件</small></div>';
     }).join("");
+    const templateBar=document.createElement("div");templateBar.className="template-download-bar";templateBar.innerHTML='<strong>实验数据模板</strong><span>Excel 含本实验全部数据表；TXT 可按当前数据表单独下载。</span><button type="button" class="btn btn-outline btn-sm" data-template-xlsx>下载完整 Excel 模板</button>';root.prepend(templateBar);
     settingsRoot.innerHTML=def.settings.map(f=>'<label>'+f.label+'<input type="number" step="any" id="expSetting_'+f.key+'" value="'+(values[f.key]??f.defaultValue??"")+'" placeholder="按实验指导书填写"></label>').join("");
     return def;
   }
