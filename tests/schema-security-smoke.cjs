@@ -104,3 +104,8 @@ assert.ok(verification.includes("from information_schema.role_table_grants"),
   "post-deployment grants inspection must be provided");
 
 console.log("TJUCPE schema security smoke tests passed (RLS, role boundaries, private Storage, helper grants).");
+
+const reviewedCleanupMigration = fs.readFileSync("supabase/migrations/20261108114917_tjucpe_reviewed_pdf_orphan_cleanup_v12.sql", "utf8").toLowerCase();
+assert.ok(reviewedCleanupMigration.includes("report_objects_delete_orphan_reviewed_pdf_class_staff"));
+assert.ok(reviewedCleanupMigration.includes("private.is_class_teacher(r.class_id)"));
+assert.ok(reviewedCleanupMigration.includes("not exists"), "staff may delete only orphaned reviewed PDFs, never the current report file");
