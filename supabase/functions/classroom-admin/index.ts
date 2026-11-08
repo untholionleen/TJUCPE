@@ -101,6 +101,27 @@ export default {
         });
       }
 
+      if (action === "set_account_status") {
+        if (!isAdmin) return json({ error: "Administrator required" }, 403);
+        const targetId = String(body.user_id ?? "");
+        const status = String(body.account_status ?? "");
+        if (!targetId || !["active", "disabled"].includes(status)) {
+          return json({ error: "Valid user_id and account_status are required" }, 400);
+        }
+        if (targetId === actorId) return json({ error: "You cannot disable your own administrator account" }, 409);
+        const { data: target, error: targetError } = await supabaseAdmin.auth.admin.getUserById(targetId);
+        if (targetError || !target.user) return json({ error: "Account not found" }, 404);
+        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(targetId, {
+          ban_duration: status === "disabled" ? "876000h" : "none"
+        });
+        if (authUpdateError) return json({ error: authUpdateError.message }, 500);
+        const { error: profileError } = await supabaseAdmin.from("profiles")
+          .update({ account_status: status }).eq("id", targetId);
+        if (profileError) return json({ error: profileError.message }, 500);
+        await audit(targetId, status === "disabled" ? "account.disabled" : "account.enabled");
+        return json({ ok: true, user_id: targetId, account_status: status });
+      }
+
       if (action === "set_user_role") {
         if (!isAdmin) return json({ error: "Administrator required" }, 403);
         const targetId = String(body.user_id ?? "");
