@@ -42,3 +42,10 @@ assert.ok(source.includes("async function generatePythonPlot"), "Matplotlib runt
 assert.ok(!source.includes("renderPythonMatplotlib(def,result).catch"), "analysis must not download Pyodide automatically");
 assert.ok(source.includes('$("renderPythonPlot").addEventListener'), "Python plot button must be wired");
 console.log("TJUCPE regression smoke tests passed (linear, quadratic, cubic, insufficient sample guard).");
+
+const html = fs.readFileSync("index.html", "utf8");
+assert.ok(html.includes('id="savePdfAnnotations"'), "PDF annotation toolbar must expose an explicit save action");
+assert.ok(source.includes('$("savePdfAnnotations").addEventListener("click",saveGrade)'), "PDF annotation save action must be wired");
+assert.ok(source.includes('.select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")'), "PDF save must request the persisted report row");
+assert.ok(source.includes(".single();"), "PDF save must confirm exactly one updated report row");
+assert.ok(source.includes("confirmedRow?.storage_path===newPath"), "ambiguous network responses must re-check the current report path before cleanup");
