@@ -70,6 +70,7 @@
     $("overviewStaffPanel")?.classList.toggle("hidden",!isStaff);
     $("overviewEyebrow").textContent=isStaff?"TEACHING MANAGEMENT":"YOUR LAB SPACE";
     $("overviewTitle").textContent=isStaff?"教学管理工作台":"早上好，";
+    if(!isStaff)$("overviewTitle").innerHTML="早上好，<span id=\"welcomeName\">"+escapeHtml(name)+"</span>";
     $("overviewSubtitle").textContent=isStaff?"管理教学班、实验任务与报告批阅。":"从实验数据开始，完成分析、作图与报告提交。";
   }
   function go(page){
@@ -82,7 +83,7 @@
     const target=$(page+"Page"); if(target) target.classList.remove("hidden");
     document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.classList.toggle("active",el.dataset.page===page||(page==="analysis"&&el.dataset.page==="experiments")));
     $("pageCrumb").textContent=pageMap[page]||"";
-    if(page==="reports") loadReports();
+    if(page==="reports"){loadReports();loadClasses();}
     if(page==="review") loadReviews();
     if(page==="users") loadUsers();
     if(page==="classes") loadClasses();
