@@ -182,7 +182,7 @@ export default {
         const assignmentId = String(body.assignment_id ?? "");
         if (!assignmentId) return json({ error: "assignment_id required" }, 400);
         const { data: assignment, error: assignmentError } = await supabaseAdmin.from("experiment_assignments")
-          .select("id,class_id,title,experiment_id,due_at").eq("id", assignmentId).eq("class_id", classId).maybeSingle();
+          .select("id,class_id,title,experiment_id,due_at,created_at").eq("id", assignmentId).eq("class_id", classId).maybeSingle();
         if (assignmentError || !assignment) return json({ error: "Assignment not found in this class" }, 404);
         const { data: cls } = await supabaseAdmin.from("classes").select("name").eq("id", classId).maybeSingle();
         const { data: catalog } = await supabaseAdmin.from("experiment_catalog").select("name,slug").eq("id", assignment.experiment_id).maybeSingle();
