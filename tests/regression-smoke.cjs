@@ -35,7 +35,9 @@ for (const slug of ["surface-tension","saponification","rectorite-adsorption","g
 }
 
 assert.ok(source.includes('queryParams.get("token_hash")'), "email recovery must support token_hash links to avoid scanner-prefetched ConfirmationURL links");
-assert.ok(source.includes("db.auth.verifyOtp({token_hash:tokenHash,type:tokenType})"), "email token hash must be verified through Auth verifyOtp");
+assert.ok(source.includes("async function confirmPendingEmailToken"), "email verification must wait for an explicit user click to avoid email link prefetch scanners");
+assert.ok(source.includes("db.auth.verifyOtp({token_hash:pending.tokenHash,type:pending.type})"), "email token hash must be verified through Auth verifyOtp on explicit confirmation");
+assert.ok(source.includes('$("confirmEmailToken").addEventListener("click",confirmPendingEmailToken)'), "email confirmation button must be wired");
 assert.ok(source.includes("async function generatePythonPlot"), "Matplotlib runtime must be explicit/optional, not auto-started for every run");
 assert.ok(!source.includes("renderPythonMatplotlib(def,result).catch"), "analysis must not download Pyodide automatically");
 assert.ok(source.includes('$("renderPythonPlot").addEventListener'), "Python plot button must be wired");
