@@ -204,7 +204,7 @@ export default {
           ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", ownerIds)
           : { data: [], error: null };
         if (recordStudentsError) return json({ error: recordStudentsError.message }, 500);
-        const studentMap = new Map((recordStudents ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
+        const recordStudentMap = new Map((recordStudents ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
         // experiment_records currently has no assignment_id: match by class membership, experiment slug and task creation date.
         const { data: records, error: recordsError } = ownerIds.length && catalog?.slug
           ? await supabaseAdmin.from("experiment_records")
@@ -214,7 +214,7 @@ export default {
           : { data: [], error: null };
         if (recordsError) return json({ error: recordsError.message }, 500);
         const recordRows = (records ?? []).map((record: Record<string, any>) => {
-          const student = studentMap.get(String(record.owner_id)) ?? {};
+          const student = recordStudentMap.get(String(record.owner_id)) ?? {};
           return {
             record_id: record.id, student_id: record.owner_id,
             student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
