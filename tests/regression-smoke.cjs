@@ -49,3 +49,6 @@ assert.ok(source.includes('$("savePdfAnnotations").addEventListener("click",save
 assert.ok(source.includes('.select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")'), "PDF save must request the persisted report row");
 assert.ok(source.includes(".single();"), "PDF save must confirm exactly one updated report row");
 assert.ok(source.includes("confirmedRow?.storage_path===newPath"), "ambiguous network responses must re-check the current report path before cleanup");
+
+assert.ok(source.includes('isStorageRequest?60000:isFunctionRequest?45000:isAuthRequest?30000:15000'), "Storage uploads/downloads and function requests must have appropriate longer timeouts");
+assert.ok(source.includes("originalSignal=init?.signal||input?.signal"), "custom fetch must preserve cancellation signals from Request objects");
