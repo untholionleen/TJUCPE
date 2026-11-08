@@ -263,20 +263,42 @@
   function downloadExperimentTxt(slug,tableKey){
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
     const table=def?.tables?.find(x=>x.key===tableKey);if(!table)return;
-    const lines=[table.columns.join("\t"),...Array.from({length:20},()=>table.columns.map(()=>"").join("\t"))];
-    const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/plain;charset=utf-8"});
-    const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=slug+"-"+tableKey+"-数据模板.txt";link.click();URL.revokeObjectURL(url);
+    const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
+    const lines=[headers.join("\t"),...Array.from({length:20},()=>headers.map(()=>"").join("\t"))];
+    const blob=new Blob(["\uFEFF"+lines.join("\r\n")],{type:"text/plain;charset=utf-8"});
+    downloadBlob(blob,safeFileName(def.name)+"_"+safeFileName(table.title)+"_数据模板.txt");
+    toast("TXT 数据模板已生成。请填写空白行后上传，或直接在网页表格中录入。");
+  }
+  function spreadsheetXmlEscape(value){
+    return String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
   }
   function downloadExperimentWorkbook(slug){
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
-    if(!def||!window.XLSX){toast("Excel 模板组件未加载，请刷新页面后重试。",true);return;}
-    const wb=XLSX.utils.book_new();
-    def.tables.forEach((table,i)=>{
-      const aoa=[table.columns,...Array.from({length:10},()=>table.columns.map(()=>""))];
-      const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=table.columns.map(()=>({wch:22}));
-      XLSX.utils.book_append_sheet(wb,ws,(i+1)+"_"+table.key.slice(0,20));
-    });
-    XLSX.writeFile(wb,slug+"-实验数据录入模板.xlsx");
+    if(!def){toast("未找到该实验的数据表结构。",true);return;}
+    try{
+      if(window.XLSX?.utils){
+        const wb=XLSX.utils.book_new();
+        def.tables.forEach((table,i)=>{
+          const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
+          const aoa=[headers,...Array.from({length:20},()=>headers.map(()=>""))];
+          const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=headers.map(()=>({wch:22}));
+          XLSX.utils.book_append_sheet(wb,ws,(i+1)+"_"+table.key.slice(0,20));
+        });
+        const bytes=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+        downloadBlob(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),safeFileName(def.name)+"_实验数据录入模板.xlsx");
+      }else{
+        const xmlHeader='<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>';
+        const ns='xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"';
+        const sheets=def.tables.map(table=>{
+          const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
+          const sheetName=spreadsheetXmlEscape((table.title||table.key).slice(0,31));
+          const makeRow=row=>"<Row>"+row.map(v=>'<Cell><Data ss:Type="String">'+spreadsheetXmlEscape(v)+'</Data></Cell>').join("")+"</Row>";
+          return '<Worksheet ss:Name="'+sheetName+'"><Table>'+makeRow(headers)+Array.from({length:20},()=>makeRow(headers.map(()=>""))).join("")+"</Table></Worksheet>";
+        }).join("");
+        downloadBlob(new Blob([xmlHeader,"<Workbook "+ns+">",sheets,"</Workbook>"],{type:"application/vnd.ms-excel"}),safeFileName(def.name)+"_实验数据录入模板.xls");
+      }
+      toast("完整实验数据模板已生成。每张实验数据表位于独立工作表。");
+    }catch(err){toast("Excel 模板生成失败："+friendlyError(err),true);}
   }
   function openExperiment(slug){
     currentExperiment=experiments.find(e=>e.slug===slug)||experiments[0];
@@ -592,11 +614,23 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     toast("分析记录已保存到个人空间。"); loadOverview();
   }
   function downloadCsv(){
-    if(!latestAnalysis)return;
-    const headers=latestAnalysis.exportHeaders||[latestAnalysis.xLabel,latestAnalysis.yLabel];
+    if(!latestAnalysis){toast("请先运行实验计算，再导出数据。",true);return;}
+    const rawHeaders=latestAnalysis.exportHeaders||[latestAnalysis.xLabel,latestAnalysis.yLabel];
     const rows=latestAnalysis.exportRows||latestAnalysis.rawRows||[];
-    const csv="\\uFEFF"+[headers,...rows].map(r=>(Array.isArray(r)?r:[r]).map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\\r\\n");
-    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download=(currentExperiment?.slug||"experiment-data")+"-origin.csv";a.click();URL.revokeObjectURL(a.href);
+    const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===currentExperiment?.slug);
+    const fieldMap=new Map();
+    (def?.tables||[]).forEach(table=>(table.columns||[]).forEach((key,i)=>fieldMap.set(key,table.headers?.[i]||key)));
+    const commonMap={
+      c_mol_L:"浓度 c / mol·L⁻¹",gamma_mN_m:"表面张力 γ / mN·m⁻¹",Gamma_mol_m2:"表面吸附量 Γ / mol·m⁻²",
+      t_min:"时间 t / min",time_min:"时间 t / min",temperature_C:"温度 T / ℃",
+      kappa_T1:"电导率 κ（温度组 1）/ mS·cm⁻¹",kappa_T2:"电导率 κ（温度组 2）/ mS·cm⁻¹",
+      c_mol_L_1:"初始浓度 c₀ / mol·L⁻¹",ce_mg_L:"平衡浓度 cₑ / mg·L⁻¹",qe_mg_g:"吸附量 qₑ / mg·g⁻¹"
+    };
+    const headers=rawHeaders.map(h=>fieldMap.get(h)||commonMap[h]||h);
+    const cell=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+    const csv="\uFEFF"+[headers,...rows].map(r=>(Array.isArray(r)?r:[r]).map(cell).join(",")).join("\r\n");
+    downloadBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),safeFileName(currentExperiment?.name||"实验数据")+"_中文数据表.csv");
+    toast("已导出中文字段数据表（CSV，可使用 Excel / Origin 打开）。");
   }
   async function loadOverview(){
     if(!db||!user)return;
