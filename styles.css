@@ -125,3 +125,5 @@
 }
 
 .student-task-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.student-task-card{min-width:0}.student-task-card>div:first-child{min-width:0;flex:1}
+
+.fit-range-fallback{display:flex;align-items:end;gap:10px;flex-wrap:wrap;padding:10px 12px;margin:10px 0;background:#f7fafb;border:1px solid #e0e9ed;border-radius:8px}.fit-range-fallback>span{width:100%;font-size:11px;color:#637d8d}.fit-range-fallback label{display:grid;gap:4px;font-size:10px;color:#738894}.fit-range-fallback input{width:88px;min-height:34px;padding:6px 8px;border:1px solid #d4e0e5;border-radius:6px;background:#fff;color:#29485b}@media(max-width:560px){.fit-range-fallback{align-items:stretch}.fit-range-fallback label{flex:1}.fit-range-fallback input{width:100%}}
