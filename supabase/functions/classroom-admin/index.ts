@@ -4,6 +4,7 @@ const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 type StudentInput = { email?: string; full_name?: string; student_no?: string };
+const APP_REDIRECT_URL = "https://untholionleen.github.io/TJUCPE/";
 
 export default {
   fetch: withSupabase({ auth: "user" }, async (req, ctx) => {
@@ -51,18 +52,19 @@ export default {
       const makeRecoveryLink = async (targetId: string) => {
         const { data: target, error } = await supabaseAdmin.from("profiles")
           .select("id,role,full_name").eq("id", targetId).single();
-        if (error || !target || target.role !== "student") {
-          return { user_id: targetId, ok: false, error: "Student account not found" };
+        if (error || !target || !["student", "teacher"].includes(target.role)) {
+          return { user_id: targetId, ok: false, error: "Student/teacher account not found" };
         }
-        if (!isAdmin && !await isStudentInManagedClass(targetId)) {
-          return { user_id: targetId, ok: false, error: "Student is not in your managed class" };
+        if (!isAdmin && (target.role !== "student" || !await isStudentInManagedClass(targetId))) {
+          return { user_id: targetId, ok: false, error: "Teachers can reset only students in their own class" };
         }
         const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.getUserById(targetId);
         if (authError || !authUser.user?.email) {
           return { user_id: targetId, ok: false, error: "Student email unavailable" };
         }
         const { data: link, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-          type: "recovery", email: authUser.user.email
+          type: "recovery", email: authUser.user.email,
+          options: { redirectTo: APP_REDIRECT_URL }
         });
         if (linkError || !link.properties?.action_link) {
           return { user_id: targetId, ok: false, error: linkError?.message ?? "Recovery link unavailable" };
@@ -73,6 +75,131 @@ export default {
           ok: true, action_link: link.properties.action_link
         };
       };
+
+      if (action === "list_users") {
+        if (!isAdmin) return json({ error: "Administrator required" }, 403);
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 500 });
+        if (authError) return json({ error: authError.message }, 500);
+        const authUsers = authData?.users ?? [];
+        const ids = authUsers.map((u: { id: string }) => u.id);
+        const { data: profiles, error: profileError } = ids.length
+          ? await supabaseAdmin.from("profiles").select("id,role,full_name,student_no,created_at,account_status,must_change_password").in("id", ids)
+          : { data: [], error: null };
+        if (profileError) return json({ error: profileError.message }, 500);
+        const profileMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [String(p.id), p]));
+        return json({
+          users: authUsers.map((u: Record<string, any>) => {
+            const p = profileMap.get(String(u.id)) ?? {};
+            return {
+              id: u.id, email: u.email ?? "", full_name: p.full_name ?? u.user_metadata?.full_name ?? "",
+              student_no: p.student_no ?? u.user_metadata?.student_no ?? "",
+              role: p.role ?? "student", created_at: p.created_at ?? u.created_at,
+              account_status: p.account_status ?? "active",
+              must_change_password: !!p.must_change_password,
+              email_confirmed: !!u.email_confirmed_at
+            };
+          })
+        });
+      }
+
+      if (action === "set_user_role") {
+        if (!isAdmin) return json({ error: "Administrator required" }, 403);
+        const targetId = String(body.user_id ?? "");
+        const role = String(body.role ?? "");
+        if (!targetId || !["student", "teacher", "admin"].includes(role)) {
+          return json({ error: "Valid user_id and role are required" }, 400);
+        }
+        if (targetId === actorId && role !== "admin") {
+          return json({ error: "You cannot remove your own administrator role" }, 409);
+        }
+        const { data: authTarget, error: authLookupError } = await supabaseAdmin.auth.admin.getUserById(targetId);
+        if (authLookupError || !authTarget.user) return json({ error: "Account not found" }, 404);
+        const nextMetadata = { ...(authTarget.user.app_metadata ?? {}), role };
+        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(targetId, { app_metadata: nextMetadata });
+        if (authUpdateError) return json({ error: authUpdateError.message }, 500);
+        const { error: profileUpdateError } = await supabaseAdmin.from("profiles").update({ role }).eq("id", targetId);
+        if (profileUpdateError) return json({ error: "Auth role updated but profile role failed: " + profileUpdateError.message }, 500);
+        await audit(targetId, "account.role_changed", { role });
+        return json({ ok: true, user_id: targetId, role });
+      }
+
+      if (action === "admin_invite_account") {
+        if (!isAdmin) return json({ error: "Administrator required" }, 403);
+        const email = String(body.email ?? "").trim().toLowerCase();
+        const full_name = String(body.full_name ?? "").trim();
+        const student_no = String(body.student_no ?? "").trim();
+        const role = String(body.role ?? "student");
+        if (!email || !full_name || !["student", "teacher"].includes(role)) {
+          return json({ error: "Email, name and student/teacher role are required" }, 400);
+        }
+        const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+          data: { full_name, student_no }, redirectTo: APP_REDIRECT_URL
+        });
+        if (inviteError || !inviteData.user) return json({ error: inviteError?.message ?? "Invite failed" }, 400);
+        const { error: profileUpdateError } = await supabaseAdmin.from("profiles")
+          .update({ role, full_name, student_no, account_status: "active" }).eq("id", inviteData.user.id);
+        if (profileUpdateError) return json({ error: profileUpdateError.message }, 500);
+        const { data: authTarget } = await supabaseAdmin.auth.admin.getUserById(inviteData.user.id);
+        await supabaseAdmin.auth.admin.updateUserById(inviteData.user.id, {
+          app_metadata: { ...(authTarget.user?.app_metadata ?? {}), role }
+        });
+        await audit(inviteData.user.id, "account.invited_by_admin", { role, email });
+        return json({ ok: true, user_id: inviteData.user.id, email, role });
+      }
+
+      if (action === "mark_password_change_required" || action === "complete_password_change") {
+        const mustChange = action === "mark_password_change_required";
+        const { error: updateError } = await supabaseAdmin.from("profiles")
+          .update({ must_change_password: mustChange }).eq("id", actorId);
+        if (updateError) return json({ error: updateError.message }, 500);
+        await audit(actorId, mustChange ? "account.temporary_password_set" : "account.personal_password_set");
+        return json({ ok: true, must_change_password: mustChange });
+      }
+
+      if (action === "export_assignment_reports") {
+        if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
+        if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
+        const assignmentId = String(body.assignment_id ?? "");
+        if (!assignmentId) return json({ error: "assignment_id required" }, 400);
+        const { data: assignment, error: assignmentError } = await supabaseAdmin.from("experiment_assignments")
+          .select("id,class_id,title,experiment_id,due_at").eq("id", assignmentId).eq("class_id", classId).maybeSingle();
+        if (assignmentError || !assignment) return json({ error: "Assignment not found in this class" }, 404);
+        const { data: cls } = await supabaseAdmin.from("classes").select("name").eq("id", classId).maybeSingle();
+        const { data: catalog } = await supabaseAdmin.from("experiment_catalog").select("name,slug").eq("id", assignment.experiment_id).maybeSingle();
+        const { data: reports, error: reportError } = await supabaseAdmin.from("report_submissions")
+          .select("id,student_id,experiment_slug,file_name,storage_path,status,score,feedback,created_at,submitted_at,submission_version")
+          .eq("class_id", classId).eq("assignment_id", assignmentId)
+          .order("created_at", { ascending: true }).limit(1000);
+        if (reportError) return json({ error: reportError.message }, 500);
+        const ids = [...new Set((reports ?? []).map((r: { student_id: string }) => r.student_id))];
+        const { data: students, error: studentsError } = ids.length
+          ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", ids)
+          : { data: [], error: null };
+        if (studentsError) return json({ error: studentsError.message }, 500);
+        const studentMap = new Map((students ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
+        const rows = [];
+        for (const report of reports ?? []) {
+          const student = studentMap.get(report.student_id) ?? {};
+          let signedUrl: string | null = null;
+          if (report.storage_path) {
+            const { data: signed, error: signedError } = await supabaseAdmin.storage.from("lab-reports")
+              .createSignedUrl(report.storage_path, 900);
+            if (!signedError) signedUrl = signed?.signedUrl ?? null;
+          }
+          rows.push({
+            report_id: report.id, student_id: report.student_id,
+            student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
+            experiment_name: catalog?.name ?? report.experiment_slug,
+            file_name: report.file_name ?? "", status: report.status,
+            score: report.score, feedback: report.feedback ?? "",
+            created_at: report.created_at, submitted_at: report.submitted_at,
+            submission_version: report.submission_version ?? 1, signed_url: signedUrl
+          });
+        }
+        await audit(null, "class.assignment_reports_exported", { class_id: classId, assignment_id: assignmentId, report_count: rows.length });
+        return json({ ok: true, class_name: cls?.name ?? "教学班", assignment_title: assignment.title,
+          experiment_name: catalog?.name ?? "", rows });
+      }
 
       if (action === "delete_class") {
         if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
