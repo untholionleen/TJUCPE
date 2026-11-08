@@ -838,18 +838,54 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
     await loadReviews();await loadReports();await loadOverview();
   }
+  let adminUsersCache=[];
   async function loadUsers(){
-    $("usersBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
-    const {data,error}=await db.from("profiles").select("*").order("created_at",{ascending:false}).limit(500);
-    if(error){$("usersBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
-    $("usersBody").innerHTML=(data||[]).map(p=>`<tr><td>${p.role==="student"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td><td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.student_no||"—")}</td><td><span class="status-pill">${roleName(p.role)}</span></td><td>${new Date(p.created_at).toLocaleDateString("zh-CN")}</td><td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td></tr>`).join("")||'<tr><td colspan="5" class="muted center">暂无用户。</td></tr>';
+    $("usersBody").innerHTML='<tr><td colspan="8" class="muted center">正在加载账号……</td></tr>';
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"list_users"}});
+    if(error||!data?.users){$("usersBody").innerHTML='<tr><td colspan="8" class="center">'+escapeHtml(friendlyError(error||data?.error||"用户列表读取失败"))+'</td></tr>';return;}
+    adminUsersCache=data.users;
+    renderAdminUsers();
+  }
+  function renderAdminUsers(){
+    const q=String($("userSearch")?.value||"").trim().toLowerCase();
+    const rows=adminUsersCache.filter(p=>!q||[p.email,p.full_name,p.student_no,p.role].some(v=>String(v||"").toLowerCase().includes(q)));
+    $("usersBody").innerHTML=rows.map(p=>`<tr>
+      <td>${p.role==="student"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td>
+      <td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.email||"—")}</td><td>${escapeHtml(p.student_no||"—")}</td>
+      <td><span class="status-pill">${roleName(p.role)}</span></td>
+      <td>${p.email_confirmed?"已验证":"待验证"} · ${new Date(p.created_at).toLocaleDateString("zh-CN")}</td>
+      <td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td>
+      <td><button class="action-link" data-user-reset="${p.id}">发送重置邮件</button>${p.must_change_password?'<small class="muted">待修改个人密码</small>':""}</td>
+    </tr>`).join("")||'<tr><td colspan="8" class="muted center">没有匹配的账号。</td></tr>';
   }
   async function changeRole(id,role){
     if(!["student","teacher","admin"].includes(role))return;
-    if(!confirm("确定将该账号身份调整为“"+roleName(role)+"”吗？此操作会立即改变其访问权限。")){loadUsers();return;}
-    const {error}=await db.from("profiles").update({role}).eq("id",id);
-    if(error){toast("身份调整失败："+error.message,true);loadUsers();return;}
-    toast("用户身份已更新。");loadUsers();
+    if(!confirm("确定将该账号身份调整为“"+roleName(role)+"”吗？此操作会立即改变其访问权限。")){renderAdminUsers();return;}
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"set_user_role",user_id:id,role}});
+    if(error||!data?.ok){toast("身份调整失败："+friendlyError(error||data?.error||"未能保存身份"),true);await loadUsers();return;}
+    toast("账号身份已更新；该用户下次登录/刷新后生效。");await loadUsers();
+  }
+  async function resetOneUser(id){
+    const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
+    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？点击邮件后系统会设置临时密码 TJUCPE123，并强制修改为个人密码。"))return;
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});
+    if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
+    const url=data.action_link;
+    if(url){const win=window.open(url,"_blank","noopener");if(!win){toast("重置链接已生成，但浏览器阻止了弹窗。请在管理员安全环境中复制链接后发送给用户。",true);return;}}
+    toast("重置验证链接已生成。请通过已配置的邮箱模板发送给用户。");
+  }
+  async function inviteAdminAccount(){
+    const email=$("adminInviteEmail").value.trim(),full_name=$("adminInviteName").value.trim(),student_no=$("adminInviteNo").value.trim(),role=$("adminInviteRole").value;
+    if(!email||!full_name){toast("请填写邮箱和姓名。",true);return;}
+    const btn=$("adminInviteButton");btn.disabled=true;
+    try{
+      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"admin_invite_account",email,full_name,student_no,role}});
+      if(error||!data?.ok)throw error||new Error(data?.error||"邀请账号失败");
+      toast("邀请邮件已发送："+email+"（"+roleName(role)+"）");
+      $("adminInviteEmail").value="";$("adminInviteName").value="";$("adminInviteNo").value="";
+      await loadUsers();
+    }catch(err){toast(err,true);}
+    finally{btn.disabled=false;}
   }
 
   async function loadClasses(){
@@ -1291,6 +1327,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const assignmentToggle=e.target.closest("[data-assignment-toggle]");if(assignmentToggle)toggleAssignment(assignmentToggle.dataset.assignmentToggle,assignmentToggle.dataset.open==="true");
       const catalogEdit=e.target.closest("[data-catalog-edit]");if(catalogEdit)editCatalogItem(catalogEdit.dataset.catalogEdit);
       const catalogToggle=e.target.closest("[data-catalog-toggle]");if(catalogToggle)toggleCatalogItem(catalogToggle.dataset.catalogToggle,catalogToggle.dataset.active==="true");
+      const resetUser=e.target.closest("[data-user-reset]");if(resetUser)resetOneUser(resetUser.dataset.userReset);
     });
     $("backExperiments").addEventListener("click",()=>go("experiments"));
     $("runAnalysis").addEventListener("click",runAnalysis);
@@ -1308,6 +1345,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("submitReport").addEventListener("click",submitReport);
     $("refreshReviews").addEventListener("click",loadReviews);
     $("refreshUsers").addEventListener("click",loadUsers);
+    $("userSearch").addEventListener("input",renderAdminUsers);
+    $("adminInviteButton").addEventListener("click",inviteAdminAccount);
     $("bulkDeleteUsers").addEventListener("click",()=>bulkAccountAction("delete_students"));
     $("bulkResetUsers").addEventListener("click",()=>bulkAccountAction("reset_password"));
     $("closeGrading").addEventListener("click",()=>{$("gradingPanel").classList.add("hidden");closeGradingPreview();});
