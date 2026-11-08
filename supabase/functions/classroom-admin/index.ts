@@ -212,39 +212,71 @@ export default {
         if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
         const assignmentId = String(body.assignment_id ?? "");
         if (!assignmentId) return json({ error: "assignment_id required" }, 400);
-        const { data: assignment, error: assignmentError } = await supabaseAdmin.from("experiment_assignments")
-          .select("id,class_id,title,experiment_id,due_at,created_at").eq("id", assignmentId).eq("class_id", classId).maybeSingle();
+
+        // Fetch the assignment and class label together; they are independent reads.
+        const [assignmentResult, classResult] = await Promise.all([
+          supabaseAdmin.from("experiment_assignments")
+            .select("id,class_id,title,experiment_id,due_at,created_at")
+            .eq("id", assignmentId).eq("class_id", classId).maybeSingle(),
+          supabaseAdmin.from("classes").select("name").eq("id", classId).maybeSingle()
+        ]);
+        const { data: assignment, error: assignmentError } = assignmentResult;
         if (assignmentError || !assignment) return json({ error: "Assignment not found in this class" }, 404);
-        const { data: cls } = await supabaseAdmin.from("classes").select("name").eq("id", classId).maybeSingle();
-        const { data: catalog } = await supabaseAdmin.from("experiment_catalog").select("name,slug").eq("id", assignment.experiment_id).maybeSingle();
-        const { data: reports, error: reportError } = await supabaseAdmin.from("report_submissions")
-          .select("id,student_id,experiment_slug,file_name,storage_path,status,score,feedback,created_at,submitted_at,submission_version")
-          .eq("class_id", classId).eq("assignment_id", assignmentId)
-          .order("created_at", { ascending: true }).limit(1000);
-        if (reportError) return json({ error: reportError.message }, 500);
-        const ids = [...new Set((reports ?? []).map((r: { student_id: string }) => r.student_id))];
-        const { data: students, error: studentsError } = ids.length
-          ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", ids)
-          : { data: [], error: null };
-        if (studentsError) return json({ error: studentsError.message }, 500);
-        const studentMap = new Map((students ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
-        // Create signed URLs in batches. One request per student made large-class exports
-        // unnecessarily slow and could outlive the Edge Function execution budget.
-        const reportPaths = [...new Set((reports ?? []).map((r: { storage_path: string }) => r.storage_path).filter(Boolean))];
-        const signedUrlMap = new Map<string, string>();
+        const cls = classResult.data;
+
+        // Catalog, submissions and roster are independent after the assignment is verified.
+        const [catalogResult, reportResult, memberResult] = await Promise.all([
+          supabaseAdmin.from("experiment_catalog").select("name,slug").eq("id", assignment.experiment_id).maybeSingle(),
+          supabaseAdmin.from("report_submissions")
+            .select("id,student_id,experiment_slug,file_name,storage_path,status,score,feedback,created_at,submitted_at,submission_version")
+            .eq("class_id", classId).eq("assignment_id", assignmentId)
+            .order("created_at", { ascending: true }).limit(1000),
+          supabaseAdmin.from("class_members").select("student_id").eq("class_id", classId).eq("status", "active")
+        ]);
+        const catalog = catalogResult.data;
+        if (reportResult.error) return json({ error: reportResult.error.message }, 500);
+        if (memberResult.error) return json({ error: memberResult.error.message }, 500);
+        const reports = reportResult.data ?? [];
+        const members = memberResult.data ?? [];
+
+        const ownerIds = [...new Set([
+          ...members.map((m: { student_id: string }) => m.student_id),
+          ...reports.map((r: { student_id: string }) => r.student_id)
+        ])];
+        const reportPaths = [...new Set(reports.map((r: { storage_path: string }) => r.storage_path).filter(Boolean))];
+        const signedChunks: string[][] = [];
         for (let offset = 0; offset < reportPaths.length; offset += 100) {
-          const chunk = reportPaths.slice(offset, offset + 100);
-          const { data: signedItems, error: signedBatchError } = await supabaseAdmin.storage
-            .from("lab-reports").createSignedUrls(chunk, 900);
-          if (signedBatchError) return json({ error: "Report download links could not be prepared: " + signedBatchError.message }, 500);
-          for (const item of signedItems ?? []) {
+          signedChunks.push(reportPaths.slice(offset, offset + 100));
+        }
+
+        // One profile lookup serves report rows, missing-submission rows and analysis records.
+        // Independent data and signed-URL work is performed concurrently to reduce Edge latency.
+        const [peopleResult, recordsResult, signedResults] = await Promise.all([
+          ownerIds.length
+            ? supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", ownerIds)
+            : Promise.resolve({ data: [], error: null }),
+          ownerIds.length && catalog?.slug
+            ? supabaseAdmin.from("experiment_records")
+                .select("id,owner_id,experiment_slug,title,raw_data,analysis,engine_version,created_at,assignment_id")
+                .in("owner_id", ownerIds).eq("experiment_slug", catalog.slug).eq("assignment_id", assignmentId)
+                .order("created_at", { ascending: true }).limit(2000)
+            : Promise.resolve({ data: [], error: null }),
+          Promise.all(signedChunks.map(chunk => supabaseAdmin.storage.from("lab-reports").createSignedUrls(chunk, 900)))
+        ]);
+        if (peopleResult.error) return json({ error: peopleResult.error.message }, 500);
+        if (recordsResult.error) return json({ error: recordsResult.error.message }, 500);
+        const peopleMap = new Map((peopleResult.data ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
+        const signedUrlMap = new Map<string, string>();
+        for (const batch of signedResults) {
+          if (batch.error) return json({ error: "Report download links could not be prepared: " + batch.error.message }, 500);
+          for (const item of batch.data ?? []) {
             if (item.path && item.signedUrl && !item.error) signedUrlMap.set(item.path, item.signedUrl);
           }
         }
-        const rows = [];
-        for (const report of reports ?? []) {
-          const student = studentMap.get(report.student_id) ?? {};
-          rows.push({
+
+        const rows = reports.map((report: Record<string, any>) => {
+          const student = peopleMap.get(String(report.student_id)) ?? {};
+          return {
             report_id: report.id, student_id: report.student_id,
             student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
             experiment_name: catalog?.name ?? report.experiment_slug,
@@ -253,40 +285,23 @@ export default {
             created_at: report.created_at, submitted_at: report.submitted_at,
             submission_version: report.submission_version ?? 1,
             signed_url: report.storage_path ? signedUrlMap.get(report.storage_path) ?? null : null
+          };
+        });
+        const submittedIds = new Set(rows.map((r: { student_id: string }) => r.student_id));
+        for (const member of members) {
+          if (submittedIds.has(member.student_id)) continue;
+          const student = peopleMap.get(String(member.student_id)) ?? {};
+          rows.push({
+            report_id: null, student_id: member.student_id,
+            student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
+            experiment_name: catalog?.name ?? "", file_name: "", status: "missing",
+            score: null, feedback: "", created_at: null, submitted_at: null,
+            submission_version: null, signed_url: null
           });
         }
-        const { data: members, error: membersError } = await supabaseAdmin.from("class_members")
-          .select("student_id").eq("class_id", classId).eq("status", "active");
-        if (membersError) return json({ error: membersError.message }, 500);
-        const ownerIds = [...new Set([...(members ?? []).map((m: { student_id: string }) => m.student_id),
-          ...(reports ?? []).map((r: { student_id: string }) => r.student_id)])];
-        const submittedIds = new Set(rows.map((r: { student_id: string }) => r.student_id));
-        const missingIds = (members ?? []).map((m: { student_id: string }) => m.student_id).filter((id: string) => !submittedIds.has(id));
-        const { data: missingStudents, error: missingStudentsError } = missingIds.length
-          ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", missingIds)
-          : { data: [], error: null };
-        if (missingStudentsError) return json({ error: missingStudentsError.message }, 500);
-        for (const student of missingStudents ?? []) rows.push({
-          report_id: null, student_id: student.id, student_name: student.full_name ?? "未填写姓名",
-          student_no: student.student_no ?? "", experiment_name: catalog?.name ?? "",
-          file_name: "", status: "missing", score: null, feedback: "",
-          created_at: null, submitted_at: null, submission_version: null, signed_url: null
-        });
-        const { data: recordStudents, error: recordStudentsError } = ownerIds.length
-          ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", ownerIds)
-          : { data: [], error: null };
-        if (recordStudentsError) return json({ error: recordStudentsError.message }, 500);
-        const recordStudentMap = new Map((recordStudents ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
-        // Only records explicitly linked to this assignment are exported; no fuzzy time-window matching.
-        const { data: records, error: recordsError } = ownerIds.length && catalog?.slug
-          ? await supabaseAdmin.from("experiment_records")
-              .select("id,owner_id,experiment_slug,title,raw_data,analysis,engine_version,created_at,assignment_id")
-              .in("owner_id", ownerIds).eq("experiment_slug", catalog.slug).eq("assignment_id", assignmentId)
-              .order("created_at", { ascending: true }).limit(2000)
-          : { data: [], error: null };
-        if (recordsError) return json({ error: recordsError.message }, 500);
-        const recordRows = (records ?? []).map((record: Record<string, any>) => {
-          const student = recordStudentMap.get(String(record.owner_id)) ?? {};
+
+        const recordRows = (recordsResult.data ?? []).map((record: Record<string, any>) => {
+          const student = peopleMap.get(String(record.owner_id)) ?? {};
           return {
             record_id: record.id, student_id: record.owner_id,
             student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
@@ -295,12 +310,16 @@ export default {
             raw_data: record.raw_data ?? {}, analysis: record.analysis ?? {}
           };
         });
-        await audit(null, "class.assignment_reports_exported", { class_id: classId, assignment_id: assignmentId, report_count: rows.length, analysis_record_count: recordRows.length });
-        return json({ ok: true, class_name: cls?.name ?? "教学班", assignment_title: assignment.title,
+        await audit(null, "class.assignment_reports_exported", {
+          class_id: classId, assignment_id: assignmentId,
+          report_count: rows.length, analysis_record_count: recordRows.length
+        });
+        return json({
+          ok: true, class_name: cls?.name ?? "教学班", assignment_title: assignment.title,
           experiment_name: catalog?.name ?? "", rows, records: recordRows,
-          record_scope_note: "仅导出明确绑定本次 assignment_id 的数据分析记录；未关联任务的历史记录不会被猜测归入。" });
+          record_scope_note: "仅导出明确绑定本次 assignment_id 的数据处理记录；未关联任务的历史记录不会按时间猜测归档。"
+        });
       }
-
       if (action === "delete_class") {
         if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
         if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
