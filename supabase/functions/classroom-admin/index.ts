@@ -195,9 +195,38 @@ export default {
             submission_version: report.submission_version ?? 1, signed_url: signedUrl
           });
         }
-        await audit(null, "class.assignment_reports_exported", { class_id: classId, assignment_id: assignmentId, report_count: rows.length });
+        const { data: members, error: membersError } = await supabaseAdmin.from("class_members")
+          .select("student_id").eq("class_id", classId);
+        if (membersError) return json({ error: membersError.message }, 500);
+        const ownerIds = [...new Set([...(members ?? []).map((m: { student_id: string }) => m.student_id),
+          ...(reports ?? []).map((r: { student_id: string }) => r.student_id)])];
+        const { data: recordStudents, error: recordStudentsError } = ownerIds.length
+          ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", ownerIds)
+          : { data: [], error: null };
+        if (recordStudentsError) return json({ error: recordStudentsError.message }, 500);
+        const studentMap = new Map((recordStudents ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
+        // experiment_records currently has no assignment_id: match by class membership, experiment slug and task creation date.
+        const { data: records, error: recordsError } = ownerIds.length && catalog?.slug
+          ? await supabaseAdmin.from("experiment_records")
+              .select("id,owner_id,experiment_slug,title,raw_data,analysis,engine_version,created_at")
+              .in("owner_id", ownerIds).eq("experiment_slug", catalog.slug)
+              .gte("created_at", assignment.created_at).order("created_at", { ascending: true }).limit(2000)
+          : { data: [], error: null };
+        if (recordsError) return json({ error: recordsError.message }, 500);
+        const recordRows = (records ?? []).map((record: Record<string, any>) => {
+          const student = studentMap.get(String(record.owner_id)) ?? {};
+          return {
+            record_id: record.id, student_id: record.owner_id,
+            student_name: student.full_name ?? "未填写姓名", student_no: student.student_no ?? "",
+            experiment_name: catalog?.name ?? record.experiment_slug, title: record.title ?? "",
+            created_at: record.created_at, engine_version: record.engine_version ?? "",
+            raw_data: record.raw_data ?? {}, analysis: record.analysis ?? {}
+          };
+        });
+        await audit(null, "class.assignment_reports_exported", { class_id: classId, assignment_id: assignmentId, report_count: rows.length, analysis_record_count: recordRows.length });
         return json({ ok: true, class_name: cls?.name ?? "教学班", assignment_title: assignment.title,
-          experiment_name: catalog?.name ?? "", rows });
+          experiment_name: catalog?.name ?? "", rows, records: recordRows,
+          record_scope_note: "分析记录按本班成员、实验项目编号和任务创建时间匹配；当前记录表尚未单独绑定 assignment_id。" });
       }
 
       if (action === "delete_class") {
