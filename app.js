@@ -353,33 +353,37 @@
   function spreadsheetXmlEscape(value){
     return String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
   }
-  async function downloadExperimentWorkbook(slug){
+  function downloadExperimentWorkbook(slug){
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
     if(!def){toast("未找到该实验的数据表结构。",true);return;}
     try{
-      await ensureExternalLibrary("XLSX",["https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"]);
+      // Generate synchronously during the click event so browsers do not block the download
+      // after a third-party CDN load or another asynchronous wait.
       if(window.XLSX?.utils){
         const wb=XLSX.utils.book_new();
         def.tables.forEach((table,i)=>{
           const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
           const aoa=[headers,...Array.from({length:20},()=>headers.map(()=>""))];
-          const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=headers.map(()=>({wch:22}));
+          const ws=XLSX.utils.aoa_to_sheet(aoa);
+          ws["!cols"]=headers.map(()=>({wch:22}));
           XLSX.utils.book_append_sheet(wb,ws,(i+1)+"_"+table.key.slice(0,20));
         });
         const bytes=XLSX.write(wb,{bookType:"xlsx",type:"array"});
         downloadBlob(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),safeFileName(def.name)+"_实验数据录入模板.xlsx");
-      }else{
-        const xmlHeader='<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>';
-        const ns='xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"';
-        const sheets=def.tables.map(table=>{
-          const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
-          const sheetName=spreadsheetXmlEscape((table.title||table.key).slice(0,31));
-          const makeRow=row=>"<Row>"+row.map(v=>'<Cell><Data ss:Type="String">'+spreadsheetXmlEscape(v)+'</Data></Cell>').join("")+"</Row>";
-          return '<Worksheet ss:Name="'+sheetName+'"><Table>'+makeRow(headers)+Array.from({length:20},()=>makeRow(headers.map(()=>""))).join("")+"</Table></Worksheet>";
-        }).join("");
-        downloadBlob(new Blob([xmlHeader,"<Workbook "+ns+">",sheets,"</Workbook>"],{type:"application/vnd.ms-excel"}),safeFileName(def.name)+"_实验数据录入模板.xls");
+        toast("Excel 模板已生成：每张实验数据表位于独立工作表。");
+        return;
       }
-      toast("完整实验数据模板已生成。每张实验数据表位于独立工作表。");
+      // Offline / CDN fallback: Excel 2003 XML Spreadsheet, opened directly by Excel.
+      const xmlHeader='<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>';
+      const ns='xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"';
+      const sheets=def.tables.map(table=>{
+        const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
+        const sheetName=spreadsheetXmlEscape((table.title||table.key).slice(0,31));
+        const makeRow=row=>"<Row>"+row.map(v=>'<Cell><Data ss:Type="String">'+spreadsheetXmlEscape(v)+'</Data></Cell>').join("")+"</Row>";
+        return '<Worksheet ss:Name="'+sheetName+'"><Table>'+makeRow(headers)+Array.from({length:20},()=>makeRow(headers.map(()=>""))).join("")+"</Table></Worksheet>";
+      }).join("");
+      downloadBlob(new Blob([xmlHeader,"<Workbook "+ns+">",sheets,"</Workbook>"],{type:"application/vnd.ms-excel"}),safeFileName(def.name)+"_实验数据录入模板.xls");
+      toast("Excel 兼容模板已生成（XLS 格式）。每张实验数据表位于独立工作表。");
     }catch(err){toast("Excel 模板生成失败："+friendlyError(err),true);}
   }
   const formulaLibrary = {
