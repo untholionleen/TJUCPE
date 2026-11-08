@@ -9,9 +9,9 @@
     const controller=new AbortController(),originalSignal=init?.signal;
     const relayAbort=()=>controller.abort(originalSignal?.reason);
     if(originalSignal){if(originalSignal.aborted)controller.abort(originalSignal.reason);else originalSignal.addEventListener("abort",relayAbort,{once:true});}
-    const timer=window.setTimeout(()=>controller.abort(new DOMException("Supabase request timeout","TimeoutError")),30000);
+    const timer=window.setTimeout(()=>controller.abort(new DOMException("Supabase request timeout","TimeoutError")),15000);
     try{return await window.fetch(input,{...init,signal:controller.signal});}
-    catch(err){if(controller.signal.aborted&&!originalSignal?.aborted)throw new Error("连接 Supabase 超时（30 秒无响应）。请检查网络后重试。");throw err;}
+    catch(err){if(controller.signal.aborted&&!originalSignal?.aborted)throw new Error("连接 Supabase 超时（15 秒仍未响应）。请检查网络、稍后重试；不要连续重复提交。");throw err;}
     finally{window.clearTimeout(timer);if(originalSignal)originalSignal.removeEventListener("abort",relayAbort);}
   };
   const db = hasConfig && window.supabase?.createClient
@@ -65,6 +65,11 @@
     const code=String(input?.code||input?.status||"");
     const rules=[
       [/invalid login credentials|invalid_credentials/i,"邮箱或密码不正确，请检查后重试。"],
+      [/email address.*not authorized|email.*not allowed/i,"当前邮箱不允许注册或接收邮件，请联系平台管理员检查邮件服务设置。"],
+      [/user.*(banned|disabled)|this account is disabled/i,"该账号已被管理员停用，请联系管理员恢复。"],
+      [/email.*(already|exists)|user already registered/i,"该邮箱已经注册，请直接登录或使用密码重置。"],
+      [/signup is disabled|signups not allowed/i,"平台暂未开放自主注册，请联系管理员创建账号。"],
+      [/provider is not enabled|email provider is disabled/i,"平台邮箱登录服务尚未启用，请联系管理员检查 Supabase Auth 设置。"],
       [/email not confirmed|email_not_confirmed/i,"邮箱尚未验证，请先完成邮箱验证。"],
       [/user already registered|already registered/i,"该邮箱已经注册，请直接登录或使用密码重置。"],
       [/password should be at least|password.*minimum/i,"密码长度不足，请至少输入 10 位。"],
@@ -80,6 +85,11 @@
       [/email.*rate.limit|over_email_send_rate_limit/i,"邮件发送过于频繁，请稍后再试。"],
       [/database.*connection|could not connect to server|connection refused/i,"数据库连接暂时不可用，请稍后重试。"],
       [/timeout|timed out|aborterror/i,"请求超时。平台暂时没有收到 Supabase 响应，请稍后重试。"],
+      [/invalid.*redirect|redirect.*(mismatch|not allowed)/i,"邮箱跳转地址与平台允许的地址不一致。请联系管理员检查 Supabase 的 Site URL 和 Redirect URLs。"],
+      [/email.*smtp|smtp.*(error|not configured)/i,"邮件服务暂时不可用，请联系管理员检查 SMTP 邮件配置。"],
+      [/duplicate.*email|email.*duplicate/i,"该邮箱已存在，请勿重复创建账号。"],
+      [/missing.*authorization|authorization header/i,"登录凭证缺失或已过期，请退出后重新登录。"],
+      [/cors|preflight/i,"浏览器跨域连接失败，请联系管理员检查平台接口配置。"],
       [/payload too large|file too large/i,"文件过大，请压缩文件后重新上传。"],
       [/rate limit|too many requests|over_email_send_rate_limit/i,"操作过于频繁，请稍后再试。"],
       [/not found/i,"没有找到对应记录，可能已被删除或权限已变化。"],
@@ -1203,10 +1213,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     return String(value||"未命名").replace(/[\\/:*?"<>|]/g,"_").replace(/\\s+/g,"_").slice(0,80);
   }
   function downloadBlob(blob,fileName){
+    if(!blob||!blob.size){toast("生成的文件为空，请检查数据表后重试。",true);return;}
     const url=URL.createObjectURL(blob),link=document.createElement("a");
     link.href=url;link.download=fileName;link.style.display="none";
     document.body.appendChild(link);link.click();link.remove();
-    window.setTimeout(()=>URL.revokeObjectURL(url),3000);
+    window.setTimeout(()=>URL.revokeObjectURL(url),15000);
   }
   function presentPreparedDownload(blob,fileName,hostId){
     const host=$(hostId);
@@ -1678,7 +1689,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const taskOpen=e.target.closest("[data-task-open-experiment]");if(taskOpen){activeAssignmentId=taskOpen.dataset.taskId;activeClassId=taskOpen.dataset.classId;openExperiment(taskOpen.dataset.taskOpenExperiment);toast("已进入本次实验任务；保存的数据分析记录将关联到该任务。");}
       const open=e.target.closest("[data-open-experiment]");if(open){activeAssignmentId=null;openExperiment(open.dataset.openExperiment);}
       const txtTemplate=e.target.closest("[data-template-txt]");if(txtTemplate&&currentExperiment)downloadExperimentTxt(currentExperiment.slug,txtTemplate.dataset.templateTxt);
-      const xlsxTemplate=e.target.closest("[data-template-xlsx]");if(xlsxTemplate&&currentExperiment)downloadExperimentWorkbook(currentExperiment.slug);
+      const xlsxTemplate=e.target.closest("[data-template-xlsx]");if(xlsxTemplate){if(currentExperiment)downloadExperimentWorkbook(currentExperiment.slug);else toast("请先打开一个实验，再下载该实验专属模板。",true);}
       const report=e.target.closest("[data-report-download]");if(report)downloadReport(report.dataset.reportDownload);
       const fb=e.target.closest("[data-report-feedback]");if(fb)showFeedback(fb.dataset.reportFeedback);
       const withdraw=e.target.closest("[data-report-withdraw]");if(withdraw)withdrawReport(withdraw.dataset.reportWithdraw);
@@ -1718,6 +1729,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("refreshUsers").addEventListener("click",loadUsers);
     $("userSearch").addEventListener("input",renderAdminUsers);
     $("adminInviteButton").addEventListener("click",inviteAdminAccount);
+    $("usersBody").addEventListener("click",e=>{const reset=e.target.closest("[data-user-reset]");if(reset){reset.disabled=true;resetOneUser(reset.dataset.userReset).finally(()=>{reset.disabled=false;});}const toggle=e.target.closest("[data-account-toggle]");if(toggle){toggle.disabled=true;changeAccountStatus(toggle.dataset.accountToggle,toggle.dataset.status).finally(()=>{toggle.disabled=false;});}});
     $("bulkDeleteUsers").addEventListener("click",()=>bulkAccountAction("delete_students"));
     $("bulkResetUsers").addEventListener("click",()=>bulkAccountAction("reset_password"));
     $("closeGrading").addEventListener("click",()=>{$("gradingPanel").classList.add("hidden");closeGradingPreview();});
@@ -1725,7 +1737,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("classBulkReset").addEventListener("click",()=>bulkClassAccountAction("reset_password"));
     $("classBulkDelete").addEventListener("click",()=>bulkClassAccountAction("delete_students"));
     $("saveGrade").addEventListener("click",saveGrade);
-    $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el)changeRole(el.dataset.roleUser,el.value);});
+    $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el){el.disabled=true;changeRole(el.dataset.roleUser,el.value).finally(()=>{el.disabled=false;});}});
     $("createClass").addEventListener("click",createClass);
     $("clearClassForm").addEventListener("click",clearClassForm);
     $("publishAssignment").addEventListener("click",publishAssignment);
