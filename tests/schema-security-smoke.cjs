@@ -113,3 +113,12 @@ assert.ok(reviewedCleanupMigration.includes("not exists"), "staff may delete onl
 const legacyHelperRevoke = fs.readFileSync("supabase/migrations/20261108115040_tjucpe_revoke_legacy_public_role_helpers_v13.sql", "utf8").toLowerCase();
 assert.ok(legacyHelperRevoke.includes("revoke all on function public.is_admin() from public, anon, authenticated"));
 assert.ok(legacyHelperRevoke.includes("revoke all on function public.is_staff() from public, anon, authenticated"));
+
+const privateHelperMigration = fs.readFileSync("supabase/migrations/20261108115218_tjucpe_private_role_helpers_direct_v14.sql", "utf8").toLowerCase();
+assert.ok(privateHelperMigration.includes("where p.id = (select auth.uid()) and p.role = 'admin'"));
+assert.ok(privateHelperMigration.includes("where p.id = (select auth.uid()) and p.role in ('teacher','admin')"));
+assert.ok(privateHelperMigration.includes("if not private.is_staff()"), "report inserts must use the private staff helper");
+assert.ok(privateHelperMigration.includes("and not private.is_admin()"), "role/owner triggers must use the private admin helper");
+const privateHelperGrantMigration = fs.readFileSync("supabase/migrations/20261108115233_tjucpe_private_helper_grants_v15.sql", "utf8").toLowerCase();
+assert.ok(privateHelperGrantMigration.includes("revoke all on function private.is_admin() from public, anon"));
+assert.ok(privateHelperGrantMigration.includes("grant execute on function private.is_staff() to authenticated, service_role"));
