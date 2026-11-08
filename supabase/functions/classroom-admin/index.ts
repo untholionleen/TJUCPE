@@ -74,6 +74,23 @@ export default {
         };
       };
 
+      if (action === "delete_class") {
+        if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
+        if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
+        const { data: reportRows, error: reportError } = await supabaseAdmin
+          .from("report_submissions").select("id").eq("class_id", classId).limit(1);
+        if (reportError) return json({ error: reportError.message }, 500);
+        if (reportRows?.length) return json({ error: "该班级已有报告记录。为保护报告、成绩和审计关联，请先停用/归档，不能永久删除。" }, 409);
+        await audit(null, "class.permanently_deleted", { class_id: classId });
+        const { error: assignmentError } = await supabaseAdmin.from("experiment_assignments").delete().eq("class_id", classId);
+        if (assignmentError) return json({ error: assignmentError.message }, 500);
+        const { error: memberError } = await supabaseAdmin.from("class_members").delete().eq("class_id", classId);
+        if (memberError) return json({ error: memberError.message }, 500);
+        const { error: classError } = await supabaseAdmin.from("classes").delete().eq("id", classId);
+        if (classError) return json({ error: classError.message }, 500);
+        return json({ ok: true, class_id: classId });
+      }
+
       if (action === "join_class") {
         if (actor.role !== "student") return json({ error: "Only student accounts can join a class" }, 403);
         const joinCode = String(body.join_code ?? "").trim().toUpperCase();
