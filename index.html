@@ -21,7 +21,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js" integrity="sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE" crossorigin="anonymous"></script>
   <script defer src="experiment-engine.js?v=20261108-engine-9"></script>
   
-  <script defer src="app.js?v=20261108-workflow-18"></script>
+  <script defer src="app.js?v=20261108-workflow-19"></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status"></div>
@@ -156,7 +156,7 @@
             </section>
             <section class="panel chart-panel">
               <div class="panel-heading"><div><h3>图形分析</h3><p>支持高清 PNG 导出；原始数据可导出为 CSV，便于继续在 Origin / MATLAB 中处理。</p></div><button id="downloadChart" class="btn btn-outline btn-sm" disabled>↓ 导出 PNG</button></div>
-              <div class="python-plot-stage"><div class="python-plot-heading"><strong>Python 科研图形（Matplotlib）</strong><span id="pythonPlotStatus">等待运行实验计算</span></div><img id="pythonPlotImage" class="python-plot-image hidden" alt="Matplotlib 实验数据图形"><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>运行实验计算后生成 Python 图形</strong><small>支持多组数据、拟合曲线、高清 PNG 导出。</small></div></div><div class="selection-workspace"><div class="selection-workspace-heading"><strong>Origin 式拟合区间选择</strong><span>在数据点图上使用矩形框选或套索选择，再重新运行专属计算</span><button type="button" id="clearFitSelection" class="btn btn-outline btn-sm">清除选区</button></div><div id="analysisPlotly" class="analysis-plotly"></div></div><canvas id="analysisChart" class="hidden"></canvas>
+              <div class="python-plot-stage"><div class="python-plot-heading"><strong>Python 科研图形（Matplotlib）</strong><span id="pythonPlotStatus">等待运行实验计算</span></div><img id="pythonPlotImage" class="python-plot-image hidden" alt="Matplotlib 实验数据图形"><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>运行实验计算后生成 Python 图形</strong><small>支持多组数据、拟合曲线、高清 PNG 导出。</small></div></div><div class="selection-workspace"><div class="selection-workspace-heading"><strong>Origin 式拟合区间选择</strong><span>在数据点图上使用矩形框选或套索选择，再重新运行专属计算</span><button type="button" id="clearFitSelection" class="btn btn-outline btn-sm">清除选区</button></div><div id="fitRangeFallback" class="fit-range-fallback hidden"><span>备用拟合区间（按数据点序号）</span><label>起始点<input id="fitRangeStart" type="number" min="1" value="1"></label><label>结束点<input id="fitRangeEnd" type="number" min="1" value="10"></label><button type="button" id="applyFitRange" class="btn btn-outline btn-sm">应用区间</button></div><div id="analysisPlotly" class="analysis-plotly"></div></div><canvas id="analysisChart" class="hidden"></canvas>
               <div class="chart-footer"><span id="chartCaption">当前没有图表</span><button id="downloadCsv" class="text-action" disabled>导出 Origin CSV　↓</button></div>
               <div id="engineWarnings" class="engine-warnings hidden"></div>
             </section>
