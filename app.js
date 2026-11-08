@@ -64,7 +64,13 @@
     $("avatarInitial").textContent=initials(name); $("welcomeName").textContent=name;
     const isStaff=["teacher","admin"].includes(profile?.role);
     document.querySelectorAll(".staff-only").forEach(el=>el.classList.toggle("hidden",!isStaff));
+    document.querySelectorAll(".student-only").forEach(el=>el.classList.toggle("hidden",isStaff));
     document.querySelectorAll(".admin-only").forEach(el=>el.classList.toggle("hidden",profile?.role!=="admin"));
+    $("overviewStudentPanel")?.classList.toggle("hidden",isStaff);
+    $("overviewStaffPanel")?.classList.toggle("hidden",!isStaff);
+    $("overviewEyebrow").textContent=isStaff?"TEACHING MANAGEMENT":"YOUR LAB SPACE";
+    $("overviewTitle").textContent=isStaff?"教学管理工作台":"早上好，";
+    $("overviewSubtitle").textContent=isStaff?"管理教学班、实验任务与报告批阅。":"从实验数据开始，完成分析、作图与报告提交。";
   }
   function go(page){
     const allowed=["overview","experiments","analysis","reports","review","users","classes","system"];
@@ -527,6 +533,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function loadOverview(){
     if(!db||!user)return;
+    if(["teacher","admin"].includes(profile?.role)){
+      const [cq,aq,rq]=await Promise.all([
+        profile.role==="admin"?db.from("classes").select("id",{count:"exact",head:true}):db.from("classes").select("id",{count:"exact",head:true}).eq("teacher_id",user.id),
+        profile.role==="admin"?db.from("experiment_assignments").select("id",{count:"exact",head:true}).eq("is_open",true):db.from("experiment_assignments").select("id,classes!inner(teacher_id)",{count:"exact",head:true}).eq("is_open",true).eq("classes.teacher_id",user.id),
+        profile.role==="admin"?db.from("report_submissions").select("id",{count:"exact",head:true}).eq("status","submitted"):db.from("report_submissions").select("id,classes!inner(teacher_id)",{count:"exact",head:true}).eq("status","submitted").eq("classes.teacher_id",user.id)
+      ]);
+      $("staffMetricClasses").textContent=cq.count??"—";$("staffMetricTasks").textContent=aq.count??"—";$("staffMetricReports").textContent=rq.count??"—";return;
+    }
     const [records,reports]=await Promise.all([
       db.from("experiment_records").select("id,created_at,title").eq("owner_id",user.id).order("created_at",{ascending:false}).limit(5),
       db.from("report_submissions").select("id,status,feedback,created_at").eq("student_id",user.id)
@@ -761,7 +775,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("usersBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
     const {data,error}=await db.from("profiles").select("*").order("created_at",{ascending:false}).limit(500);
     if(error){$("usersBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
-    $("usersBody").innerHTML=(data||[]).map(p=>`<tr><td>${p.role==="student"&&m.status==="active"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td><td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.student_no||"—")}</td><td><span class="status-pill">${roleName(p.role)}</span></td><td>${new Date(p.created_at).toLocaleDateString("zh-CN")}</td><td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td></tr>`).join("")||'<tr><td colspan="5" class="muted center">暂无用户。</td></tr>';
+    $("usersBody").innerHTML=(data||[]).map(p=>`<tr><td>${p.role==="student"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td><td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.student_no||"—")}</td><td><span class="status-pill">${roleName(p.role)}</span></td><td>${new Date(p.created_at).toLocaleDateString("zh-CN")}</td><td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td></tr>`).join("")||'<tr><td colspan="5" class="muted center">暂无用户。</td></tr>';
   }
   async function changeRole(id,role){
     if(!["student","teacher","admin"].includes(role))return;
