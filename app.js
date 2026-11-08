@@ -1171,12 +1171,17 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
       await loadReviews();await loadReports();await loadOverview();
     }catch(err){
+      const failedStage=stage;
       let recoveryCheck="尚未执行数据库确认";
       if(newPath){
         stage="确认数据库是否已经接收批阅版";
-        const {data:confirmedRow,error:confirmError}=await db.from("report_submissions")
-          .select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")
-          .eq("id",reportId).maybeSingle();
+        let confirmedRow=null,confirmError=null;
+        try{
+          const confirmation=await db.from("report_submissions")
+            .select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")
+            .eq("id",reportId).maybeSingle();
+          confirmedRow=confirmation.data;confirmError=confirmation.error;
+        }catch(checkError){confirmError=checkError;}
         if(!confirmError&&confirmedRow?.storage_path===newPath){
           gradingRecord={...gradingRecord,...confirmedRow};
           toast("保存请求响应中断，但已从数据库确认批阅版 PDF 保存成功。");
@@ -1196,7 +1201,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       }
       const rawDetail=err?.message||String(err||"未知异常");
       const code=err?.code?("（代码 "+err.code+"）"):"";
-      toast("保存批阅失败｜阶段："+stage+"｜"+rawDetail+code+"。"+recoveryCheck+"。原始报告文件未主动覆盖。",true);
+      toast("保存批阅失败｜失败阶段："+failedStage+"｜"+rawDetail+code+"。"+recoveryCheck+"。原始报告文件未主动覆盖。",true);
     }finally{
       saveButtons.forEach(button=>{button.disabled=false;button.textContent=button.dataset.originalText||"保存批阅结果";delete button.dataset.originalText;});
     }
