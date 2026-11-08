@@ -569,14 +569,17 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const settings=Object.fromEntries(def.settings.map(f=>[f.key,$("expSetting_"+f.key)?.value??""]));
     return {def,tables,settings};
   }
-  function runDedicatedAnalysis(){
-    if(!window.TJUCPE_EXPERIMENT_ENGINE||!window.Plotly){toast("实验算法或绘图组件尚未加载，请刷新页面。",true);return;}
+  async function runDedicatedAnalysis(){
+    if(!window.TJUCPE_EXPERIMENT_ENGINE){toast("实验算法组件尚未加载，请刷新页面后重试。",true);return;}
+    const button=$("runDedicatedAnalysis");if(button){button.disabled=true;button.textContent="正在计算…";}
     try{
+      await ensureExternalLibrary("Plotly",["https://cdn.plot.ly/plotly-2.35.2.min.js"]);
       const {def,tables,settings}=readDedicatedInputs();
       const result=window.TJUCPE_EXPERIMENT_ENGINE.analyze(def.slug,tables,settings,selectedFitIndices);
       dedicatedTables=tables;dedicatedResult=result;
       renderDedicatedResult(def,result,tables,settings);
-    }catch(error){toast(error?.message||"实验计算失败。",true);}
+    }catch(error){toast(friendlyError(error)||"实验计算失败。",true);}
+    finally{if(button){button.disabled=false;button.textContent="运行本实验专属计算";}}
   }
   function renderDedicatedResult(def,result,tables,settings){
     const firstSeries=result.series?.[0],basePoints=(firstSeries?.points||[]).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
