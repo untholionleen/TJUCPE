@@ -1118,34 +1118,47 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
 
   async function saveGrade(){
     if(!gradingRecord)return;
+    const saveButtons=[$("saveGrade"),$("savePdfAnnotations")].filter(Boolean);
+    if(saveButtons.some(button=>button.disabled))return;
     const score=$("gradeScore").value===""?null:Number($("gradeScore").value);
     if(score!==null&&(score<0||score>100||!Number.isFinite(score))){toast("成绩必须在 0–100 之间。",true);return;}
     const status=$("gradeStatus").value;
     const update={score,feedback:$("gradeFeedback").value.trim(),status,reviewed_by:user.id,reviewed_at:new Date().toISOString()};
     let newPath=null;
     const hasAnnotations=Object.values(gradingStrokes).some(list=>Array.isArray(list)&&list.length);
-    if(gradingPdfBytes&&hasAnnotations){
-      try{
+    saveButtons.forEach(button=>{button.disabled=true;button.dataset.originalText=button.textContent;button.textContent="正在保存…";});
+    try{
+      if(gradingPdfBytes&&hasAnnotations){
         const bytes=await buildAnnotatedPdf();
         newPath="reviewed/"+gradingRecord.id+"/"+crypto.randomUUID()+"_reviewed.pdf";
         const blob=new Blob([bytes],{type:"application/pdf"});
         const {error:uploadError}=await db.storage.from("lab-reports").upload(newPath,blob,{upsert:false,contentType:"application/pdf"});
-        if(uploadError)throw new Error("批阅版 PDF 上传失败："+uploadError.message);
+        if(uploadError)throw new Error("批阅版 PDF 上传失败："+friendlyError(uploadError));
         update.storage_path=newPath;
         const original=(gradingRecord.file_name||"实验报告.pdf").replace(/\.pdf$/i,"");
         update.file_name=original+"_批阅版.pdf";
         update.review_annotations=gradingStrokes;
         update.submission_version=(gradingRecord.submission_version||1)+1;
-      }catch(err){toast(friendlyError(err)||"生成批阅版 PDF 失败。",true);return;}
+      }
+      // Confirm the updated row: RLS-filtered UPDATEs can return zero rows without an error.
+      const {data:savedRow,error}=await db.from("report_submissions")
+        .update(update).eq("id",gradingRecord.id)
+        .select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")
+        .single();
+      if(error||!savedRow)throw new Error("报告记录未确认写入："+friendlyError(error||"未返回更新后的报告记录"));
+      gradingRecord={...gradingRecord,...savedRow};
+      toast(hasAnnotations?"批阅结果与标注版 PDF 已保存并确认，原始文件保留在版本历史中。":"批阅结果已保存并确认。");
+      closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
+      await loadReviews();await loadReports();await loadOverview();
+    }catch(err){
+      if(newPath){
+        const {error:cleanupError}=await db.storage.from("lab-reports").remove([newPath]);
+        if(cleanupError)toast("保存失败，且临时批阅文件清理失败："+friendlyError(cleanupError),true);
+      }
+      toast("保存批阅失败："+friendlyError(err),true);
+    }finally{
+      saveButtons.forEach(button=>{button.disabled=false;button.textContent=button.dataset.originalText||"保存批阅结果";delete button.dataset.originalText;});
     }
-    const {error}=await db.from("report_submissions").update(update).eq("id",gradingRecord.id);
-    if(error){
-      if(newPath)await db.storage.from("lab-reports").remove([newPath]);
-      toast("保存批阅失败："+error.message,true);return;
-    }
-    toast(hasAnnotations?"批阅结果与标注版 PDF 已同步发布，原始文件保留在版本历史中。":"批阅结果已保存。");
-    closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
-    await loadReviews();await loadReports();await loadOverview();
   }
   let adminUsersCache=[];
   async function loadUsers(){
@@ -1867,6 +1880,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("classBulkReset").addEventListener("click",()=>bulkClassAccountAction("reset_password"));
     $("classBulkDelete").addEventListener("click",()=>bulkClassAccountAction("delete_students"));
     $("saveGrade").addEventListener("click",saveGrade);
+    $("savePdfAnnotations").addEventListener("click",saveGrade);
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el){el.disabled=true;changeRole(el.dataset.roleUser,el.value).finally(()=>{el.disabled=false;});}});
     $("createClass").addEventListener("click",createClass);
     $("clearClassForm").addEventListener("click",clearClassForm);
