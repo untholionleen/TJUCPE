@@ -21,7 +21,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js" integrity="sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE" crossorigin="anonymous"></script>
   <script defer src="experiment-engine.js?v=20261108-engine-9"></script>
   
-  <script defer src="app.js?v=20261108-workflow-23"></script>
+  <script defer src="app.js?v=20261108-workflow-24"></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status"></div>
@@ -53,6 +53,7 @@
           <label>密码<input id="password" type="password" autocomplete="current-password" minlength="8" required placeholder="至少 8 位"></label>
           <button id="authSubmit" class="btn btn-primary full" type="submit">登录</button>
         </form>
+        <div id="emailConfirmPanel" class="auth-reset hidden"><p id="emailConfirmMessage" class="muted">请确认本次邮箱验证操作。</p><button id="confirmEmailToken" class="btn btn-primary full" type="button">确认邮箱并继续</button><button id="cancelEmailToken" class="link-button" type="button">返回登录</button></div>
         <div id="resetPanel" class="auth-reset hidden">
           <label>新密码<input id="newPassword" type="password" minlength="10" autocomplete="new-password" placeholder="至少 10 位，建议使用个人专属密码"></label>
           <button id="saveNewPassword" class="btn btn-primary full" type="button">保存新密码</button>
