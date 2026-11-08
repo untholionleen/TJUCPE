@@ -867,12 +867,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function resetOneUser(id){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
-    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？点击邮件后系统会设置临时密码 TJUCPE123，并强制修改为个人密码。"))return;
+    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？用户点击邮件后，系统会设置临时密码 TJUCPE123，并要求其立即设置个人密码。"))return;
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});
     if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
-    const url=data.action_link;
-    if(url){const win=window.open(url,"_blank","noopener");if(!win){toast("重置链接已生成，但浏览器阻止了弹窗。请在管理员安全环境中复制链接后发送给用户。",true);return;}}
-    toast("重置验证链接已生成。请通过已配置的邮箱模板发送给用户。");
+    toast("密码重置验证邮件已发送至 "+target.email+"。");
   }
   async function inviteAdminAccount(){
     const email=$("adminInviteEmail").value.trim(),full_name=$("adminInviteName").value.trim(),student_no=$("adminInviteNo").value.trim(),role=$("adminInviteRole").value;
@@ -996,20 +994,22 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const classId=$("classTaskSelect").value;
     const ids=Array.from(document.querySelectorAll(".class-user-check:checked")).map(x=>x.value);
     if(!classId||!ids.length){toast("请先选择班级并勾选学生。",true);return;}
-    const message=action==="delete_students"?(profile.role==="admin"?"确认永久删除选中学生账号及其报告文件？":"教师操作规则：若学生仅属于当前班级，将永久删除账号；若还属于其他有效班级，则只从本班移出。确认继续？"):"为选中学生生成密码恢复链接？";
+    const message=action==="delete_students"
+      ?(profile.role==="admin"?"确认永久删除选中学生账号及其报告文件？":"教师操作规则：若学生仅属于当前班级，将永久删除账号；若还属于其他有效班级，则只从本班移出。确认继续？")
+      :"向选中学生发送密码重置验证邮件？验证通过后设置临时密码 TJUCPE123，并强制修改个人密码。";
     if(!confirm(message))return;
-    const results=[];
-    for(const id of ids){
-      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action,user_id:id,user_ids:[id],class_id:classId}});
-      if(error)results.push({id,ok:false,error:error.message});
-      else if(action==="reset_password")results.push({id,ok:!!data?.action_link,email:data?.email,link:data?.action_link,error:data?.error});
-      else results.push(...(data?.results||[]));
-    }
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{
+      action:action==="reset_password"?"reset_passwords":action,class_id:classId,user_ids:ids
+    }});
+    if(error){toast(error,true);return;}
+    const results=data?.results||[];
     if(action==="reset_password"){
-      $("accountActionResult").textContent=results.filter(x=>x.ok).map(x=>x.email+" "+x.link).join("\n")||"没有生成恢复链接。";
-      toast("已生成 "+results.filter(x=>x.ok).length+"/"+ids.length+" 个恢复链接。");
+      const ok=results.filter(x=>x.ok).length;
+      $("accountActionResult").textContent=results.map(x=>(x.email||x.user_id)+(x.ok?"：已发送":"："+friendlyError(x.error))).join("\n");
+      toast("密码重置验证邮件已发送："+ok+"/"+ids.length+" 个成功。");
     }else{
-      const deleted=results.filter(x=>x.operation==="permanently_deleted").length,removed=results.filter(x=>x.operation==="removed_from_this_class").length;toast(profile.role==="admin"?"账号永久删除完成："+deleted+"/"+ids.length+" 个成功。":"教师操作完成：永久删除 "+deleted+" 个账号，移出本班 "+removed+" 人。");
+      const deleted=results.filter(x=>x.operation==="permanently_deleted").length,removed=results.filter(x=>x.operation==="removed_from_this_class").length;
+      toast(profile.role==="admin"?"账号永久删除完成："+deleted+"/"+ids.length+" 个成功。":"教师操作完成：永久删除 "+deleted+" 个账号，移出本班 "+removed+" 人。");
       await loadClassRoster(classId);
     }
   }
@@ -1118,14 +1118,18 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function bulkAccountAction(action){
     const ids=Array.from(document.querySelectorAll(".user-check:checked")).map(x=>x.value);
     if(!ids.length){toast("请先勾选学生账号。",true);return;}
-    if(!confirm(action==="delete_students"?"确认批量删除选中的学生账号及报告文件？":"为选中学生生成密码恢复链接？"))return;
     if(action==="delete_students"){
+      if(!confirm("确认永久删除选中的学生账号及报告文件？"))return;
       const result=await db.functions.invoke("classroom-admin",{body:{action,user_ids:ids}});
-      if(result.error){toast(result.error.message,true);return;}
-      const ok=(result.data?.results||[]).filter(x=>x.ok).length;toast("批量删除完成："+ok+"/"+ids.length+" 个成功。");loadUsers();
+      if(result.error){toast(result.error,true);return;}
+      const ok=(result.data?.results||[]).filter(x=>x.ok).length;toast("批量删除完成："+ok+"/"+ids.length+" 个成功。");await loadUsers();
     }else{
-      const links=[];for(const id of ids){const result=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});if(!result.error&&result.data?.action_link)links.push(result.data.email+" "+result.data.action_link);}
-      $("accountActionResult").textContent=links.join("\n")||"没有生成恢复链接。";toast("已生成 "+links.length+" 个恢复链接，请安全转交学生。");
+      if(!confirm("向选中的 "+ids.length+" 个学生发送密码重置验证邮件？验证通过后将设置临时密码 TJUCPE123，并要求立即修改。"))return;
+      const result=await db.functions.invoke("classroom-admin",{body:{action:"reset_passwords",user_ids:ids}});
+      if(result.error){toast(result.error,true);return;}
+      const rows=result.data?.results||[],ok=rows.filter(x=>x.ok).length;
+      $("accountActionResult").textContent=rows.map(x=>(x.email||x.user_id)+(x.ok?"：重置邮件已发送":"："+friendlyError(x.error))).join("\n");
+      toast("密码重置邮件已发送："+ok+"/"+ids.length+" 个成功。");
     }
   }
   async function runAdminConnectionCheck(){
