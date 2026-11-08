@@ -1069,22 +1069,30 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     }
   }
   async function buildAnnotatedPdf(){
-    if(!gradingPdfBytes||!window.PDFLib)throw new Error("PDF 批注组件尚未就绪。");
-    const pdf=await PDFLib.PDFDocument.load(gradingPdfBytes),pages=pdf.getPages();
+    if(!gradingPdfBytes||!window.PDFLib?.PDFDocument)throw new Error("PDF 批注组件尚未就绪，请刷新页面后重新打开报告。");
+    // Work on a detached copy. PDF.js and PDF-Lib must never share a transferable byte buffer.
+    const sourceBytes=new Uint8Array(gradingPdfBytes.slice(0));
+    if(sourceBytes.length<8||String.fromCharCode(...sourceBytes.slice(0,5))!=="%PDF-")throw new Error("原始文件不是有效 PDF，无法生成批阅版。");
+    const pdf=await PDFLib.PDFDocument.load(sourceBytes,{ignoreEncryption:true,updateMetadata:false});
+    const pages=pdf.getPages();
     for(const [pageKey,strokes] of Object.entries(gradingStrokes)){
       const page=pages[Number(pageKey)-1];if(!page)continue;
       const {width,height}=page.getSize();
       for(const stroke of strokes||[]){
-        const pts=stroke.points||[];if(!pts.length)continue;
-        const points=pts.map(p=>({x:p.x*width,y:height-p.y*height}));
+        const pts=(stroke.points||[]).filter(p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y));
+        if(!pts.length)continue;
+        const points=pts.map(p=>({x:Math.max(0,Math.min(1,p.x))*width,y:height-Math.max(0,Math.min(1,p.y))*height}));
+        const thickness=Number.isFinite(stroke.width)?Math.max(0.5,Math.min(12,stroke.width)):2.2;
         if(points.length===1){
           page.drawCircle({x:points[0].x,y:points[0].y,size:1.4,color:PDFLib.rgb(0.84,0.10,0.18)});
         }else for(let i=1;i<points.length;i++){
-          page.drawLine({start:points[i-1],end:points[i],thickness:stroke.width||2.2,color:PDFLib.rgb(0.84,0.10,0.18),opacity:0.92});
+          page.drawLine({start:points[i-1],end:points[i],thickness,color:PDFLib.rgb(0.84,0.10,0.18),opacity:0.92});
         }
       }
     }
-    return await pdf.save();
+    const output=await pdf.save({useObjectStreams:true});
+    if(!(output instanceof Uint8Array)||output.length<8||String.fromCharCode(...output.slice(0,5))!=="%PDF-")throw new Error("PDF 批阅版生成结果校验失败，原始报告未被修改。");
+    return output;
   }
   function undoPdfAnnotation(){
     const keys=Object.keys(gradingStrokes).sort((a,b)=>Number(b)-Number(a));
@@ -1131,14 +1139,19 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(score!==null&&(score<0||score>100||!Number.isFinite(score))){toast("成绩必须在 0–100 之间。",true);return;}
     const status=$("gradeStatus").value;
     const update={score,feedback:$("gradeFeedback").value.trim(),status,reviewed_by:user.id,reviewed_at:new Date().toISOString()};
-    let newPath=null;
+    let newPath=null,stage="检查批阅内容";
+    const reportId=gradingRecord.id;
     const hasAnnotations=Object.values(gradingStrokes).some(list=>Array.isArray(list)&&list.length);
     saveButtons.forEach(button=>{button.disabled=true;button.dataset.originalText=button.textContent;button.textContent="正在保存…";});
     try{
       if(gradingPdfBytes&&hasAnnotations){
+        stage="生成带批注的 PDF";
         const bytes=await buildAnnotatedPdf();
-        newPath="reviewed/"+gradingRecord.id+"/"+crypto.randomUUID()+"_reviewed.pdf";
+        stage="准备批阅版文件";
+        newPath="reviewed/"+reportId+"/"+crypto.randomUUID()+"_reviewed.pdf";
         const blob=new Blob([bytes],{type:"application/pdf"});
+        if(blob.size<8)throw new Error("生成的 PDF 文件为空，未向服务器上传。");
+        stage="上传批阅版 PDF";
         const {error:uploadError}=await db.storage.from("lab-reports").upload(newPath,blob,{upsert:false,contentType:"application/pdf"});
         if(uploadError)throw new Error("批阅版 PDF 上传失败："+friendlyError(uploadError));
         update.storage_path=newPath;
@@ -1147,9 +1160,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         update.review_annotations=gradingStrokes;
         update.submission_version=(gradingRecord.submission_version||1)+1;
       }
-      // Confirm the updated row: RLS-filtered UPDATEs can return zero rows without an error.
+      stage="写入批阅记录与版本历史";
       const {data:savedRow,error}=await db.from("report_submissions")
-        .update(update).eq("id",gradingRecord.id)
+        .update(update).eq("id",reportId)
         .select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")
         .single();
       if(error||!savedRow)throw new Error("报告记录未确认写入："+friendlyError(error||"未返回更新后的报告记录"));
@@ -1158,22 +1171,32 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
       await loadReviews();await loadReports();await loadOverview();
     }catch(err){
-      // A network error may happen after Postgres committed the UPDATE.
-      // Re-read the row before deleting the uploaded file to avoid deleting the live report.
+      let recoveryCheck="尚未执行数据库确认";
       if(newPath){
-        const {data:confirmedRow}=await db.from("report_submissions")
+        stage="确认数据库是否已经接收批阅版";
+        const {data:confirmedRow,error:confirmError}=await db.from("report_submissions")
           .select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")
-          .eq("id",gradingRecord.id).maybeSingle();
-        if(confirmedRow?.storage_path===newPath){
-          toast("网络响应中断，但已从数据库确认批阅版 PDF 保存成功。");
+          .eq("id",reportId).maybeSingle();
+        if(!confirmError&&confirmedRow?.storage_path===newPath){
+          gradingRecord={...gradingRecord,...confirmedRow};
+          toast("保存请求响应中断，但已从数据库确认批阅版 PDF 保存成功。");
           closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
           await loadReviews();await loadReports();await loadOverview();
           return;
         }
-        const {error:cleanupError}=await db.storage.from("lab-reports").remove([newPath]);
-        if(cleanupError)toast("保存失败，且临时批阅文件清理失败："+friendlyError(cleanupError),true);
+        if(!confirmError&&confirmedRow&&confirmedRow.storage_path!==newPath){
+          stage="清理未关联的临时批阅文件";
+          const {error:cleanupError}=await db.storage.from("lab-reports").remove([newPath]);
+          recoveryCheck=cleanupError?"数据库确认未切换文件，但临时文件清理失败："+friendlyError(cleanupError):"数据库确认尚未切换文件，临时上传文件已清理";
+        }else{
+          // A failed read is not proof that the UPDATE failed. Keep the uploaded object;
+          // deleting it here could break a report whose database commit succeeded.
+          recoveryCheck="数据库确认请求也未成功，临时文件已保留以避免误删可能已生效的批阅版；请稍后刷新核对";
+        }
       }
-      toast("保存批阅失败："+friendlyError(err),true);
+      const rawDetail=err?.message||String(err||"未知异常");
+      const code=err?.code?("（代码 "+err.code+"）"):"";
+      toast("保存批阅失败｜阶段："+stage+"｜"+rawDetail+code+"。"+recoveryCheck+"。原始报告文件未主动覆盖。",true);
     }finally{
       saveButtons.forEach(button=>{button.disabled=false;button.textContent=button.dataset.originalText||"保存批阅结果";delete button.dataset.originalText;});
     }
