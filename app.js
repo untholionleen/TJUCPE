@@ -223,7 +223,6 @@
   function downloadExperimentTxt(slug,tableKey){
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
     const table=def?.tables?.find(x=>x.key===tableKey);if(!table)return;
-    table.columns.join("\t");
     const lines=[table.columns.join("\t"),...Array.from({length:20},()=>table.columns.map(()=>"").join("\t"))];
     const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/plain;charset=utf-8"});
     const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=slug+"-"+tableKey+"-数据模板.txt";link.click();URL.revokeObjectURL(url);
