@@ -108,3 +108,14 @@ Last checked: 2026-11-08
 - Executed a rollback-only transaction under the authenticated teacher role against the existing submitted report. The transaction temporarily changed the report path, score, feedback, status and annotation JSON; the `report_revisions` trigger recorded `file_replaced` with the prior path and version 1.
 - The transaction was rolled back. A subsequent query confirmed the original report path, `submitted` status, `submission_version=1`, and zero persisted revisions were unchanged. No Storage object was uploaded, overwritten or deleted during this database-only test.
 - This verifies teacher RLS update permission, the report update guards, and revision-history trigger behavior. It does not replace the browser test of PDF generation, Storage upload, signed/private-file readback, and student-side reopening.
+
+
+## 2026-11-08 20:07 — PDF review-save fault isolation and data-safety patch
+
+- The user's reported save failure was investigated against the live request logs around 12:04 UTC. The observed activity shows the teacher loaded the submitted report and successfully downloaded its original private PDF; no subsequent Storage upload or PostgREST report UPDATE appears in the available request log window. This points to a failure before the persistence requests (most likely client-side PDF generation / save preparation), but the exact browser exception is not present in server logs, so the precise originating exception is not claimed as proven.
+- Hardened PDF generation to use a detached byte copy, explicitly handle encrypted PDFs through PDF-Lib's compatibility option, filter invalid stroke coordinates, clamp stroke widths, and validate the output PDF signature before upload.
+- Split the save pipeline into named stages and expose the actual failing stage and error message in the Chinese UI instead of the generic unknown-error message.
+- Corrected a data-loss risk in the previous recovery path: when the database read-back itself fails, the newly uploaded PDF is now retained rather than deleted. A failed read is not evidence that the database UPDATE did not commit; deleting the file in that ambiguous state could break a successfully updated report.
+- Added tests/review-save-smoke.cjs and wired it into the Pages CI workflow. This is a source-level safety regression test, not a substitute for a real browser draw → save → reopen acceptance test.
+- Existing report rows, original PDF objects, classes, assignments, users and revisions were not modified or cleared by this patch.
+- Pending verification: GitHub Pages CI completion, followed by authenticated browser testing of PDF annotations, teacher save, student-side re-open and revision history. Do not describe the browser flow as passed until that test is actually performed.
