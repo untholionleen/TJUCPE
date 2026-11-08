@@ -19,7 +19,6 @@
     : null;
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
   const APP_REDIRECT_URL = "https://untholionleen.github.io/TJUCPE/";
-  const TEMP_RESET_PASSWORD = "TJUCPE123";
   let recoveryCompletionRunning = false;
   const $ = (id) => document.getElementById(id);
   const experiments = [
@@ -83,8 +82,8 @@
     const register=mode==="register", recovery=mode==="recovery", forced=mode==="forced-change", resetForm=recovery||forced;
     $("authTitle").textContent=forced?"设置个人登录密码":recovery?"确认密码重置":register?"创建学生账号":"登录平台";
     $("authSubtitle").textContent=forced
-      ?"邮箱已验证，临时密码 TJUCPE123 已设置。为保护账号，请立即改为仅本人知道的新密码。"
-      :recovery?"正在验证重置请求；验证通过后会设置统一临时密码，并要求您立即修改。"
+      ?"邮箱已验证，请设置仅本人知道的新密码。"
+      :recovery?"邮箱验证已通过，请在下方设置新的个人密码。"
       :register?"注册后系统会自动创建普通学生身份。":"使用课程账号进入实验工作区。";
     $("registerFields").classList.toggle("hidden",!register);
     $("authForm").classList.toggle("hidden",resetForm);
@@ -982,7 +981,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function resetOneUser(id){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
-    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？验证通过后会设置临时密码 TJUCPE123，并要求立即修改为个人密码。"))return;
+    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？点击邮件链接完成验证后，网页会要求您自行设置新密码。"))return;
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});
     if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
     toast("密码重置验证邮件已发送至 "+target.email+"。");
@@ -1180,7 +1179,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!classId||!ids.length){toast("请先选择班级并勾选学生。",true);return;}
     const message=action==="delete_students"
       ?(profile.role==="admin"?"确认永久删除选中学生账号及其报告文件？":"教师操作规则：若学生仅属于当前班级，将永久删除账号；若还属于其他有效班级，则只从本班移出。确认继续？")
-      :"向选中学生发送密码重置验证邮件？验证通过后设置临时密码 TJUCPE123，并强制修改个人密码。";
+      :"向选中学生发送密码重置验证邮件？验证通过后由本人设置新密码。";
     if(!confirm(message))return;
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{
       action:action==="reset_password"?"reset_passwords":action,class_id:classId,user_ids:ids
@@ -1308,7 +1307,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       if(result.error){toast(result.error,true);return;}
       const ok=(result.data?.results||[]).filter(x=>x.ok).length;toast("批量删除完成："+ok+"/"+ids.length+" 个成功。");await loadUsers();
     }else{
-      if(!confirm("向选中的 "+ids.length+" 个学生发送密码重置验证邮件？验证通过后将设置临时密码 TJUCPE123，并要求立即修改。"))return;
+      if(!confirm("向选中的 "+ids.length+" 个学生发送密码重置验证邮件？验证通过后由本人设置新密码。"))return;
       const result=await db.functions.invoke("classroom-admin",{body:{action:"reset_passwords",user_ids:ids}});
       if(result.error){toast(result.error,true);return;}
       const rows=result.data?.results||[],ok=rows.filter(x=>x.ok).length;
@@ -1383,17 +1382,17 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     recoveryCompletionRunning=true;
     showAuth();setAuthMode("recovery");
     try{
-      const {error}=await db.auth.updateUser({password:TEMP_RESET_PASSWORD});
-      if(error)throw error;
-      const {data, error:flagError}=await db.functions.invoke("classroom-admin",{body:{action:"mark_password_change_required"}});
-      if(flagError||!data?.ok)throw flagError||new Error("账号安全状态更新失败。");
+      // The email link proves control of the mailbox. The user chooses a private password.
+      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"mark_password_change_required"}});
+      if(error||!data?.ok)throw error||new Error("账号安全状态更新失败。");
       window.history.replaceState(null,"",APP_REDIRECT_URL);
-      setAuthMode("forced-change");
+      setAuthMode("recovery");
       $("newPassword").value="";
-      toast("邮箱验证成功，临时密码已设置。请立即设置个人新密码。");
+      $("newPassword").focus();
+      toast("邮箱验证成功。请在下方设置新的个人密码。");
     }catch(err){
       setAuthMode("recovery");
-      toast("验证已返回，但自动设置临时密码失败："+friendlyError(err),true);
+      toast("邮箱验证成功，但账号安全状态更新失败："+friendlyError(err),true);
     }finally{recoveryCompletionRunning=false;}
   }
   async function testSupabaseConnection(){
@@ -1470,7 +1469,6 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("saveNewPassword").addEventListener("click",async()=>{
       const password=$("newPassword").value;
       if(password.length<10){toast("个人新密码至少需要 10 位。",true);return;}
-      if(password===TEMP_RESET_PASSWORD){toast("请勿继续使用统一临时密码，请设置个人专属密码。",true);return;}
       $("saveNewPassword").disabled=true;
       try{
         const {error}=await db.auth.updateUser({password});
@@ -1492,7 +1490,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       try{
         const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:APP_REDIRECT_URL});
         if(error)throw error;
-        toast("重置验证邮件已发送，请打开邮件中的链接。验证通过后会设置临时密码 TJUCPE123，并要求立即修改为个人密码。");
+        toast("重置验证邮件已发送，请打开邮件中的链接。点击邮件链接完成验证后，网页会要求您自行设置新密码。");
       }catch(err){toast(err,true);}
       finally{$("forgotPassword").disabled=false;}
     });
