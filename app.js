@@ -1350,7 +1350,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       if(authMode==="register"){
         const fullName=$("fullName").value.trim(),studentNo=$("studentNo").value.trim();
         if(!fullName){toast("请填写姓名。",true);return;}
-        const {data,error}=await db.auth.signUp({email,password,options:{data:{full_name:fullName,student_no:studentNo}}});
+        const {data,error}=await db.auth.signUp({email,password,options:{data:{full_name:fullName,student_no:studentNo},emailRedirectTo:APP_REDIRECT_URL}});
         if(error)throw error;
         toast(data.session?"注册成功，正在进入平台。":"注册申请已提交，请先完成邮箱验证，再登录。");
         if(data.session){user=data.user;await enterApp();}else setAuthMode("login");
