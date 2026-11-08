@@ -9,6 +9,9 @@
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
     : null;
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
+  const APP_REDIRECT_URL = "https://untholionleen.github.io/TJUCPE/";
+  const TEMP_RESET_PASSWORD = "TJUCPE123";
+  let recoveryCompletionRunning = false;
   const $ = (id) => document.getElementById(id);
   const experiments = [
     {slug:"surface-tension",code:"PC-01",name:"最大泡压法测定液体的表面张力",group:"界面化学",desc:"整理不同浓度下的最大泡压测量结果，绘制表面张力–浓度关系曲线。",x:"浓度 c",y:"表面张力 γ",xu:"mol·L⁻¹",yu:"mN·m⁻¹",note:"建议先核对微压差测量仪读数与表面张力换算关系，再使用本页拟合。若采用 Szyszkowski 方程或 Gibbs 吸附公式，应按实验指导书确认浓度单位、温度和常数。"},
@@ -30,23 +33,59 @@
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
   let gradingPdfBytes = null, gradingStrokes = {}, catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
+  function friendlyError(input){
+    const raw=typeof input==="string"?input:(input?.message||String(input??""));
+    const code=String(input?.code||input?.status||"");
+    const rules=[
+      [/invalid login credentials|invalid_credentials/i,"邮箱或密码不正确，请检查后重试。"],
+      [/email not confirmed|email_not_confirmed/i,"邮箱尚未验证，请先完成邮箱验证。"],
+      [/user already registered|already registered/i,"该邮箱已经注册，请直接登录或使用密码重置。"],
+      [/password should be at least|password.*minimum/i,"密码长度不足，请至少输入 8 位。"],
+      [/weak password|password.*too weak/i,"密码强度不足，请使用更长且包含不同类型字符的密码。"],
+      [/same password|new password should be different/i,"新密码不能与当前密码相同。"],
+      [/token.*(expired|invalid)|otp.*(expired|invalid)|flow state not found/i,"邮箱验证链接已失效或已使用，请重新发送验证邮件。"],
+      [/invalid api key|unauthorized.*api key/i,"Supabase 项目密钥无效。请核对当前项目的 Publishable key 和 Project URL。"],
+      [/row.level security|rls|permission denied|not allowed/i,"当前账号没有执行此操作的权限，请联系教师或管理员。"],
+      [/duplicate key|already exists/i,"该记录已经存在，请勿重复添加。"],
+      [/failed to fetch|networkerror|load failed|fetch failed/i,"网络连接失败或 Supabase 暂时没有响应，请检查网络后重试。"],
+      [/timeout|timed out|aborterror/i,"请求超时。平台暂时没有收到 Supabase 响应，请稍后重试。"],
+      [/payload too large|file too large/i,"文件过大，请压缩文件后重新上传。"],
+      [/rate limit|too many requests|over_email_send_rate_limit/i,"操作过于频繁，请稍后再试。"],
+      [/not found/i,"没有找到对应记录，可能已被删除或权限已变化。"],
+      [/email.*invalid|invalid email/i,"邮箱地址格式不正确，请检查后重试。"]
+    ];
+    for(const [pattern,translated] of rules)if(pattern.test(raw))return translated;
+    if(code==="401")return "登录状态已过期或身份验证失败，请重新登录。";
+    if(code==="403")return "当前账号无权执行此操作，请联系管理员。";
+    if(code==="404")return "请求的资源不存在，请刷新页面后重试。";
+    if(code==="409")return "当前数据状态已发生变化，请刷新后再操作。";
+    if(code==="429")return "请求过于频繁，请稍后重试。";
+    if(code.startsWith("5"))return "Supabase 服务暂时异常，请稍后重试。";
+    return raw||"操作失败，请重试；如果问题持续，请联系管理员。";
+  }
   const toast = (message, error=false) => {
-    const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.add("show");
-    clearTimeout(toast._timer); toast._timer=setTimeout(()=>el.classList.remove("show"),3600);
+    const el=$("toast"); el.textContent=friendlyError(message); el.classList.toggle("error",error); el.classList.add("show");
+    clearTimeout(toast._timer); toast._timer=setTimeout(()=>el.classList.remove("show"),4200);
   };
   const showAuth = () => { $("authView").classList.remove("hidden"); $("appView").classList.add("hidden"); };
   const showApp = () => { $("authView").classList.add("hidden"); $("appView").classList.remove("hidden"); };
   function setAuthMode(mode) {
-    authMode=mode; const register=mode==="register", recovery=mode==="recovery";
-    $("authTitle").textContent=recovery?"设置新密码":(register?"创建学生账号":"登录平台");
-    $("authSubtitle").textContent=recovery?"请设置一个至少 8 位的新密码。":(register?"注册后系统会自动创建普通学生身份。":"使用课程账号进入实验工作区。");
+    authMode=mode;
+    const register=mode==="register", recovery=mode==="recovery", forced=mode==="forced-change", resetForm=recovery||forced;
+    $("authTitle").textContent=forced?"设置个人登录密码":recovery?"确认密码重置":register?"创建学生账号":"登录平台";
+    $("authSubtitle").textContent=forced
+      ?"邮箱已验证，临时密码 TJUCPE123 已设置。为保护账号，请立即改为仅本人知道的新密码。"
+      :recovery?"正在验证重置请求；验证通过后会设置统一临时密码，并要求您立即修改。"
+      :register?"注册后系统会自动创建普通学生身份。":"使用课程账号进入实验工作区。";
     $("registerFields").classList.toggle("hidden",!register);
-    $("authForm").classList.toggle("hidden",recovery);
-    $("resetPanel").classList.toggle("hidden",!recovery);
-    $("authLinks").classList.toggle("hidden",recovery);
+    $("authForm").classList.toggle("hidden",resetForm);
+    $("resetPanel").classList.toggle("hidden",!resetForm);
+    $("authLinks").classList.toggle("hidden",resetForm);
     $("authSubmit").textContent=register?"注册并创建账号":"登录";
     $("toggleAuth").textContent=register?"已有账号？返回登录":"还没有账号？立即注册";
     $("password").autocomplete=register?"new-password":"current-password";
+    $("newPassword").autocomplete="new-password";
+    $("saveNewPassword").textContent=forced?"保存个人密码并进入平台":"确认并保存";
   }
   function roleName(role){return ({student:"学生",teacher:"教师",admin:"管理员"})[role]||"学生";}
   function initials(name){return (name||"U").trim().slice(0,1).toUpperCase();}
@@ -1100,8 +1139,35 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     finally{$("authSubmit").disabled=false;}
   }
   async function enterApp(){
-    try{await loadProfile();showApp();updateUserChrome();renderCatalog();$("todayDate").textContent=new Date().toLocaleDateString("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"});go("overview");}
-    catch(err){showAuth();toast(err.message||"读取用户资料失败。",true);await db.auth.signOut();}
+    try{
+      await loadProfile();
+      if(profile.must_change_password){
+        showAuth();setAuthMode("forced-change");
+        $("newPassword").value="";
+        return;
+      }
+      showApp();updateUserChrome();renderCatalog();
+      $("todayDate").textContent=new Date().toLocaleDateString("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
+      go("overview");
+    }catch(err){showAuth();toast(err.message||"读取用户资料失败。",true);await db.auth.signOut();}
+  }
+  async function completeVerifiedPasswordRecovery(){
+    if(recoveryCompletionRunning)return;
+    recoveryCompletionRunning=true;
+    showAuth();setAuthMode("recovery");
+    try{
+      const {error}=await db.auth.updateUser({password:TEMP_RESET_PASSWORD});
+      if(error)throw error;
+      const {data, error:flagError}=await db.functions.invoke("classroom-admin",{body:{action:"mark_password_change_required"}});
+      if(flagError||!data?.ok)throw flagError||new Error("账号安全状态更新失败。");
+      window.history.replaceState(null,"",APP_REDIRECT_URL);
+      setAuthMode("forced-change");
+      $("newPassword").value="";
+      toast("邮箱验证成功，临时密码已设置。请立即设置个人新密码。");
+    }catch(err){
+      setAuthMode("recovery");
+      toast("验证已返回，但自动设置临时密码失败："+friendlyError(err),true);
+    }finally{recoveryCompletionRunning=false;}
   }
   async function testSupabaseConnection(){
     const button=$("testConnection");
@@ -1148,16 +1214,25 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     }
     $("testConnection").addEventListener("click",testSupabaseConnection);
     if(!db)return;
+    let recoveryDetected=false;
+    const redirectParams=new URLSearchParams(window.location.hash.replace(/^#/,""));
+    const queryParams=new URLSearchParams(window.location.search);
+    const redirectError=redirectParams.get("error_description")||queryParams.get("error_description");
+    if(redirectError){showAuth();toast("邮箱验证失败："+friendlyError(redirectError),true);}
     db.auth.onAuthStateChange((event,session)=>{
       if(event==="PASSWORD_RECOVERY"&&session){
-        user=session.user;profile=null;showAuth();setAuthMode("recovery");
+        recoveryDetected=true;user=session.user;profile=null;showAuth();setAuthMode("recovery");
+        window.setTimeout(()=>completeVerifiedPasswordRecovery(),0);
       }else if(!session){user=null;profile=null;showAuth();setAuthMode("login");}
     });
-    const {data:{session}}=await db.auth.getSession();
+    const {data:{session},error:sessionError}=await db.auth.getSession();
+    if(sessionError)toast(sessionError,true);
     if(session){
       user=session.user;
-      if(window.location.hash.includes("type=recovery")){showAuth();setAuthMode("recovery");}
-      else await enterApp();
+      if(recoveryDetected||redirectParams.get("type")==="recovery"||queryParams.get("auth")==="recovery"){
+        showAuth();setAuthMode("recovery");
+        if(!recoveryDetected)window.setTimeout(()=>completeVerifiedPasswordRecovery(),0);
+      }else await enterApp();
     }else showAuth();
   }
   function bindEvents(){
@@ -1167,15 +1242,33 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("backToLogin").addEventListener("click",()=>setAuthMode("login"));
     $("saveNewPassword").addEventListener("click",async()=>{
       const password=$("newPassword").value;
-      if(password.length<8){toast("新密码至少需要 8 位。",true);return;}
-      const {error}=await db.auth.updateUser({password});
-      if(error){toast(error.message,true);return;}
-      $("newPassword").value="";
-      toast("密码已更新，正在进入平台。");
-      window.history.replaceState(null,"",window.location.pathname+window.location.search);
-      await enterApp();
+      if(password.length<10){toast("个人新密码至少需要 10 位。",true);return;}
+      if(password===TEMP_RESET_PASSWORD){toast("请勿继续使用统一临时密码，请设置个人专属密码。",true);return;}
+      $("saveNewPassword").disabled=true;
+      try{
+        const {error}=await db.auth.updateUser({password});
+        if(error)throw error;
+        const {data, error:flagError}=await db.functions.invoke("classroom-admin",{body:{action:"complete_password_change"}});
+        if(flagError||!data?.ok)throw flagError||new Error("个人密码状态更新失败。");
+        $("newPassword").value="";
+        window.history.replaceState(null,"",APP_REDIRECT_URL);
+        toast("个人密码已更新，正在进入平台。");
+        await enterApp();
+      }catch(err){toast(err,true);}
+      finally{$("saveNewPassword").disabled=false;}
     });
-    $("forgotPassword").addEventListener("click",async()=>{if(!db)return;const email=$("email").value.trim();if(!email){toast("请先输入注册邮箱。",true);return;}const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:window.location.href});if(error)toast(error.message,true);else toast("密码重置邮件已发送，请检查邮箱。");});
+    $("forgotPassword").addEventListener("click",async()=>{
+      if(!db)return;
+      const email=$("email").value.trim();
+      if(!email){toast("请先输入注册邮箱。",true);return;}
+      $("forgotPassword").disabled=true;
+      try{
+        const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:APP_REDIRECT_URL});
+        if(error)throw error;
+        toast("重置验证邮件已发送，请打开邮件中的链接。验证通过后会设置临时密码 TJUCPE123，并要求立即修改为个人密码。");
+      }catch(err){toast(err,true);}
+      finally{$("forgotPassword").disabled=false;}
+    });
     $("signOut").addEventListener("click",async()=>{await db.auth.signOut();});
     $("mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-page]");if(b)go(b.dataset.page);});
     document.body.addEventListener("click",e=>{
