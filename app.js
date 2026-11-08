@@ -1208,12 +1208,22 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     document.body.appendChild(link);link.click();link.remove();
     window.setTimeout(()=>URL.revokeObjectURL(url),3000);
   }
+  function presentPreparedDownload(blob,fileName,hostId){
+    const host=$(hostId);
+    if(!host){downloadBlob(blob,fileName);return;}
+    if(host.dataset.objectUrl)URL.revokeObjectURL(host.dataset.objectUrl);
+    const url=URL.createObjectURL(blob);host.dataset.objectUrl=url;
+    host.classList.remove("hidden");
+    host.innerHTML='<div class="prepared-download"><div><strong>文件已打包完成</strong><small>'+escapeHtml(fileName)+' · '+(blob.size/1024/1024).toFixed(2)+' MB</small></div><a class="btn btn-primary btn-sm" download="'+escapeHtml(fileName)+'">点击下载 ZIP</a></div>';
+    const link=host.querySelector("a");link.href=url;
+    link.addEventListener("click",()=>{window.setTimeout(()=>{if(host.dataset.objectUrl===url){URL.revokeObjectURL(url);delete host.dataset.objectUrl;}},60000);},{once:true});
+  }
   async function exportAssignmentReports(assignmentId,button){
     const classId=$("classTaskSelect").value||activeClassId;
     if(!classId||!assignmentId){toast("请先选择班级和实验任务。",true);return;}
     if(button){button.disabled=true;button.textContent="正在打包…";}
     try{
-      await ensureExternalLibrary("JSZip",["https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"]);
+      if(!window.JSZip)await ensureExternalLibrary("JSZip",["https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"]);
       const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"export_assignment_reports",class_id:classId,assignment_id:assignmentId}});
       if(error||!data?.ok)throw error||new Error(data?.error||"导出清单读取失败");
       const zip=new JSZip(),folder=zip.folder(safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title));
@@ -1231,10 +1241,38 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         const safeBase=safeFileName((record.student_no||"无学号")+"_"+record.student_name+"_"+record.title+"_"+record.record_id);
         const rawFile="原始数据_"+safeBase+".json",analysisFile="分析结果_"+safeBase+".json";
         const common={记录编号:record.record_id,学生姓名:record.student_name,学号:record.student_no,实验项目:record.experiment_name,记录名称:record.title,保存时间:record.created_at,算法版本:record.engine_version};
-        const raw=record.raw_data||{};
-         const chineseData={字段名称:raw.export_headers||raw.headers||[],数据行:raw.export_rows||raw.rows||[]};
-         analysisFolder.file(rawFile,JSON.stringify({元数据:common,原始数据:chineseData,原始结构:raw},null,2));
-        analysisFolder.file(analysisFile,JSON.stringify({元数据:common,分析结果:record.analysis},null,2));
+        const raw=record.raw_data||{},definition=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===record.experiment_slug);
+        const sourceTables=raw.source_tables||{};
+        const chineseTables=Object.entries(sourceTables).map(([tableKey,value])=>{
+          const spec=definition?.tables?.find(t=>t.key===tableKey);
+          const headers=spec?.headers?.length===spec?.columns?.length?spec.headers:(spec?.columns||[]);
+          const rows=String(value??"").split(/\r?\n/).map(line=>line.trim()).filter(Boolean).map(line=>line.includes("\t")?line.split("\t"):line.split(","));
+          return {数据表名称:spec?.title||tableKey,字段名称:headers,数据行:rows};
+        });
+        const chineseData={
+          实验名称:definition?.name||record.experiment_name,
+          原始录入数据表:chineseTables,
+          计算结果字段:raw.export_headers||raw.headers||[],
+          计算结果数据:raw.export_rows||raw.rows||[],
+          说明:"字段名称采用本实验数据模板中的中文列名；原始数据和计算结果分别保存。"
+        };
+        const ar=record.analysis||{};
+        const chineseAnalysis={
+          计算模型:ar.model||"未记录",
+          拟合系数:ar.coefficients||null,
+          拟合优度_R平方:ar.r2??null,
+          残差平方和_SSE:ar.sse??null,
+          数据均值:ar.mean??null,
+          样本标准差:ar.sd??null,
+          横坐标名称:ar.x_label||"",
+          横坐标单位:ar.x_unit||"",
+          纵坐标名称:ar.y_label||"",
+          纵坐标单位:ar.y_unit||"",
+          计算摘要:ar.summary||null,
+          实验参数:ar.settings||null
+        };
+        analysisFolder.file(rawFile,JSON.stringify({元数据:common,原始数据:chineseData},null,2));
+        analysisFolder.file(analysisFile,JSON.stringify({元数据:common,分析结果:chineseAnalysis},null,2));
         return [record.student_name,record.student_no,record.experiment_name,record.title,record.created_at,record.engine_version,rawFile,analysisFile];
       });
       folder.file("01_学生数据处理记录索引.csv","\uFEFF"+[recordHeaders,...recordIndexRows].map(r=>r.map(csvCell).join(",")).join("\r\n"));
@@ -1258,8 +1296,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       }
       folder.file("导出说明.txt","任务："+data.assignment_title+"\n实验："+data.experiment_name+"\n报告记录："+rows.length+"\n成功下载文件："+downloaded+"\n未获取到文件："+failed+"\n未获取文件的记录仍保留在汇总 CSV 中。");
       const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
-      downloadBlob(blob,safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title)+"_全班实验数据.zip");
-      const submittedCount=rows.filter(r=>r.status!=="missing").length;toast("导出完成：班级成员 "+rows.length+" 人、已提交报告 "+submittedCount+" 份、报告文件 "+downloaded+" 份、任务数据处理记录 "+recordRows.length+" 条"+(failed?"；另有 "+failed+" 份报告文件未能下载。":"。"));
+      const zipName=safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title)+"_全班实验数据.zip";
+      presentPreparedDownload(blob,zipName,"assignmentExportResult");
+      const submittedCount=rows.filter(r=>r.status!=="missing").length;toast("打包完成：班级成员 "+rows.length+" 人、已提交报告 "+submittedCount+" 份、报告文件 "+downloaded+" 份、数据处理记录 "+recordRows.length+" 条。请点击页面下方的“点击下载 ZIP”保存文件。"+(failed?"另有 "+failed+" 份报告文件未能下载，汇总表会保留缺失状态。":""));
     }catch(err){toast("班级任务导出失败："+friendlyError(err),true);}
     finally{if(button){button.disabled=false;button.textContent="导出本次班级数据";}}
   }
