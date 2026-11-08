@@ -67,7 +67,7 @@
       [/invalid login credentials|invalid_credentials/i,"邮箱或密码不正确，请检查后重试。"],
       [/email not confirmed|email_not_confirmed/i,"邮箱尚未验证，请先完成邮箱验证。"],
       [/user already registered|already registered/i,"该邮箱已经注册，请直接登录或使用密码重置。"],
-      [/password should be at least|password.*minimum/i,"密码长度不足，请至少输入 8 位。"],
+      [/password should be at least|password.*minimum/i,"密码长度不足，请至少输入 10 位。"],
       [/weak password|password.*too weak/i,"密码强度不足，请使用更长且包含不同类型字符的密码。"],
       [/same password|new password should be different/i,"新密码不能与当前密码相同。"],
       [/token.*(expired|invalid)|otp.*(expired|invalid)|flow state not found/i,"邮箱验证链接已失效或已使用，请重新发送验证邮件。"],
@@ -75,6 +75,10 @@
       [/row.level security|rls|permission denied|not allowed/i,"当前账号没有执行此操作的权限，请联系教师或管理员。"],
       [/duplicate key|already exists/i,"该记录已经存在，请勿重复添加。"],
       [/failed to fetch|networkerror|load failed|fetch failed/i,"网络连接失败或 Supabase 暂时没有响应，请检查网络后重试。"],
+      [/functionsfetcherror|failed to send a request to the edge function|edge function.*unavailable/i,"教学服务接口暂时没有响应，请稍后重试；如果持续失败，请联系管理员检查 classroom-admin 函数。"],
+      [/functionshttperror|edge function returned a non-2xx status/i,"教学服务接口处理失败，请查看下方中文提示或联系管理员。"],
+      [/email.*rate.limit|over_email_send_rate_limit/i,"邮件发送过于频繁，请稍后再试。"],
+      [/database.*connection|could not connect to server|connection refused/i,"数据库连接暂时不可用，请稍后重试。"],
       [/timeout|timed out|aborterror/i,"请求超时。平台暂时没有收到 Supabase 响应，请稍后重试。"],
       [/payload too large|file too large/i,"文件过大，请压缩文件后重新上传。"],
       [/rate limit|too many requests|over_email_send_rate_limit/i,"操作过于频繁，请稍后再试。"],
@@ -89,6 +93,12 @@
       [/redirect.*not allowed|url not allowed/i,"邮箱跳转地址尚未加入 Supabase 允许列表，请联系管理员配置 Auth → URL Configuration。"]
     ];
     for(const [pattern,translated] of rules)if(pattern.test(raw))return translated;
+    if(code==="23505")return "该记录已经存在，请勿重复添加。";
+    if(code==="23503")return "该记录仍被其他数据引用，不能直接删除。请先处理关联任务、报告或班级成员。";
+    if(code==="23502")return "有必填字段未填写，请检查表单后重试。";
+    if(code==="42501")return "当前账号没有执行此操作的权限，请联系管理员。";
+    if(code==="22P02")return "输入的数据格式不正确，请检查编号、数字或日期字段。";
+    if(code==="PGRST116")return "没有找到对应记录，可能已被删除或权限已变化。";
     if(code==="401")return "登录状态已过期或身份验证失败，请重新登录。";
     if(code==="403")return "当前账号无权执行此操作，请联系管理员。";
     if(code==="404")return "请求的资源不存在，请刷新页面后重试。";
@@ -297,7 +307,7 @@
         toast("已从工作表“"+mapped.name+"”导入 "+mapped.rows.length+" 行数据。");
       }
       target.dispatchEvent(new Event("input",{bubbles:true}));
-    }catch(err){toast("Excel/CSV 导入失败："+(err.message||String(err)),true);}
+    }catch(err){toast("Excel/CSV 导入失败："+friendlyError(err),true);}
     input.value="";
   }
   function downloadExperimentTxt(slug,tableKey){
@@ -604,9 +614,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("pythonPlotImage").classList.add("hidden");
     $("pythonPlotStatus").textContent="等待 Python 绘图…";
     renderPythonMatplotlib(def,result).catch(error=>{
-      $("pythonPlotStatus").textContent="Python 绘图暂不可用："+error.message+"；下方交互选区图仍可用于选择拟合范围。";
+      $("pythonPlotStatus").textContent="Python 绘图暂不可用："+friendlyError(error)+"；下方交互选区图仍可用于选择拟合范围。";
       $("engineWarnings").classList.remove("hidden");
-      $("engineWarnings").innerHTML="<strong>Python 绘图提示</strong><ul><li>"+escapeHtml(error.message)+"</li><li>数据和计算结果未丢失；可检查网络后重新运行。</li></ul>";
+      $("engineWarnings").innerHTML="<strong>Python 绘图提示</strong><ul><li>"+escapeHtml(friendlyError(error))+"</li><li>数据和计算结果未丢失；可检查网络后重新运行。</li></ul>";
     });
     Plotly.react("analysisPlotly",plotData,layout,{
       responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:["select2d","lasso2d"],
@@ -825,7 +835,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function loadReviews(){
     $("reviewBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
     const {data,error}=await db.from("report_submissions").select("*").order("created_at",{ascending:false}).limit(500);
-    if(error){$("reviewBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(error.message)}</td></tr>`;return;}
+    if(error){$("reviewBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(friendlyError(error))}</td></tr>`;return;}
     reviewRows=data||[];
     const ids=[...new Set(reviewRows.map(r=>r.student_id))];
     let profiles={};
@@ -927,7 +937,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
     gradingPdfBytes=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
     const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
-    if(error){host.textContent="报告读取失败："+error.message;return;}
+    if(error){host.textContent="报告读取失败："+friendlyError(error);return;}
     if((row.file_name||"").toLowerCase().endsWith(".pdf")){
       gradingPdfBytes=await data.arrayBuffer();
       if(!window.PDFLib){host.textContent="PDF 编辑组件未加载，暂时不能保存页面批注。";return;}
@@ -967,7 +977,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         update.file_name=original+"_批阅版.pdf";
         update.review_annotations=gradingStrokes;
         update.submission_version=(gradingRecord.submission_version||1)+1;
-      }catch(err){toast(err.message||"生成批阅版 PDF 失败。",true);return;}
+      }catch(err){toast(friendlyError(err)||"生成批阅版 PDF 失败。",true);return;}
     }
     const {error}=await db.from("report_submissions").update(update).eq("id",gradingRecord.id);
     if(error){
@@ -1265,12 +1275,12 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const results=data?.results||[],ok=results.filter(x=>x.ok).length;
       $("accountActionResult").textContent=results.map(x=>(x.email||x.user_id||"")+(x.ok?"：成功":"："+(x.error||"失败"))).join("\n");
       toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
-    }catch(err){toast("名单导入失败："+(err.message||String(err)),true);}
+    }catch(err){toast("名单导入失败："+friendlyError(err),true);}
   }
   async function loadExperimentCatalogManager(){
     const host=$("experimentCatalogAdminList");if(!host)return;
     const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,is_active").order("code");
-    if(error){host.textContent=error.message;return;}
+    if(error){host.textContent=friendlyError(error);return;}
     host.innerHTML=(data||[]).map(x=>`<div class="catalog-admin-row"><div><strong>${escapeHtml(x.code)} · ${escapeHtml(x.name)}</strong><small>${escapeHtml(x.slug)} · ${escapeHtml(x.category||"其他")} · ${x.is_active?"启用":"已停用"}</small></div><div><button class="btn btn-outline btn-sm" data-catalog-edit="${x.id}">编辑</button><button class="btn btn-outline btn-sm" data-catalog-toggle="${x.id}" data-active="${x.is_active}">${x.is_active?"停用":"启用"}</button></div></div>`).join("")||"尚无实验项目。";
   }
   async function editCatalogItem(id){
@@ -1312,7 +1322,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const result=classEditingId
       ?await db.from("classes").update(payload).eq("id",classEditingId)
       :await db.from("classes").insert(payload);
-    if(result.error){toast(result.error.message,true);return;}
+    if(result.error){toast(friendlyError(result.error),true);return;}
     toast(classEditingId?"班级信息已更新。":"班级创建成功。");clearClassForm();await loadClasses();
   }
   async function publishAssignment(){
@@ -1325,7 +1335,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function loadSystemAdmin(){
     const {data,error}=await db.from("audit_logs").select("action,details,created_at").order("created_at",{ascending:false}).limit(100);
-    $("auditLogBody").innerHTML=error?escapeHtml(error.message):(data||[]).map(x=>`<tr><td>${new Date(x.created_at).toLocaleString("zh-CN")}</td><td>${escapeHtml(x.action)}</td><td>${escapeHtml(JSON.stringify(x.details||{}))}</td></tr>`).join("")||'<tr><td colspan="3">暂无审计记录</td></tr>';
+    $("auditLogBody").innerHTML=error?escapeHtml(friendlyError(error)):(data||[]).map(x=>`<tr><td>${new Date(x.created_at).toLocaleString("zh-CN")}</td><td>${escapeHtml(x.action)}</td><td>${escapeHtml(JSON.stringify(x.details||{}))}</td></tr>`).join("")||'<tr><td colspan="3">暂无审计记录</td></tr>';
   }
   async function bulkAccountAction(action){
     const ids=Array.from(document.querySelectorAll(".user-check:checked")).map(x=>x.value);
@@ -1457,7 +1467,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       }
     }catch(err){
       output.className="connection-diagnostic error";
-      output.textContent="浏览器无法访问 Supabase Auth。请检查网络、浏览器扩展/代理或项目 URL。详情："+(err.message||String(err));
+      output.textContent="浏览器无法访问 Supabase Auth。请检查网络、浏览器扩展/代理或项目 URL。详情："+friendlyError(err);
     }finally{
       button.disabled=false;button.textContent="重新检测 Supabase 连接";
     }
