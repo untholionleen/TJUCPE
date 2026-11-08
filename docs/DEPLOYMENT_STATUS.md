@@ -119,3 +119,15 @@ Last checked: 2026-11-08
 - Added tests/review-save-smoke.cjs and wired it into the Pages CI workflow. This is a source-level safety regression test, not a substitute for a real browser draw → save → reopen acceptance test.
 - Existing report rows, original PDF objects, classes, assignments, users and revisions were not modified or cleared by this patch.
 - Pending verification: GitHub Pages CI completion, followed by authenticated browser testing of PDF annotations, teacher save, student-side re-open and revision history. Do not describe the browser flow as passed until that test is actually performed.
+
+
+## 2026-11-08 — Definitive fix for detached PDF ArrayBuffer
+
+- Reproduced the exact failure mode from the user's browser message: PDF.js worker processing can transfer/detach an ArrayBuffer. Retaining a typed-array buffer as the canonical source is unsafe even if a copy was intended at an earlier stage.
+- Replaced the long-lived `gradingPdfBytes` Uint8Array with the downloaded original `gradingPdfBlob` as the canonical immutable source.
+- PDF.js now receives a fresh `Blob.arrayBuffer()` for preview; PDF-Lib receives a separate fresh `Blob.arrayBuffer()` for every save attempt. The two libraries can no longer share or detach the same backing buffer.
+- Removed all remaining `gradingPdfBytes` references. Added regression checks that simulate transfer/detachment of the preview buffer and confirm a fresh save buffer can still be read from the original Blob.
+- Updated the application cache key to `20261108-detached-buffer-fix-27`.
+- Commits: `bbc5fff4e7f023afe23ffee555f88acfcbf55b7e` (application fix), `998dffe324031ee3d8a692782dda329c039778be` (cache bust), `b8b9e4d1553e6653d8b5840cb4f9ea9a30f50977` (updated regression test).
+- Verification: source inspection confirms Blob is canonical, PDF.js/PDF-Lib receive separate fresh buffers, and no `gradingPdfBytes` references remain. GitHub Actions status/run records were not yet available at the time of this note; deployment and real authenticated browser acceptance remain pending.
+- No database rows, uploaded report files, classes, user accounts, or report revision history were changed by this patch.
