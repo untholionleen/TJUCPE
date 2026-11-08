@@ -808,7 +808,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       <p>${escapeHtml(c.description||"")}</p>
       ${staff?`<code>加入码：${escapeHtml(c.join_code||"—")}</code>
       <div class="class-card-actions"><button class="btn btn-outline btn-sm" data-class-edit="${c.id}">修改</button>
-      <button class="btn btn-outline btn-sm" data-class-toggle="${c.id}">${c.is_active?"停用/归档":"重新启用"}</button></div>`: ""}
+      <button class="btn btn-outline btn-sm" data-class-toggle="${c.id}">${c.is_active?"停用/归档":"重新启用"}</button><button class="btn btn-outline btn-sm" data-class-delete="${c.id}">删除班级</button></div>`: ""}
       ${!c.is_active?'<small class="muted">已停用，历史报告保留</small>':""}
     </article>`).join("")||'<p class="muted">当前没有班级。</p>';
     const active=visible.filter(c=>c.is_active);
@@ -820,6 +820,13 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if($("classBulkDelete"))$("classBulkDelete").textContent=profile.role==="admin"?"批量永久删除学生账号":"批量删除/移出学生";
     if(!activeClassId){$("classAssignments").textContent="请先创建或加入有效班级。";$("classRosterBody").innerHTML='<tr><td colspan="5">暂无有效班级。</td></tr>';return;}
     await loadClassAssignments();
+  }
+  async function deleteClass(id){
+    const row=classesCache.find(c=>c.id===id);if(!row)return;
+    if(!confirm("确定永久删除班级“"+row.name+"”？仅当没有历史报告时允许删除；如已有报告，请先归档以保留教学记录。"))return;
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"delete_class",class_id:id}});
+    if(error||!data?.ok){toast("删除班级失败："+(error?.message||data?.error||"未知错误"),true);return;}
+    if(activeClassId===id)activeClassId=null;toast("班级已删除。");await loadClasses();
   }
   async function editClass(id){
     const row=classesCache.find(c=>c.id===id);if(!row)return;
@@ -850,9 +857,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!classId){$("classAssignments").textContent="请先创建或加入班级。";return;}
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=error.message;return;}
+    const openTasks=(data||[]).filter(a=>a.is_open);
     $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span><span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button></span></div>`).join("")||"本班暂无实验任务。";
+    if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>`<article class="student-task-card"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"请按教师要求完成实验并提交 PDF 报告。")}</p></div><button class="btn btn-primary btn-sm" data-task-submit="${a.id}" data-class-id="${classId}">提交报告</button></article>`).join("")||"<p class=\"muted\">当前班级暂无开放任务。</p>";
     await loadClassRoster(classId);
-    $("reportAssignment").innerHTML=(data||[]).filter(a=>a.is_open).map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
+    $("reportAssignment").innerHTML=openTasks.map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
     $("reportClass").value=classId;
   }
   async function editAssignment(id){
@@ -993,10 +1002,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function publishAssignment(){
     const slug=$("taskExperiment").value,cls=$("classTaskSelect").value,exp=experiments.find(x=>x.slug===slug);
-    const {data:catalog}=await db.from("experiment_catalog").select("id").eq("slug",slug).maybeSingle();
-    if(!catalog||!cls)return;
-    const {error}=await db.from("experiment_assignments").insert({class_id:cls,experiment_id:catalog.id,title:$("taskTitle").value.trim()||exp.name,instructions:$("taskInstructions").value.trim(),due_at:$("taskDue").value?new Date($("taskDue").value).toISOString():null,created_by:user.id});
-    if(error){toast(error.message,true);return;}toast("任务已发布。");loadClassAssignments();
+    if(!slug||!cls||!exp){toast("请先选择班级和实验项目。",true);return;}
+    const {data:catalog,error:catalogError}=await db.from("experiment_catalog").select("id,is_active").eq("slug",slug).maybeSingle();
+    if(catalogError||!catalog?.is_active){toast("实验目录不存在或已停用，不能发布任务。",true);return;}
+    const {error}=await db.from("experiment_assignments").insert({class_id:cls,experiment_id:catalog.id,title:$("taskTitle").value.trim()||exp.name,instructions:$("taskInstructions").value.trim(),due_at:$("taskDue").value?new Date($("taskDue").value).toISOString():null,created_by:user.id,is_open:true,required:true});
+    if(error){toast("任务发布失败："+error.message,true);return;}toast("任务已发布。");await loadClassAssignments();
   }
   async function loadSystemAdmin(){
     const {data,error}=await db.from("audit_logs").select("action,details,created_at").order("created_at",{ascending:false}).limit(100);
@@ -1151,6 +1161,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const review=e.target.closest("[data-review-open]");if(review)openGrading(review.dataset.reviewOpen);
       const reviewDownload=e.target.closest("[data-review-download]");if(reviewDownload)downloadReviewFile(reviewDownload.dataset.reviewDownload);
       const classEdit=e.target.closest("[data-class-edit]");if(classEdit)editClass(classEdit.dataset.classEdit);
+      const classDelete=e.target.closest("[data-class-delete]");if(classDelete)deleteClass(classDelete.dataset.classDelete);
+      const taskSubmit=e.target.closest("[data-task-submit]");if(taskSubmit){$("reportUploadPanel").classList.remove("hidden");$("reportClass").value=taskSubmit.dataset.classId;await loadClassAssignments();$("reportAssignment").value=taskSubmit.dataset.taskSubmit;$("reportTitle").value=taskSubmit.closest(".student-task-card").querySelector("strong").textContent;$("reportUploadPanel").scrollIntoView({behavior:"smooth",block:"center"});}
       const classToggle=e.target.closest("[data-class-toggle]");if(classToggle)toggleClass(classToggle.dataset.classToggle);
       const assignmentEdit=e.target.closest("[data-assignment-edit]");if(assignmentEdit)editAssignment(assignmentEdit.dataset.assignmentEdit);
       const assignmentToggle=e.target.closest("[data-assignment-toggle]");if(assignmentToggle)toggleAssignment(assignmentToggle.dataset.assignmentToggle,assignmentToggle.dataset.open==="true");
