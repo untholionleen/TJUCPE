@@ -54,3 +54,17 @@ Last checked: 2026-11-08
 - CI run 42441486227 succeeded on commit 3c7aab70bb618e53c679cba31be203f5b0c29fd0, including all 14 experiment workflow smoke tests, regression, schema security and Pages deployment.
 - Reset all existing Auth users and teaching test records on 2026-11-08. Post-reset counts: Auth users 0; profiles 0; classes 0; memberships 0; assignments 0; reports 0; experiment records 0; audit logs 0. The 14 experiment catalog entries, schema, policies, migrations and private report bucket remain.
 - First administrator setup is documented in docs/RESET_AND_FIRST_ADMIN.md. After first registration, project owner must promote the selected account to admin in Supabase SQL Editor.
+
+
+## 2026-11-08 latest optimization deployment
+
+- Front-end request timeout reduced from 30s to 15s with a clear Chinese timeout message; common Auth, SMTP, CORS, permission and redirect errors receive Chinese explanations.
+- Account management supports admin invitation of teacher/student accounts, role changes, single and bulk recovery emails, disable/restore, and student deletion. The `list_users` action is restricted to administrators.
+- Password reset uses a one-time email recovery link only to verify mailbox access. Users set their own password in the recovery page; the platform does not email a shared plaintext default password.
+- Template downloads remain synchronous and include TXT per-table and multi-sheet Excel workbook with XLS fallback; click handler now provides an explicit message when no experiment is open.
+- Assignment ZIP export includes class roster/status CSV, report files, raw data and analysis JSON, Chinese field indexes, and LaTeX formula metadata.
+- KaTeX is loaded for formula rendering; mobile layout has horizontal table/LaTeX scrolling and full-width controls.
+- `classroom-admin` Edge Function deployed ACTIVE v19 with JWT verification enabled.
+- Current database check: 1 active admin, 1 active teacher, 1 active student; 1 class, 1 assignment, 0 reports. No data was cleared during this optimization.
+- Supabase Security Advisor still warns that leaked-password protection is disabled; enable it in Authentication password security settings. Health Advisor reports no findings. Performance Advisor reports 13 unused indexes (informational; do not drop them before real usage patterns are observed).
+- Latest GitHub Pages run `42465459327` succeeded; syntax checks, all 14 experiment workflow smoke tests, regression, schema-security checks and Pages deploy all passed. This does not replace real browser acceptance testing.
