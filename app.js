@@ -15,7 +15,7 @@
     finally{window.clearTimeout(timer);if(originalSignal)originalSignal.removeEventListener("abort",relayAbort);}
   };
   const db = hasConfig && window.supabase?.createClient
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {global:{fetch:supabaseFetch},auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}})
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {global:{fetch:supabaseFetch},auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,flowType:"pkce"}})
     : null;
   const externalLibraryLoads = new Map();
   function ensureExternalLibrary(globalName, urls) {
