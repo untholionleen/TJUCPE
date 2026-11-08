@@ -211,6 +211,24 @@
     }catch(err){toast("Excel/CSV 导入失败："+(err.message||String(err)),true);}
     input.value="";
   }
+  function downloadExperimentTxt(slug,tableKey){
+    const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
+    const table=def?.tables?.find(x=>x.key===tableKey);if(!table)return;
+    const lines=["# TJUCPE 物理化学实验数据模板","# 实验："+def.name,"# 数据表："+table.title,"# 请按列顺序填写；单位见字段名称。",table.columns.join("\t"),...Array.from({length:10},()=>table.columns.map(()=>"").join("\t"))];
+    const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/plain;charset=utf-8"});
+    const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=slug+"-"+tableKey+"-数据模板.txt";link.click();URL.revokeObjectURL(url);
+  }
+  function downloadExperimentWorkbook(slug){
+    const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
+    if(!def||!window.XLSX){toast("Excel 模板组件未加载，请刷新页面后重试。",true);return;}
+    const wb=XLSX.utils.book_new();
+    def.tables.forEach((table,i)=>{
+      const aoa=[table.columns,...Array.from({length:10},()=>table.columns.map(()=>""))];
+      const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=table.columns.map(()=>({wch:22}));
+      XLSX.utils.book_append_sheet(wb,ws,(i+1)+"_"+table.key.slice(0,20));
+    });
+    XLSX.writeFile(wb,slug+"-实验数据录入模板.xlsx");
+  }
   function openExperiment(slug){
     currentExperiment=experiments.find(e=>e.slug===slug)||experiments[0];
     $("analysisGroup").textContent=currentExperiment.code+" · "+currentExperiment.group;
@@ -1153,6 +1171,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     document.body.addEventListener("click",e=>{
       const goto=e.target.closest("[data-goto]");if(goto){if(goto.dataset.experiment)openExperiment(goto.dataset.experiment);else go(goto.dataset.goto);}
       const open=e.target.closest("[data-open-experiment]");if(open)openExperiment(open.dataset.openExperiment);
+      const txtTemplate=e.target.closest("[data-template-txt]");if(txtTemplate&&currentExperiment)downloadExperimentTxt(currentExperiment.slug,txtTemplate.dataset.templateTxt);
+      const xlsxTemplate=e.target.closest("[data-template-xlsx]");if(xlsxTemplate&&currentExperiment)downloadExperimentWorkbook(currentExperiment.slug);
       const report=e.target.closest("[data-report-download]");if(report)downloadReport(report.dataset.reportDownload);
       const fb=e.target.closest("[data-report-feedback]");if(fb)showFeedback(fb.dataset.reportFeedback);
       const withdraw=e.target.closest("[data-report-withdraw]");if(withdraw)withdrawReport(withdraw.dataset.reportWithdraw);
