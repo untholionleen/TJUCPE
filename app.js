@@ -82,6 +82,7 @@
     const raw=typeof input==="string"?input:(input?.message||String(input??""));
     const code=String(input?.code||input?.status||"");
     const rules=[
+      [/unauthorized_invalid_api_key|invalid api key|invalid.*publishable key/i,"Supabase 项目密钥未被识别。请核对 config.js 中的 Project URL 和 Publishable key 是否来自同一个项目。"],
       [/invalid login credentials|invalid_credentials/i,"邮箱或密码不正确，请检查后重试。"],
       [/one-time token not found|token has expired or is invalid|email link is invalid or has expired/i,"邮箱验证链接已经被邮件安全扫描程序打开、已经使用或已过期。请回到平台重新发送验证邮件，然后只点击最新的一封。"],
       [/over_email_send_rate_limit|security purposes.*request this after/i,"邮件发送过于频繁。请等待页面提示的时间后再试，不要连续点击发送。"],
@@ -1557,12 +1558,16 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       $("accountActionResult").textContent=rows.map(x=>(x.email||x.user_id||"")+(x.ok?"：删除成功":"："+friendlyError(x.error))).join("\n");
       toast("批量删除完成："+ok+"/"+eligible.length+" 个成功。");await loadUsers();
     }else{
-      if(!confirm("向选中的 "+eligible.length+" 个学生/教师账号发送密码重置验证邮件？邮箱验证通过后，由本人设置新密码。"))return;
-      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"reset_passwords",user_ids:eligible}});
+      const sendable=eligible.filter(id=>emailCooldownRemaining(adminUsersCache.find(x=>x.id===id)?.email)===0);
+      const skipped=eligible.length-sendable.length;
+      if(!sendable.length){toast("选中的账号刚发送过邮件，请稍后再试。",true);return;}
+      if(!confirm("向选中的 "+sendable.length+" 个学生/教师账号发送密码重置验证邮件？"+(skipped?"另有 "+skipped+" 个账号仍在发送冷却时间内，将跳过。":"")+"邮箱验证通过后，由本人设置新密码。"))return;
+      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"reset_passwords",user_ids:sendable}});
       if(error){toast(error,true);return;}
       const rows=data?.results||[],ok=rows.filter(x=>x.ok).length;
+      rows.filter(x=>x.ok).forEach(row=>{const target=adminUsersCache.find(x=>x.id===row.user_id);if(target)markEmailSent(target.email);});
       $("accountActionResult").textContent=rows.map(x=>(x.email||x.user_id||"")+(x.ok?"：重置邮件已发送":"："+friendlyError(x.error))).join("\n");
-      toast("重置验证邮件发送完成："+ok+"/"+eligible.length+" 个成功。");
+      toast("重置验证邮件发送完成："+ok+"/"+sendable.length+" 个成功。"+(skipped?" 已跳过 "+skipped+" 个冷却中的账号。":""));
     }
   }
   async function runAdminConnectionCheck(){
