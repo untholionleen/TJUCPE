@@ -123,3 +123,5 @@
   .mobile-signout{padding:6px 7px}
   .top-actions{gap:4px}
 }
+
+.student-task-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.student-task-card{min-width:0}.student-task-card>div:first-child{min-width:0;flex:1}
