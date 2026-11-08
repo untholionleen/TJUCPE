@@ -109,3 +109,7 @@ const reviewedCleanupMigration = fs.readFileSync("supabase/migrations/2026110811
 assert.ok(reviewedCleanupMigration.includes("report_objects_delete_orphan_reviewed_pdf_class_staff"));
 assert.ok(reviewedCleanupMigration.includes("private.is_class_teacher(r.class_id)"));
 assert.ok(reviewedCleanupMigration.includes("not exists"), "staff may delete only orphaned reviewed PDFs, never the current report file");
+
+const legacyHelperRevoke = fs.readFileSync("supabase/migrations/20261108115040_tjucpe_revoke_legacy_public_role_helpers_v13.sql", "utf8").toLowerCase();
+assert.ok(legacyHelperRevoke.includes("revoke all on function public.is_admin() from public, anon, authenticated"));
+assert.ok(legacyHelperRevoke.includes("revoke all on function public.is_staff() from public, anon, authenticated"));
