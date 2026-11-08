@@ -451,11 +451,25 @@
     if($("fitSelectionLabel"))$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";
   }
   function formatNum(n){return Number.isFinite(n)?Number(n).toPrecision(5):"—";}
-  let pyodideRuntimePromise=null;
+  let pyodideRuntimePromise=null,pyodideLoaderPromise=null;
+  async function ensurePyodideLoader(){
+    if(typeof window.loadPyodide==="function")return;
+    if(!pyodideLoaderPromise){
+      pyodideLoaderPromise=new Promise((resolve,reject)=>{
+        const script=document.createElement("script");
+        script.src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js";
+        script.async=true;
+        script.onload=()=>typeof window.loadPyodide==="function"?resolve():reject(new Error("浏览器 Python 引擎脚本加载不完整。"));
+        script.onerror=()=>reject(new Error("Python 绘图组件下载失败；交互式 Plotly 图仍可使用。"));
+        document.head.appendChild(script);
+      });
+    }
+    return pyodideLoaderPromise;
+  }
   async function getPythonPlotRuntime(){
     if(pyodideRuntimePromise)return pyodideRuntimePromise;
     pyodideRuntimePromise=(async()=>{
-      if(typeof window.loadPyodide!=="function")throw new Error("Python 运行环境尚未加载，请检查网络后刷新页面。");
+      await ensurePyodideLoader();
       const py=await window.loadPyodide({indexURL:"https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"});
       await py.loadPackage(["numpy","matplotlib"]);
       await py.runPythonAsync("import matplotlib; matplotlib.use('agg')");
