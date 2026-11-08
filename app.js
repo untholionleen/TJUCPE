@@ -76,6 +76,7 @@
   function go(page){
     const allowed=["overview","experiments","analysis","reports","review","users","classes","system"];
     if(!allowed.includes(page)) page="overview";
+    if(page==="reports"&&["teacher","admin"].includes(profile?.role)) page="overview";
     if(page==="review"&&!["teacher","admin"].includes(profile?.role)) page="overview";
     if(page==="users"&&profile?.role!=="admin") page="overview";
     if(page==="system"&&profile?.role!=="admin") page="overview";
