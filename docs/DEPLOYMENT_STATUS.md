@@ -102,3 +102,9 @@ Last checked: 2026-11-08
 - Supabase client timeout is now request-specific: ordinary database/API calls 15 seconds, Auth 30 seconds, Edge Functions 45 seconds, Storage uploads/downloads 60 seconds. The custom fetch also preserves an AbortSignal supplied on a Request object. This avoids terminating a legitimate PDF transfer or class export at the same 15-second threshold used for ordinary queries.
 - Direct role-helper checks were executed under the `authenticated` database role with test JWT subjects: teacher → `is_staff=true`, `is_admin=false`; admin → both true; student → both false. The test transactions were rolled back and did not change application records.
 - The report currently in the database remains a submitted student report; its stored PDF object exists. It was not edited during this audit. Its annotation save/reopen/history path still needs a real teacher-browser acceptance pass.
+
+## 2026-11-08 20:02 — Transactional report-review database acceptance
+
+- Executed a rollback-only transaction under the authenticated teacher role against the existing submitted report. The transaction temporarily changed the report path, score, feedback, status and annotation JSON; the `report_revisions` trigger recorded `file_replaced` with the prior path and version 1.
+- The transaction was rolled back. A subsequent query confirmed the original report path, `submitted` status, `submission_version=1`, and zero persisted revisions were unchanged. No Storage object was uploaded, overwritten or deleted during this database-only test.
+- This verifies teacher RLS update permission, the report update guards, and revision-history trigger behavior. It does not replace the browser test of PDF generation, Storage upload, signed/private-file readback, and student-side reopening.
