@@ -68,3 +68,16 @@ Last checked: 2026-11-08
 - Current database check: 1 active admin, 1 active teacher, 1 active student; 1 class, 1 assignment, 0 reports. No data was cleared during this optimization.
 - Supabase Security Advisor still warns that leaked-password protection is disabled; enable it in Authentication password security settings. Health Advisor reports no findings. Performance Advisor reports 13 unused indexes (informational; do not drop them before real usage patterns are observed).
 - Latest GitHub Pages run `42465459327` succeeded; syntax checks, all 14 experiment workflow smoke tests, regression, schema-security checks and Pages deploy all passed. This does not replace real browser acceptance testing.
+
+## 2026-11-08 19:50 — PDF save hardening and fresh audit
+
+- Added an explicit **“保存批注并发布”** action beside the PDF annotation tools, in addition to the main grading save action.
+- PDF review save now requires the updated `report_submissions` row to be returned by PostgREST (`select(...).single()`). A filtered/no-row UPDATE is no longer treated as success.
+- If the client loses the network response after a possible database commit, the app re-reads the report before cleanup. It will not delete a reviewed PDF that has actually become the current report file.
+- Added a narrowly scoped Storage DELETE policy for class staff: they may delete only orphaned files under `reviewed/<report-id>/`; a file referenced by any current report row remains protected.
+- The matching database migration is `20261108114917_tjucpe_reviewed_pdf_orphan_cleanup_v12.sql`.
+- Revoked authenticated execution on the unused legacy `public.is_admin()` and `public.is_staff()` SECURITY DEFINER wrappers. The Security Advisor no longer reports those two warnings.
+- Current live Edge Function `classroom-admin`: ACTIVE v22, JWT verification enabled.
+- Fresh data snapshot: 3 Auth users / 3 profiles, 1 class, 1 assignment, 1 submitted report, 0 report revisions, 0 experiment records. The existing submitted report row and its current Storage object were detected; this audit did not modify or delete that report.
+- Security Advisor remaining warning: leaked-password protection is disabled and must be enabled in Supabase Authentication password security settings. Performance Advisor reports 13 unused indexes as informational only; retain them until representative workload data exists.
+- JavaScript syntax, experiment-engine smoke tests, regression smoke tests, and schema-security smoke tests passed in the latest Pages workflow attempt before the final documentation-only update. Real authenticated browser acceptance (draw → save → reopen as teacher/student → inspect revision history) is still required and is not claimed as passed.
