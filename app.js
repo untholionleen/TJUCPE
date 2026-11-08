@@ -60,7 +60,14 @@
       [/payload too large|file too large/i,"文件过大，请压缩文件后重新上传。"],
       [/rate limit|too many requests|over_email_send_rate_limit/i,"操作过于频繁，请稍后再试。"],
       [/not found/i,"没有找到对应记录，可能已被删除或权限已变化。"],
-      [/email.*invalid|invalid email/i,"邮箱地址格式不正确，请检查后重试。"]
+      [/email.*invalid|invalid email/i,"邮箱地址格式不正确，请检查后重试。"],
+      [/violates foreign key constraint|foreign key violation/i,"该记录仍被其他数据引用，暂时不能删除或修改。请先处理关联的班级任务或报告。"],
+      [/invalid input syntax for type uuid/i,"提交的数据编号格式不正确，请刷新页面后重新选择对应项目。"],
+      [/column .* does not exist|relation .* does not exist/i,"平台数据库结构与当前页面版本不一致，请联系管理员检查数据库迁移。"],
+      [/jwt expired|session.*expired/i,"登录凭证已过期，请重新登录后继续操作。"],
+      [/user not found|account not found/i,"没有找到该账号，请刷新账号列表后重试。"],
+      [/email rate limit exceeded/i,"邮件发送次数已达到限制，请稍后再试。"],
+      [/redirect.*not allowed|url not allowed/i,"邮箱跳转地址尚未加入 Supabase 允许列表，请联系管理员配置 Auth → URL Configuration。"]
     ];
     for(const [pattern,translated] of rules)if(pattern.test(raw))return translated;
     if(code==="401")return "登录状态已过期或身份验证失败，请重新登录。";
@@ -316,46 +323,46 @@
   }
   const formulaLibrary = {
     "surface-tension": [
-      {title:"Szyszkowski 表面张力方程",latex:String.raw\`\gamma=\gamma_0-a\ln(1+bc)\`,note:"用于表面张力–浓度拟合；请核对浓度单位和参数定义。"},
-      {title:"Gibbs 吸附关系（稀溶液近似）",latex:String.raw\`\Gamma=-\frac{1}{RT}\left(\frac{\partial\gamma}{\partial\ln c}\right)_T\`,note:"须明确溶液体系、电解质条件和浓度单位。"}
+      {title:"Szyszkowski 表面张力方程",latex:String.raw`\gamma=\gamma_0-a\ln(1+bc)`,note:"用于表面张力–浓度拟合；请核对浓度单位和参数定义。"},
+      {title:"Gibbs 吸附关系（稀溶液近似）",latex:String.raw`\Gamma=-\frac{1}{RT}\left(\frac{\partial\gamma}{\partial\ln c}\right)_T`,note:"须明确溶液体系、电解质条件和浓度单位。"}
     ],
     "saponification": [
-      {title:"电导率线性化关系（报告式 12）",latex:String.raw\`\frac{1}{\kappa_t-\kappa_\infty}=\frac{k c_0}{\kappa_0-\kappa_\infty}t+\frac{1}{\kappa_0-\kappa_\infty}\`,note:"以 1/(κt−κ∞) 对 t 作图；斜率 m、截距 b。"},
-      {title:"二级反应速率常数",latex:String.raw\`k=\frac{m}{c_0 b}\`,note:"κ₀、κ∞、时间单位和 c₀ 必须来自同一实验组。"},
-      {title:"Arrhenius 两点式",latex:String.raw\`\ln\frac{k_2}{k_1}=-\frac{E_a}{R}\left(\frac{1}{T_2}-\frac{1}{T_1}\right)\`,note:"温度使用 K；k₁、k₂ 对应各温度组拟合结果。"}
+      {title:"电导率线性化关系（报告式 12）",latex:String.raw`\frac{1}{\kappa_t-\kappa_\infty}=\frac{k c_0}{\kappa_0-\kappa_\infty}t+\frac{1}{\kappa_0-\kappa_\infty}`,note:"以 1/(κt−κ∞) 对 t 作图；斜率 m、截距 b。"},
+      {title:"二级反应速率常数",latex:String.raw`k=\frac{m}{c_0 b}`,note:"κ₀、κ∞、时间单位和 c₀ 必须来自同一实验组。"},
+      {title:"Arrhenius 两点式",latex:String.raw`\ln\frac{k_2}{k_1}=-\frac{E_a}{R}\left(\frac{1}{T_2}-\frac{1}{T_1}\right)`,note:"温度使用 K；k₁、k₂ 对应各温度组拟合结果。"}
     ],
     "rectorite-adsorption": [
-      {title:"平衡吸附量",latex:String.raw\`q_e=\frac{(C_0-C_e)V}{m}\`,note:"C₀、Cₑ、V、m 的单位须匹配，稀释倍数需计入平衡浓度。"},
-      {title:"Langmuir 吸附等温式",latex:String.raw\`q_e=\frac{q_{\max}K_L C_e}{1+K_L C_e}\`,note:"模型适用性需结合实验机理和拟合残差判断。"},
-      {title:"Freundlich 吸附等温式",latex:String.raw\`q_e=K_F C_e^{1/n}\`,note:"常用对数线性化为 ln qₑ = ln K_F + (1/n) ln Cₑ。"}
+      {title:"平衡吸附量",latex:String.raw`q_e=\frac{(C_0-C_e)V}{m}`,note:"C₀、Cₑ、V、m 的单位须匹配，稀释倍数需计入平衡浓度。"},
+      {title:"Langmuir 吸附等温式",latex:String.raw`q_e=\frac{q_{\max}K_L C_e}{1+K_L C_e}`,note:"模型适用性需结合实验机理和拟合残差判断。"},
+      {title:"Freundlich 吸附等温式",latex:String.raw`q_e=K_F C_e^{1/n}`,note:"常用对数线性化为 ln qₑ = ln K_F + (1/n) ln Cₑ。"}
     ],
-    "zeta-potential": [{title:"Smoluchowski 近似",latex:String.raw\`\zeta=\frac{\eta u}{\varepsilon E}\`,note:"u 为电泳迁移速度，E 为电场强度；核对适用条件、介电常数和黏度单位。"}],
+    "zeta-potential": [{title:"Smoluchowski 近似",latex:String.raw`\zeta=\frac{\eta u}{\varepsilon E}`,note:"u 为电泳迁移速度，E 为电场强度；核对适用条件、介电常数和黏度单位。"}],
     "galvanic-cell": [
-      {title:"反应 Gibbs 能",latex:String.raw\`\Delta_r G_m=-nFE\`,note:"n 为转移电子数，F 为 Faraday 常数；符号依赖电池反应方向。"},
-      {title:"反应熵",latex:String.raw\`\Delta_r S_m=nF\left(\frac{\partial E}{\partial T}\right)_p\`,note:"温度系数由 E–T 数据拟合求得，T 使用 K。"},
-      {title:"反应焓",latex:String.raw\`\Delta_r H_m=\Delta_r G_m+T\Delta_r S_m\`,note:"符号须与电池反应方程式一致。"}
+      {title:"反应 Gibbs 能",latex:String.raw`\Delta_r G_m=-nFE`,note:"n 为转移电子数，F 为 Faraday 常数；符号依赖电池反应方向。"},
+      {title:"反应熵",latex:String.raw`\Delta_r S_m=nF\left(\frac{\partial E}{\partial T}\right)_p`,note:"温度系数由 E–T 数据拟合求得，T 使用 K。"},
+      {title:"反应焓",latex:String.raw`\Delta_r H_m=\Delta_r G_m+T\Delta_r S_m`,note:"符号须与电池反应方程式一致。"}
     ],
-    "phase-diagram": [{title:"二组分质量分数",latex:String.raw\`w_B=\frac{m_B}{m_A+m_B}\times100\%\`,note:"组成轴必须注明采用质量分数还是摩尔分数。"}],
+    "phase-diagram": [{title:"二组分质量分数",latex:String.raw`w_B=\frac{m_B}{m_A+m_B}\times100\%`,note:"组成轴必须注明采用质量分数还是摩尔分数。"}],
     "boiling-composition": [
-      {title:"气液平衡关系（理想液相近似）",latex:String.raw\`y_iP=x_iP_i^{\ast}(T)\`,note:"区分气相 yᵢ 与液相 xᵢ；非理想体系须采用活度系数模型。"},
-      {title:"总压关系",latex:String.raw\`P=\sum_i x_iP_i^{\ast}(T)\`,note:"仅用于理想溶液近似，不替代实验测得的组成数据。"}
+      {title:"气液平衡关系（理想液相近似）",latex:String.raw`y_iP=x_iP_i^{\ast}(T)`,note:"区分气相 yᵢ 与液相 xᵢ；非理想体系须采用活度系数模型。"},
+      {title:"总压关系",latex:String.raw`P=\sum_i x_iP_i^{\ast}(T)`,note:"仅用于理想溶液近似，不替代实验测得的组成数据。"}
     ],
     "reaction-enthalpy": [
-      {title:"量热热量",latex:String.raw\`q_{\mathrm{cal}}=(mc_p+C_{\mathrm{cal}})\Delta T\`,note:"按实验体系确定溶液质量、比热容、量热计热容和温度修正。"},
-      {title:"摩尔反应焓",latex:String.raw\`\Delta_r H_m=-\frac{q_{\mathrm{cal}}}{n_{\mathrm{react}}}\`,note:"以指导书的反应进度与符号约定为准。"}
+      {title:"量热热量",latex:String.raw`q_{\mathrm{cal}}=(mc_p+C_{\mathrm{cal}})\Delta T`,note:"按实验体系确定溶液质量、比热容、量热计热容和温度修正。"},
+      {title:"摩尔反应焓",latex:String.raw`\Delta_r H_m=-\frac{q_{\mathrm{cal}}}{n_{\mathrm{react}}}`,note:"以指导书的反应进度与符号约定为准。"}
     ],
     "freezing-point": [
-      {title:"凝固点降低",latex:String.raw\`\Delta T_f=K_f b\`,note:"b 为质量摩尔浓度；过冷段按实验规定确定凝固点。"},
-      {title:"溶质摩尔质量",latex:String.raw\`M_B=\frac{1000K_f m_B}{\Delta T_f m_A}\`,note:"当 mA、mB 均以 g 计时使用此写法，单位须匹配。"}
+      {title:"凝固点降低",latex:String.raw`\Delta T_f=K_f b`,note:"b 为质量摩尔浓度；过冷段按实验规定确定凝固点。"},
+      {title:"溶质摩尔质量",latex:String.raw`M_B=\frac{1000K_f m_B}{\Delta T_f m_A}`,note:"当 mA、mB 均以 g 计时使用此写法，单位须匹配。"}
     ],
-    "equilibrium-constant": [{title:"van’t Hoff 关系",latex:String.raw\`\ln K^\circ=-\frac{\Delta_r H^\circ}{RT}+\frac{\Delta_r S^\circ}{R}\`,note:"K° 应为无量纲平衡常数，温度使用 K。"}],
-    "vapour-pressure": [{title:"Clausius–Clapeyron 近似",latex:String.raw\`\ln p=-\frac{\Delta_{\mathrm{vap}}H}{RT}+C\`,note:"假设汽化焓在所选温区近似恒定，蒸气可近似为理想气体。"}],
+    "equilibrium-constant": [{title:"van’t Hoff 关系",latex:String.raw`\ln K^\circ=-\frac{\Delta_r H^\circ}{RT}+\frac{\Delta_r S^\circ}{R}`,note:"K° 应为无量纲平衡常数，温度使用 K。"}],
+    "vapour-pressure": [{title:"Clausius–Clapeyron 近似",latex:String.raw`\ln p=-\frac{\Delta_{\mathrm{vap}}H}{RT}+C`,note:"假设汽化焓在所选温区近似恒定，蒸气可近似为理想气体。"}],
     "thermostat-viscosity": [
-      {title:"毛细管黏度计相对黏度",latex:String.raw\`\frac{\eta}{\eta_0}=\frac{\rho t}{\rho_0t_0}\`,note:"需记录样品与参比液体的密度、流出时间，并使用同一支黏度计。"},
-      {title:"恒温槽温度偏差",latex:String.raw\`\Delta T(t)=T(t)-T_{\mathrm{set}}\`,note:"温度波动数据与黏度测量数据应分别记录。"}
+      {title:"毛细管黏度计相对黏度",latex:String.raw`\frac{\eta}{\eta_0}=\frac{\rho t}{\rho_0t_0}`,note:"需记录样品与参比液体的密度、流出时间，并使用同一支黏度计。"},
+      {title:"恒温槽温度偏差",latex:String.raw`\Delta T(t)=T(t)-T_{\mathrm{set}}`,note:"温度波动数据与黏度测量数据应分别记录。"}
     ],
-    "hydrogen-peroxide": [{title:"一级反应积分式（仅在验证一级动力学时）",latex:String.raw\`\ln\frac{c_0}{c_t}=kt\`,note:"若仪器测量量为气体体积、滴定体积或压力，须先按指导书换算浓度。"}],
-    "passivation": [{title:"Tafel 区域近似关系",latex:String.raw\`\eta=a+b\log_{10}i\`,note:"仅适用于可辨识的 Tafel 线性区；钝化平台不可默认按此关系拟合。"}]
+    "hydrogen-peroxide": [{title:"一级反应积分式（仅在验证一级动力学时）",latex:String.raw`\ln\frac{c_0}{c_t}=kt`,note:"若仪器测量量为气体体积、滴定体积或压力，须先按指导书换算浓度。"}],
+    "passivation": [{title:"Tafel 区域近似关系",latex:String.raw`\eta=a+b\log_{10}i`,note:"仅适用于可辨识的 Tafel 线性区；钝化平台不可默认按此关系拟合。"}]
   };
   function renderFormulaReference(slug) {
     const host = $("formulaReference"); if (!host) return;
