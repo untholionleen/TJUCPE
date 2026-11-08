@@ -1077,8 +1077,21 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const rows=data.rows||[];
       const csv="\uFEFF"+[headers,...rows.map(r=>[r.student_name,r.student_no,r.experiment_name,r.file_name,statusLabel(r.status),r.score,r.feedback,r.created_at,r.submitted_at,r.submission_version])].map(r=>r.map(csvCell).join(",")).join("\r\n");
       folder.file("00_任务报告汇总.csv",csv);
-      folder.file("数据说明.txt","本压缩包由 TJUCPE 物理化学实验平台导出。\n包含本班该次实验任务的报告文件与汇总表。\n报告文件为提交时的当前有效版本；教师批阅版会反映为当前报告文件。\n学生姓名、学号和成绩仅用于课程教学管理。");
+      folder.file("数据说明.txt","本压缩包由 TJUCPE 物理化学实验平台导出。\n包含本班该次实验任务的报告文件、报告汇总表和学生数据处理记录。\n报告文件为提交时的当前有效版本；教师批阅版会反映为当前报告文件。\n实验数据记录按班级成员、实验项目编号与任务创建时间匹配；目前实验数据记录表尚未单独关联 assignment_id，因此该部分是时间/项目匹配范围。\n学生姓名、学号和成绩仅用于课程教学管理。");
       const reportFolder=folder.folder("报告文件");
+      const analysisFolder=folder.folder("学生数据处理记录");
+      const recordRows=data.records||[];
+      const recordHeaders=["学生姓名","学号","实验项目","记录名称","保存时间","算法版本","原始数据 JSON 文件","分析结果 JSON 文件"];
+      const recordIndexRows=recordRows.map(record=>{
+        const safeBase=safeFileName((record.student_no||"无学号")+"_"+record.student_name+"_"+record.title+"_"+record.record_id);
+        const rawFile="原始数据_"+safeBase+".json",analysisFile="分析结果_"+safeBase+".json";
+        const common={记录编号:record.record_id,学生姓名:record.student_name,学号:record.student_no,实验项目:record.experiment_name,记录名称:record.title,保存时间:record.created_at,算法版本:record.engine_version};
+        analysisFolder.file(rawFile,JSON.stringify({元数据:common,原始数据:record.raw_data},null,2));
+        analysisFolder.file(analysisFile,JSON.stringify({元数据:common,分析结果:record.analysis},null,2));
+        return [record.student_name,record.student_no,record.experiment_name,record.title,record.created_at,record.engine_version,rawFile,analysisFile];
+      });
+      folder.file("01_学生数据处理记录索引.csv","\uFEFF"+[recordHeaders,...recordIndexRows].map(r=>r.map(csvCell).join(",")).join("\r\n"));
+
       let downloaded=0,failed=0;
       for(let i=0;i<rows.length;i+=3){
         const batch=rows.slice(i,i+3);
@@ -1098,7 +1111,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       folder.file("导出说明.txt","任务："+data.assignment_title+"\n实验："+data.experiment_name+"\n报告记录："+rows.length+"\n成功下载文件："+downloaded+"\n未获取到文件："+failed+"\n未获取文件的记录仍保留在汇总 CSV 中。");
       const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
       downloadBlob(blob,safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title)+"_全班实验数据.zip");
-      toast("导出完成：汇总 "+rows.length+" 条，报告文件 "+downloaded+" 份"+(failed?"，"+failed+" 份未能下载。":"。"));
+      toast("导出完成：报告记录 "+rows.length+" 条、报告文件 "+downloaded+" 份、数据处理记录 "+recordRows.length+" 条"+(failed?"；另有 "+failed+" 份报告文件未能下载。":"。"));
     }catch(err){toast("班级任务导出失败："+friendlyError(err),true);}
     finally{if(button){button.disabled=false;button.textContent="导出本次班级数据";}}
   }
