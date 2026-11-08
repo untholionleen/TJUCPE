@@ -90,7 +90,20 @@
       [/jwt expired|session.*expired/i,"登录凭证已过期，请重新登录后继续操作。"],
       [/user not found|account not found/i,"没有找到该账号，请刷新账号列表后重试。"],
       [/email rate limit exceeded/i,"邮件发送次数已达到限制，请稍后再试。"],
-      [/redirect.*not allowed|url not allowed/i,"邮箱跳转地址尚未加入 Supabase 允许列表，请联系管理员配置 Auth → URL Configuration。"]
+      [/redirect.*not allowed|url not allowed|redirect url.*allow/i,"邮箱跳转地址尚未加入 Supabase 允许列表。管理员需在 Authentication → URL Configuration 中添加网站地址。"],
+      [/administrator required/i,"此操作仅允许管理员执行。"],
+      [/teacher or administrator required/i,"此操作仅允许教师或管理员执行。"],
+      [/you do not manage this class/i,"您没有管理该班级的权限，请检查班级负责人设置。"],
+      [/teachers can reset only students in their own class/i,"教师只能为自己负责班级中的学生重置密码。"],
+      [/student\/teacher account not found|account not found/i,"未找到对应账号，请刷新账号列表后重试。"],
+      [/no user ids supplied/i,"尚未选择任何账号，请先勾选需要操作的用户。"],
+      [/only student accounts can be deleted/i,"该操作只允许删除学生账号，教师和管理员账号不会被删除。"],
+      [/assignment not found/i,"未找到对应实验任务，可能已被关闭或删除，请刷新任务列表。"],
+      [/class not found/i,"未找到对应班级，请刷新班级列表后重试。"],
+      [/report not found/i,"未找到对应报告，可能已被删除或已更新。"],
+      [/email rate limit|over_email_send_rate_limit/i,"邮件发送过于频繁，请等待一段时间后再试。"],
+      [/email link.*(expired|invalid)|otp.*(expired|invalid)|token.*(expired|invalid)/i,"邮箱验证链接已失效或已使用，请重新发送验证邮件，并尽量在收到后及时打开。"],
+      [/maximum.*(file|upload)|file size.*limit/i,"文件超过平台允许的大小，请压缩文件后重新上传。"]
     ];
     for(const [pattern,translated] of rules)if(pattern.test(raw))return translated;
     if(code==="23505")return "该记录已经存在，请勿重复添加。";
@@ -105,7 +118,25 @@
     if(code==="409")return "当前数据状态已发生变化，请刷新后再操作。";
     if(code==="429")return "请求过于频繁，请稍后重试。";
     if(code.startsWith("5"))return "Supabase 服务暂时异常，请稍后重试。";
-    return raw||"操作失败，请重试；如果问题持续，请联系管理员。";
+    if(raw&&/[\u4e00-\u9fff]/.test(raw))return raw;
+    return "操作未完成，平台返回了暂时无法识别的错误。请刷新页面后重试；若问题持续，请联系管理员查看系统日志。";
+  }
+  async function invokePlatformFunction(name, options={}){
+    const result=await db.functions.invoke(name,options);
+    if(!result.error)return result;
+    let payload=null;
+    try{
+      const context=result.error.context;
+      if(context&&typeof context.clone==="function")payload=await context.clone().json();
+      else if(context&&typeof context.json==="function")payload=await context.json();
+    }catch(_){}
+    const detail=payload?.error||payload?.message||payload?.msg||result.error.message;
+    const normalized=new Error(friendlyError(detail));
+    normalized.code=payload?.code||result.error.code||"";
+    normalized.status=result.error.context?.status||result.error.status||"";
+    normalized.details=payload?.details||result.error.details||"";
+    normalized.originalError=result.error;
+    return {data:result.data||payload,error:normalized};
   }
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=friendlyError(message); el.classList.toggle("error",error); el.classList.add("show");
@@ -826,7 +857,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function deleteReport(id){
     const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status))return;
     if(!confirm("确认删除这份报告及其全部历史文件版本？此操作不可恢复。"))return;
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"delete_report",report_id:id}});
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"delete_report",report_id:id}});
     if(error||!data?.ok){toast("报告删除失败："+(error?.message||data?.error||"未知错误"),true);return;}
     if(data.cleanup_warning)toast("报告记录已删除，但部分历史文件清理失败，请管理员检查存储。",true);else toast("报告记录及 "+(data.removed_files||0)+" 个文件版本已删除。");await loadReports();await loadOverview();
   }
@@ -995,7 +1026,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   let adminUsersCache=[];
   async function loadUsers(){
     $("usersBody").innerHTML='<tr><td colspan="8" class="muted center">正在加载账号……</td></tr>';
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"list_users"}});
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"list_users"}});
     if(error||!data?.users){$("usersBody").innerHTML='<tr><td colspan="8" class="center">'+escapeHtml(friendlyError(error||data?.error||"用户列表读取失败"))+'</td></tr>';return;}
     adminUsersCache=data.users;
     renderAdminUsers();
@@ -1004,33 +1035,33 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const q=String($("userSearch")?.value||"").trim().toLowerCase();
     const rows=adminUsersCache.filter(p=>!q||[p.email,p.full_name,p.student_no,p.role].some(v=>String(v||"").toLowerCase().includes(q)));
     $("usersBody").innerHTML=rows.map(p=>`<tr>
-      <td>${p.role==="student"?`<input class="user-check" type="checkbox" value="${p.id}">`:"—"}</td>
+      <td>${["student","teacher"].includes(p.role)?`<input class="user-check" data-user-role="${p.role}" value="${p.id}">`:"—"}</td>
       <td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.email||"—")}</td><td>${escapeHtml(p.student_no||"—")}</td>
       <td><span class="status-pill">${roleName(p.role)}</span></td>
       <td>${p.email_confirmed?"已验证":"待验证"} · ${new Date(p.created_at).toLocaleDateString("zh-CN")}</td>
       <td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td>
-      <td><button class="action-link" data-user-reset="${p.id}">发送重置邮件</button> <button class="action-link" data-account-toggle="${p.id}" data-status="${p.account_status||"active"}">${p.account_status==="disabled"?"恢复账号":"停用账号"}</button>${p.must_change_password?'<small class="muted">待修改个人密码</small>':""}</td>
+      <td>${p.role!=="admin"?`<button class="action-link" data-user-reset="${p.id}">发送重置邮件</button>`:"—"} <button class="action-link" data-account-toggle="${p.id}" data-status="${p.account_status||"active"}">${p.account_status==="disabled"?"恢复账号":"停用账号"}</button>${p.must_change_password?'<small class="muted">待修改个人密码</small>':""}</td>
     </tr>`).join("")||'<tr><td colspan="8" class="muted center">没有匹配的账号。</td></tr>';
   }
   async function changeRole(id,role){
     if(!["student","teacher","admin"].includes(role))return;
     if(!confirm("确定将该账号身份调整为“"+roleName(role)+"”吗？此操作会立即改变其访问权限。")){renderAdminUsers();return;}
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"set_user_role",user_id:id,role}});
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"set_user_role",user_id:id,role}});
     if(error||!data?.ok){toast("身份调整失败："+friendlyError(error||data?.error||"未能保存身份"),true);await loadUsers();return;}
     toast("账号身份已更新；该用户下次登录/刷新后生效。");await loadUsers();
   }
   async function resetOneUser(id){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
-    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？邮箱验证通过后系统会设置临时密码，并要求本人立即设置个人新密码。"))return;
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});
+    if(!confirm("向 "+target.email+" 发送密码重置验证邮件？邮箱验证后由本人直接设置个人新密码，不使用统一默认密码。"))return;
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"reset_password",user_id:id}});
     if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
-    toast("密码重置验证邮件已发送至 "+target.email+"。");
+    toast("密码重置验证邮件已发送至 "+target.email+"。请让对方查看邮箱并及时打开链接。");
   }
   async function changeAccountStatus(id,status){
     const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
     const next=status==="disabled"?"active":"disabled",verb=next==="disabled"?"停用":"恢复";
     if(!confirm("确认"+verb+"账号 "+target.email+"？"+(next==="disabled"?"此后该用户无法继续登录。":"该用户将重新获得登录权限。")))return;
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"set_account_status",user_id:id,account_status:next}});
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"set_account_status",user_id:id,account_status:next}});
     if(error||!data?.ok){toast(verb+"账号失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
     toast("账号已"+verb+"。");await loadUsers();
   }
@@ -1039,7 +1070,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!email||!full_name){toast("请填写邮箱和姓名。",true);return;}
     const btn=$("adminInviteButton");btn.disabled=true;
     try{
-      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"admin_invite_account",email,full_name,student_no,role}});
+      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"admin_invite_account",email,full_name,student_no,role}});
       if(error||!data?.ok)throw error||new Error(data?.error||"邀请账号失败");
       toast("邀请邮件已发送："+email+"（"+roleName(role)+"）");
       $("adminInviteEmail").value="";$("adminInviteName").value="";$("adminInviteNo").value="";
@@ -1087,7 +1118,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function deleteClass(id){
     const row=classesCache.find(c=>c.id===id);if(!row)return;
     if(!confirm("确定永久删除班级“"+row.name+"”？仅当没有历史报告时允许删除；如已有报告，请先归档以保留教学记录。"))return;
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"delete_class",class_id:id}});
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"delete_class",class_id:id}});
     if(error||!data?.ok){toast("删除班级失败："+(error?.message||data?.error||"未知错误"),true);return;}
     if(activeClassId===id)activeClassId=null;toast("班级已删除。");await loadClasses();
   }
@@ -1130,7 +1161,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(button){button.disabled=true;button.textContent="正在打包…";}
     try{
       await ensureExternalLibrary("JSZip",["https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"]);
-      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"export_assignment_reports",class_id:classId,assignment_id:assignmentId}});
+      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"export_assignment_reports",class_id:classId,assignment_id:assignmentId}});
       if(error||!data?.ok)throw error||new Error(data?.error||"导出清单读取失败");
       const zip=new JSZip(),folder=zip.folder(safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title));
       const headers=["学生姓名","学号","实验项目","报告文件","提交状态","成绩","教师评语","上传时间","提交时间","报告版本"];
@@ -1185,7 +1216,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at,is_open,experiment_catalog(name,slug)").eq("class_id",classId).order("created_at",{ascending:false});
     if(error){$("classAssignments").textContent=friendlyError(error);return;}
     const openTasks=(data||[]).filter(a=>a.is_open);
-    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span><span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button><button class="btn btn-outline btn-sm" data-assignment-export="${a.id}">导出本次班级数据</button></span></div>`).join("")||"本班暂无实验任务。";
+    $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span>${["teacher","admin"].includes(profile.role)?`<span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button><button class="btn btn-outline btn-sm" data-assignment-export="${a.id}">导出本次班级数据</button></span>`:""}</div>`).join("")||"本班暂无实验任务。";
     if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>`<article class="student-task-card"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"请按教师要求完成实验并提交 PDF 报告。")}</p></div><div class="student-task-actions"><button class="btn btn-outline btn-sm" data-task-open-experiment="${escapeHtml(a.experiment_catalog?.slug||"")}" data-task-id="${a.id}" data-class-id="${classId}">开始实验</button><button class="btn btn-primary btn-sm" data-task-submit="${a.id}" data-class-id="${classId}">提交报告</button></div></article>`).join("")||"<p class=\"muted\">当前班级暂无开放任务。</p>";
     await loadClassRoster(classId);
     $("reportAssignment").innerHTML=openTasks.map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
@@ -1224,7 +1255,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       ?(profile.role==="admin"?"确认永久删除选中学生账号及其报告文件？":"教师操作规则：若学生仅属于当前班级，将永久删除账号；若还属于其他有效班级，则只从本班移出。确认继续？")
       :"向选中学生发送密码重置验证邮件？验证通过后由本人设置新密码。";
     if(!confirm(message))return;
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{
       action:action==="reset_password"?"reset_passwords":action,class_id:classId,user_ids:ids
     }});
     if(error){toast(error,true);return;}
@@ -1241,7 +1272,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function joinClass(){
     const code=$("joinClassCode").value.trim().toUpperCase();if(!code){toast("请输入教师提供的班级加入码。",true);return;}
-    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"join_class",join_code:code}});
+    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"join_class",join_code:code}});
     if(error||!data?.ok){toast(error?.message||data?.error||"加入班级失败",true);return;}
     activeClassId=data.class_id;toast("已成功加入班级。");loadClasses();
   }
@@ -1274,7 +1305,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       if(rows.length&&/(邮箱|email|账号)/i.test(String(rows[0][0]||""))&&/(姓名|name)/i.test(String(rows[0][1]||"")))rows.shift();
       const students=rows.map(row=>({email:String(row[0]??"").trim(),full_name:String(row[1]??"").trim(),student_no:String(row[2]??"").trim()})).filter(x=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x.email)&&x.full_name);
       if(!students.length)throw new Error("没有识别到有效名单。列顺序应为：邮箱、姓名、学号（学号可空）。");
-      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
+      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"invite_students",class_id:classId,students}});
       if(error)throw error;
       const results=data?.results||[],ok=results.filter(x=>x.ok).length;
       $("accountActionResult").textContent=results.map(x=>(x.email||x.user_id||"")+(x.ok?"：成功":"："+(x.error||"失败"))).join("\n");
@@ -1342,20 +1373,27 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("auditLogBody").innerHTML=error?escapeHtml(friendlyError(error)):(data||[]).map(x=>`<tr><td>${new Date(x.created_at).toLocaleString("zh-CN")}</td><td>${escapeHtml(x.action)}</td><td>${escapeHtml(JSON.stringify(x.details||{}))}</td></tr>`).join("")||'<tr><td colspan="3">暂无审计记录</td></tr>';
   }
   async function bulkAccountAction(action){
-    const ids=Array.from(document.querySelectorAll(".user-check:checked")).map(x=>x.value);
-    if(!ids.length){toast("请先勾选学生账号。",true);return;}
+    const selected=Array.from(document.querySelectorAll(".user-check:checked")).map(x=>x.value);
+    const eligible=selected.filter(id=>{
+      const role=adminUsersCache.find(x=>x.id===id)?.role;
+      return action==="delete_students"?role==="student":["student","teacher"].includes(role);
+    });
+    if(!eligible.length){toast(action==="delete_students"?"请先勾选需要删除的学生账号。":"请先勾选需要重置密码的学生或教师账号。",true);return;}
+    if(eligible.length!==selected.length)toast(action==="delete_students"?"已自动排除教师和管理员账号，只会删除学生。":"已自动排除管理员账号，只会重置学生和教师密码。");
     if(action==="delete_students"){
-      if(!confirm("确认永久删除选中的学生账号及报告文件？"))return;
-      const result=await db.functions.invoke("classroom-admin",{body:{action,user_ids:ids}});
-      if(result.error){toast(result.error,true);return;}
-      const ok=(result.data?.results||[]).filter(x=>x.ok).length;toast("批量删除完成："+ok+"/"+ids.length+" 个成功。");await loadUsers();
+      if(!confirm("确认永久删除选中的 "+eligible.length+" 个学生账号及其报告文件？此操作不可撤销。"))return;
+      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action,user_ids:eligible}});
+      if(error){toast(error,true);return;}
+      const rows=data?.results||[],ok=rows.filter(x=>x.ok).length;
+      $("accountActionResult").textContent=rows.map(x=>(x.email||x.user_id||"")+(x.ok?"：删除成功":"："+friendlyError(x.error))).join("\n");
+      toast("批量删除完成："+ok+"/"+eligible.length+" 个成功。");await loadUsers();
     }else{
-      if(!confirm("向选中的 "+ids.length+" 个学生发送密码重置验证邮件？验证通过后由本人设置新密码。"))return;
-      const result=await db.functions.invoke("classroom-admin",{body:{action:"reset_passwords",user_ids:ids}});
-      if(result.error){toast(result.error,true);return;}
-      const rows=result.data?.results||[],ok=rows.filter(x=>x.ok).length;
-      $("accountActionResult").textContent=rows.map(x=>(x.email||x.user_id)+(x.ok?"：重置邮件已发送":"："+friendlyError(x.error))).join("\n");
-      toast("密码重置邮件已发送："+ok+"/"+ids.length+" 个成功。");
+      if(!confirm("向选中的 "+eligible.length+" 个学生/教师账号发送密码重置验证邮件？邮箱验证通过后，由本人设置新密码。"))return;
+      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"reset_passwords",user_ids:eligible}});
+      if(error){toast(error,true);return;}
+      const rows=data?.results||[],ok=rows.filter(x=>x.ok).length;
+      $("accountActionResult").textContent=rows.map(x=>(x.email||x.user_id||"")+(x.ok?"：重置邮件已发送":"："+friendlyError(x.error))).join("\n");
+      toast("重置验证邮件发送完成："+ok+"/"+eligible.length+" 个成功。");
     }
   }
   async function runAdminConnectionCheck(){
@@ -1426,13 +1464,13 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     showAuth();setAuthMode("recovery");
     try{
       // The email link proves control of the mailbox. The user chooses a private password.
-      const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"mark_password_change_required"}});
+      const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"mark_password_change_required"}});
       if(error||!data?.ok)throw error||new Error("账号安全状态更新失败。");
       window.history.replaceState(null,"",APP_REDIRECT_URL);
       setAuthMode("recovery");
       $("newPassword").value="";
       $("newPassword").focus();
-      toast("邮箱验证成功，系统已启用临时密码并锁定账号工作区。请立即设置新的个人密码。");
+      toast("邮箱验证成功！本次邮件已授权密码重置，请在下方设置您自己的新密码。");
     }catch(err){
       setAuthMode("recovery");
       toast("邮箱验证成功，但账号安全状态更新失败："+friendlyError(err),true);
@@ -1516,7 +1554,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       try{
         const {error}=await db.auth.updateUser({password});
         if(error)throw error;
-        const {data, error:flagError}=await db.functions.invoke("classroom-admin",{body:{action:"complete_password_change"}});
+        const {data, error:flagError}=await invokePlatformFunction("classroom-admin",{body:{action:"complete_password_change"}});
         if(flagError||!data?.ok)throw flagError||new Error("个人密码状态更新失败。");
         $("newPassword").value="";
         window.history.replaceState(null,"",APP_REDIRECT_URL);
@@ -1533,7 +1571,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       try{
         const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:APP_REDIRECT_URL});
         if(error)throw error;
-        toast("重置验证邮件已发送。邮箱仅用于确认本次重置；验证通过后系统会设置临时密码，并立即要求您设置个人新密码。");
+        toast("重置验证邮件已发送。点击邮件中的链接后，系统会确认本次重置，并让您直接设置个人新密码；不会向您发送或使用统一默认密码。");
       }catch(err){toast(err,true);}
       finally{$("forgotPassword").disabled=false;}
     });
