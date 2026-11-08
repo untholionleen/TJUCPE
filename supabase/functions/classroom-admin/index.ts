@@ -169,15 +169,12 @@ export default {
 
       if (action === "mark_password_change_required" || action === "complete_password_change") {
         const mustChange = action === "mark_password_change_required";
-        if (mustChange) {
-          // Activate the temporary credential only after the emailed recovery link created this authenticated session.
-          const { error: tempPasswordError } = await supabaseAdmin.auth.admin.updateUserById(actorId, { password: "TJUCPE123" });
-          if (tempPasswordError) return json({ error: tempPasswordError.message }, 400);
-        }
+        // The authenticated PASSWORD_RECOVERY session proves mailbox control. Never set a shared
+        // temporary password here: the user chooses a private password directly in the recovery session.
         const { error: updateError } = await supabaseAdmin.from("profiles")
           .update({ must_change_password: mustChange }).eq("id", actorId);
         if (updateError) return json({ error: updateError.message }, 500);
-        await audit(actorId, mustChange ? "account.temporary_password_activated_after_email_verification" : "account.personal_password_set");
+        await audit(actorId, mustChange ? "account.password_recovery_verified" : "account.personal_password_set");
         return json({ ok: true, must_change_password: mustChange });
       }
 
