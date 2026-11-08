@@ -1151,7 +1151,18 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
       await loadReviews();await loadReports();await loadOverview();
     }catch(err){
+      // A network error may happen after Postgres committed the UPDATE.
+      // Re-read the row before deleting the uploaded file to avoid deleting the live report.
       if(newPath){
+        const {data:confirmedRow}=await db.from("report_submissions")
+          .select("id,storage_path,file_name,status,submission_version,review_annotations,score,feedback,reviewed_at,reviewed_by")
+          .eq("id",gradingRecord.id).maybeSingle();
+        if(confirmedRow?.storage_path===newPath){
+          toast("网络响应中断，但已从数据库确认批阅版 PDF 保存成功。");
+          closeGradingPreview();$("gradingPanel").classList.add("hidden");gradingRecord=null;
+          await loadReviews();await loadReports();await loadOverview();
+          return;
+        }
         const {error:cleanupError}=await db.storage.from("lab-reports").remove([newPath]);
         if(cleanupError)toast("保存失败，且临时批阅文件清理失败："+friendlyError(cleanupError),true);
       }
