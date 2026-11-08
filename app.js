@@ -185,7 +185,15 @@
       picked=excelSheetRows(workbook,"数据源");
       out=excelNumericRows(picked.rows.slice(3),[0,1,2,3,4,5,6,7]);
     }else{
-      return {name:null,rows:[],message:"该实验表格尚无安全的自动列映射，请先在 Excel 中整理成表格后另存为 CSV/TSV 再导入，避免误读原始数据。"};
+      const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug),table=def?.tables?.find(x=>x.key===key);
+      if(table){
+        for(const sheetName of workbook.SheetNames){
+          const sheetRows=XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:null,raw:true});
+          const headerIndex=sheetRows.findIndex(row=>table.columns.every((col,i)=>String(row?.[i]??"").trim()===col));
+          if(headerIndex>=0){picked={name:sheetName,rows:sheetRows.slice(headerIndex+1)};out=excelNumericRows(picked.rows,table.columns.map((_,i)=>i));break;}
+        }
+      }
+      if(!out.length)return {name:null,rows:[],message:"没有找到与当前实验数据表字段一致的工作表。请使用本页面下载的专属 Excel 模板，或按字段顺序另存为 CSV/TSV。"};
     }
     return {name:picked?.name||null,rows:out};
   }
@@ -214,7 +222,8 @@
   function downloadExperimentTxt(slug,tableKey){
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
     const table=def?.tables?.find(x=>x.key===tableKey);if(!table)return;
-    const lines=["# TJUCPE 物理化学实验数据模板","# 实验："+def.name,"# 数据表："+table.title,"# 请按列顺序填写；单位见字段名称。",table.columns.join("\t"),...Array.from({length:10},()=>table.columns.map(()=>"").join("\t"))];
+    table.columns.join("\t");
+    const lines=[table.columns.join("\t"),...Array.from({length:20},()=>table.columns.map(()=>"").join("\t"))];
     const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/plain;charset=utf-8"});
     const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=slug+"-"+tableKey+"-数据模板.txt";link.click();URL.revokeObjectURL(url);
   }
