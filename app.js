@@ -1632,21 +1632,22 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       go("overview");
     }catch(err){showAuth();toast(err.message||"读取用户资料失败。",true);await db.auth.signOut();}
   }
-  async function completeVerifiedPasswordRecovery(){
+  async function completeVerifiedPasswordRecovery(reason="recovery"){
     if(recoveryCompletionRunning)return;
     recoveryCompletionRunning=true;
-    showAuth();setAuthMode("recovery");
+    const passwordMode=reason==="invite"?"forced-change":"recovery";
+    showAuth();setAuthMode(passwordMode);
     try{
       // The email link proves control of the mailbox. The user chooses a private password.
       const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"mark_password_change_required"}});
       if(error||!data?.ok)throw error||new Error("账号安全状态更新失败。");
       window.history.replaceState(null,"",APP_REDIRECT_URL);
-      setAuthMode("recovery");
+      setAuthMode(passwordMode);
       $("newPassword").value="";
       $("newPassword").focus();
-      toast("邮箱验证成功！本次邮件已授权密码重置，请在下方设置您自己的新密码。");
+      toast(reason==="invite"?"邀请邮箱验证成功！请在下方设置您自己的登录密码。":"邮箱验证成功！本次邮件已授权密码重置，请在下方设置您自己的新密码。");
     }catch(err){
-      setAuthMode("recovery");
+      setAuthMode(passwordMode);
       toast("邮箱验证成功，但账号安全状态更新失败："+friendlyError(err),true);
     }finally{recoveryCompletionRunning=false;}
   }
@@ -1720,9 +1721,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         user=data?.user||data?.session?.user||null;
         if(!user)throw new Error("邮箱验证已完成，但没有建立登录会话。请返回登录页重试。");
         window.history.replaceState(null,"",APP_REDIRECT_URL);
-        if(tokenType==="recovery"){
-          recoveryDetected=true;showAuth();setAuthMode("recovery");
-          await completeVerifiedPasswordRecovery();
+        if(tokenType==="recovery"||tokenType==="invite"){
+          recoveryDetected=true;
+          await completeVerifiedPasswordRecovery(tokenType==="invite"?"invite":"recovery");
         }else{
           await enterApp();
         }
