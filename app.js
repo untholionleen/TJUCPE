@@ -1729,7 +1729,6 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("refreshUsers").addEventListener("click",loadUsers);
     $("userSearch").addEventListener("input",renderAdminUsers);
     $("adminInviteButton").addEventListener("click",inviteAdminAccount);
-    $("usersBody").addEventListener("click",e=>{const reset=e.target.closest("[data-user-reset]");if(reset){reset.disabled=true;resetOneUser(reset.dataset.userReset).finally(()=>{reset.disabled=false;});}const toggle=e.target.closest("[data-account-toggle]");if(toggle){toggle.disabled=true;changeAccountStatus(toggle.dataset.accountToggle,toggle.dataset.status).finally(()=>{toggle.disabled=false;});}});
     $("bulkDeleteUsers").addEventListener("click",()=>bulkAccountAction("delete_students"));
     $("bulkResetUsers").addEventListener("click",()=>bulkAccountAction("reset_password"));
     $("closeGrading").addEventListener("click",()=>{$("gradingPanel").classList.add("hidden");closeGradingPreview();});
