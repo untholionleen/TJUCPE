@@ -230,7 +230,13 @@
       if(table){
         for(const sheetName of workbook.SheetNames){
           const sheetRows=XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:null,raw:true});
-          const headerIndex=sheetRows.findIndex(row=>table.columns.every((col,i)=>String(row?.[i]??"").trim()===col));
+          const matchesHeader=row=>{
+            const columns=table.columns||[],labels=table.headers||[];
+            const columnMatch=columns.length&&columns.every((col,i)=>String(row?.[i]??"").trim()===String(col).trim());
+            const labelMatch=labels.length&&labels.every((label,i)=>String(row?.[i]??"").trim()===String(label).trim());
+            return columnMatch||labelMatch;
+          };
+          const headerIndex=sheetRows.findIndex(matchesHeader);
           if(headerIndex>=0){picked={name:sheetName,rows:sheetRows.slice(headerIndex+1)};out=excelNumericRows(picked.rows,table.columns.map((_,i)=>i));break;}
         }
       }
