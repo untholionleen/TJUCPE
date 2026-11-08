@@ -111,6 +111,15 @@ export default {
         if (targetId === actorId) return json({ error: "You cannot disable your own administrator account" }, 409);
         const { data: target, error: targetError } = await supabaseAdmin.auth.admin.getUserById(targetId);
         if (targetError || !target.user) return json({ error: "Account not found" }, 404);
+        const { data: targetProfile, error: targetProfileError } = await supabaseAdmin.from("profiles")
+          .select("role,account_status").eq("id",targetId).single();
+        if(targetProfileError||!targetProfile)return json({error:"Account profile not found"},404);
+        if(status==="disabled"&&targetProfile.role==="admin"&&targetProfile.account_status!=="disabled"){
+          const {count,error:adminCountError}=await supabaseAdmin.from("profiles").select("id",{count:"exact",head:true})
+            .eq("role","admin").eq("account_status","active");
+          if(adminCountError)return json({error:adminCountError.message},500);
+          if((count??0)<=1)return json({error:"不能停用最后一个有效管理员账号。请先任命另一名管理员。"},409);
+        }
         const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(targetId, {
           ban_duration: status === "disabled" ? "876000h" : "none"
         });
@@ -134,6 +143,15 @@ export default {
         }
         const { data: authTarget, error: authLookupError } = await supabaseAdmin.auth.admin.getUserById(targetId);
         if (authLookupError || !authTarget.user) return json({ error: "Account not found" }, 404);
+        const { data: targetProfile, error: targetProfileError } = await supabaseAdmin.from("profiles")
+          .select("role,account_status").eq("id",targetId).single();
+        if(targetProfileError||!targetProfile)return json({error:"Account profile not found"},404);
+        if(targetProfile.role==="admin"&&role!=="admin"&&targetProfile.account_status==="active"){
+          const {count,error:adminCountError}=await supabaseAdmin.from("profiles").select("id",{count:"exact",head:true})
+            .eq("role","admin").eq("account_status","active");
+          if(adminCountError)return json({error:adminCountError.message},500);
+          if((count??0)<=1)return json({error:"不能降级最后一个有效管理员。请先任命另一名管理员。"},409);
+        }
         const nextMetadata = { ...(authTarget.user.app_metadata ?? {}), role };
         const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(targetId, { app_metadata: nextMetadata });
         if (authUpdateError) return json({ error: authUpdateError.message }, 500);
@@ -158,11 +176,22 @@ export default {
         if (inviteError || !inviteData.user) return json({ error: inviteError?.message ?? "Invite failed" }, 400);
         const { error: profileUpdateError } = await supabaseAdmin.from("profiles")
           .update({ role, full_name, student_no, account_status: "active" }).eq("id", inviteData.user.id);
-        if (profileUpdateError) return json({ error: profileUpdateError.message }, 500);
-        const { data: authTarget } = await supabaseAdmin.auth.admin.getUserById(inviteData.user.id);
-        await supabaseAdmin.auth.admin.updateUserById(inviteData.user.id, {
-          app_metadata: { ...(authTarget.user?.app_metadata ?? {}), role }
+        if (profileUpdateError) {
+          await supabaseAdmin.auth.admin.deleteUser(inviteData.user.id);
+          return json({ error: "账号档案写入失败，系统已回滚刚创建的账号：" + profileUpdateError.message }, 500);
+        }
+        const { data: authTarget, error: authTargetError } = await supabaseAdmin.auth.admin.getUserById(inviteData.user.id);
+        if(authTargetError||!authTarget.user){
+          await supabaseAdmin.auth.admin.deleteUser(inviteData.user.id);
+          return json({error:"读取新账号失败，系统已回滚刚创建的账号。"},500);
+        }
+        const {error:metadataError}=await supabaseAdmin.auth.admin.updateUserById(inviteData.user.id, {
+          app_metadata: { ...(authTarget.user.app_metadata ?? {}), role }
         });
+        if(metadataError){
+          await supabaseAdmin.auth.admin.deleteUser(inviteData.user.id);
+          return json({error:"账号角色写入失败，系统已回滚刚创建的账号："+metadataError.message},500);
+        }
         await audit(inviteData.user.id, "account.invited_by_admin", { role, email });
         return json({ ok: true, user_id: inviteData.user.id, email, role });
       }
@@ -346,7 +375,14 @@ export default {
         if (!ids.length) return json({ error: "No user IDs supplied" }, 400);
         if (!isAdmin && !await canManageClass()) return json({ error: "You do not manage this class" }, 403);
         const results = [];
-        for (const id of ids) results.push(await makeRecoveryLink(id));
+        for (let i=0;i<ids.length;i++){
+          const result=await makeRecoveryLink(ids[i]);
+          results.push(result);
+          if(result.error&&/rate.?limit|only request this after|too many/i.test(result.error)){
+            for(const pendingId of ids.slice(i+1))results.push({user_id:pendingId,ok:false,error:"邮件服务触发发送频率限制，本次未发送。请等待后分批重试。"});
+            break;
+          }
+        }
         return json({ results });
       }
 
