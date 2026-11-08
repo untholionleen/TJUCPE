@@ -1036,7 +1036,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const host=$("gradingPreviewContent");
     if(!window.pdfjsLib){host.textContent="PDF.js 未能加载，当前可预览但暂不可进行页面标注。请刷新后重试。";return;}
     pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    const task=pdfjsLib.getDocument({data:new Uint8Array(bytes)}),pdf=await task.promise;
+    // PDF.js transfers the supplied typed-array buffer to its worker. Always give it
+    // a disposable copy; gradingPdfBytes is the canonical save buffer and must survive.
+    const previewBytes=bytes instanceof Uint8Array?bytes.slice():new Uint8Array(bytes).slice();
+    const task=pdfjsLib.getDocument({data:previewBytes}),pdf=await task.promise;
     host.innerHTML='<div id="pdfAnnotationPages" class="pdf-annotation-pages"></div>';
     const pages=$("pdfAnnotationPages");
     for(let pageNo=1;pageNo<=pdf.numPages;pageNo++){
@@ -1071,7 +1074,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function buildAnnotatedPdf(){
     if(!gradingPdfBytes||!window.PDFLib?.PDFDocument)throw new Error("PDF 批注组件尚未就绪，请刷新页面后重新打开报告。");
     // Work on a detached copy. PDF.js and PDF-Lib must never share a transferable byte buffer.
-    const sourceBytes=new Uint8Array(gradingPdfBytes.slice(0));
+    if(!(gradingPdfBytes instanceof Uint8Array)||gradingPdfBytes.byteLength===0)throw new Error("PDF 原始数据缓冲区不可用。请关闭批阅窗口并重新打开报告，勿重复保存。");
+    const sourceBytes=gradingPdfBytes.slice();
     if(sourceBytes.length<8||String.fromCharCode(...sourceBytes.slice(0,5))!=="%PDF-")throw new Error("原始文件不是有效 PDF，无法生成批阅版。");
     const pdf=await PDFLib.PDFDocument.load(sourceBytes,{ignoreEncryption:true,updateMetadata:false});
     const pages=pdf.getPages();
@@ -1113,7 +1117,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
     if(error){host.textContent="报告读取失败："+friendlyError(error);return;}
     if((row.file_name||"").toLowerCase().endsWith(".pdf")){
-      gradingPdfBytes=await data.arrayBuffer();
+      // Keep a canonical Uint8Array for PDF-Lib. The preview renderer receives a copy.
+      gradingPdfBytes=new Uint8Array(await data.arrayBuffer());
       if(!window.PDFLib){host.textContent="PDF 编辑组件未加载，暂时不能保存页面批注。";return;}
       $("pdfAnnotationToolbar")?.classList.remove("hidden");
       try{await renderPdfAnnotation(gradingPdfBytes);}
