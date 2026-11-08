@@ -970,7 +970,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       <td><span class="status-pill">${roleName(p.role)}</span></td>
       <td>${p.email_confirmed?"已验证":"待验证"} · ${new Date(p.created_at).toLocaleDateString("zh-CN")}</td>
       <td><select class="profile-role-select" data-role-user="${p.id}"><option value="student" ${p.role==="student"?"selected":""}>学生</option><option value="teacher" ${p.role==="teacher"?"selected":""}>教师</option><option value="admin" ${p.role==="admin"?"selected":""}>管理员</option></select></td>
-      <td><button class="action-link" data-user-reset="${p.id}">发送重置邮件</button>${p.must_change_password?'<small class="muted">待修改个人密码</small>':""}</td>
+      <td><button class="action-link" data-user-reset="${p.id}">发送重置邮件</button> <button class="action-link" data-account-toggle="${p.id}" data-status="${p.account_status||"active"}">${p.account_status==="disabled"?"恢复账号":"停用账号"}</button>${p.must_change_password?'<small class="muted">待修改个人密码</small>':""}</td>
     </tr>`).join("")||'<tr><td colspan="8" class="muted center">没有匹配的账号。</td></tr>';
   }
   async function changeRole(id,role){
@@ -986,6 +986,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"reset_password",user_id:id}});
     if(error||!data?.ok){toast("重置邮件发送失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
     toast("密码重置验证邮件已发送至 "+target.email+"。");
+  }
+  async function changeAccountStatus(id,status){
+    const target=adminUsersCache.find(x=>x.id===id);if(!target)return;
+    const next=status==="disabled"?"active":"disabled",verb=next==="disabled"?"停用":"恢复";
+    if(!confirm("确认"+verb+"账号 "+target.email+"？"+(next==="disabled"?"此后该用户无法继续登录。":"该用户将重新获得登录权限。")))return;
+    const {data,error}=await db.functions.invoke("classroom-admin",{body:{action:"set_account_status",user_id:id,account_status:next}});
+    if(error||!data?.ok){toast(verb+"账号失败："+friendlyError(error||data?.error||"操作失败"),true);return;}
+    toast("账号已"+verb+"。");await loadUsers();
   }
   async function inviteAdminAccount(){
     const email=$("adminInviteEmail").value.trim(),full_name=$("adminInviteName").value.trim(),student_no=$("adminInviteNo").value.trim(),role=$("adminInviteRole").value;
@@ -1357,6 +1365,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   async function enterApp(){
     try{
       await loadProfile();
+      if(profile.account_status==="disabled"){
+        showAuth();toast("该账号已被管理员停用，请联系平台管理员。",true);await db.auth.signOut();return;
+      }
       if(profile.must_change_password){
         showAuth();setAuthMode("forced-change");
         $("newPassword").value="";
@@ -1510,6 +1521,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const catalogEdit=e.target.closest("[data-catalog-edit]");if(catalogEdit)editCatalogItem(catalogEdit.dataset.catalogEdit);
       const catalogToggle=e.target.closest("[data-catalog-toggle]");if(catalogToggle)toggleCatalogItem(catalogToggle.dataset.catalogToggle,catalogToggle.dataset.active==="true");
       const resetUser=e.target.closest("[data-user-reset]");if(resetUser)resetOneUser(resetUser.dataset.userReset);
+      const accountToggle=e.target.closest("[data-account-toggle]");if(accountToggle)changeAccountStatus(accountToggle.dataset.accountToggle,accountToggle.dataset.status);
     });
     $("backExperiments").addEventListener("click",()=>go("experiments"));
     $("runAnalysis").addEventListener("click",runAnalysis);
