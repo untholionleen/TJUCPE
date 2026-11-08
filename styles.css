@@ -82,3 +82,44 @@
 .template-download-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;margin-bottom:14px;background:#f1f7f6;border:1px solid #dcece8;border-radius:9px}.template-download-bar strong{color:#245b59;font-size:12px}.template-download-bar span{font-size:11px;color:#71858e;flex:1}.student-task-list{display:grid;gap:10px}.student-task-card{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#fbfdfd}.student-task-card strong,.student-task-card small{display:block}.student-task-card strong{font-size:13px;color:#29485b}.student-task-card small{font-size:10px;color:#8497a2;margin-top:5px}.student-task-card p{font-size:11px;color:#71838f;margin:8px 0 0;white-space:pre-wrap}.class-card-actions{display:flex;gap:7px;flex-wrap:wrap}.class-card-actions .danger{color:#a54e4e;border-color:#e7cccc}@media(max-width:700px){.student-task-card{align-items:flex-start;flex-direction:column}.template-download-bar{align-items:flex-start;flex-direction:column}}
 
 .formula-reference{margin:14px 0 18px;padding:16px 18px;border:1px solid var(--line);border-radius:10px;background:#fbfdfd}.formula-heading strong{font-size:13px;color:#29485b}.formula-heading small{display:block;margin-top:4px;font-size:10px;color:#82949e}.formula-item{padding:12px 0;border-top:1px solid #e8eef1}.formula-item h4{font-size:12px;color:#456375;margin:0 0 7px}.formula-item p{font-size:11px;line-height:1.65;color:#748894;margin:7px 0 0}.latex-display{display:block;overflow-x:auto;padding:8px 6px;background:#fff;border-radius:7px;color:#24465b;min-height:36px}.latex-display .katex-display{margin:.4em 0;text-align:left}.latex-display .katex{font-size:1.06em}@media(max-width:600px){.formula-reference{padding:12px}.latex-display{font-size:13px}.formula-item{padding:10px 0}}
+
+/* Mobile bottom navigation and mobile-first action controls */
+.mobile-signout{display:none}
+@media(max-width:700px){
+  .app-layout{min-height:100vh}
+  .sidebar{position:fixed;left:0;right:0;top:auto;bottom:0;width:100%;height:66px;min-height:66px;padding:5px 6px 7px;display:flex;flex-direction:row;align-items:stretch;justify-content:center;border-right:0;border-top:1px solid #dce5e9;box-shadow:0 -6px 20px #23445910;z-index:1000}
+  .sidebar-brand,.sidebar>.side-caption,.sidebar-bottom{display:none!important}
+  #mainNav{display:flex;flex-direction:row;align-items:stretch;justify-content:space-around;gap:2px;width:100%;height:100%;overflow-x:auto;overflow-y:hidden}
+  #mainNav .nav-item{display:flex;flex:1 0 58px;min-width:58px;max-width:110px;flex-direction:column;justify-content:center;align-items:center;gap:2px;padding:4px 2px;margin:0;border-radius:8px;font-size:9px;line-height:1.2;white-space:normal;text-align:center}
+  #mainNav .nav-item .nav-icon{display:block;font-size:17px;line-height:1.2}
+  #mainNav .nav-item.active{font-size:9px}
+  .main-area{margin-left:0;width:100%;padding-bottom:72px}
+  .topbar{height:58px;padding:0 12px}
+  .topbar>.mobile-brand{display:flex}
+  .top-actions{gap:8px}
+  .mobile-signout{display:inline-flex;padding:7px 9px;min-height:32px;font-size:10px}
+  .profile-chip{padding:4px 7px}
+  .profile-chip>span:last-child{display:none}
+  .page{padding:18px 12px 22px}
+  .panel{min-width:0}
+  .table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .data-table{min-width:680px}
+  .field-grid{grid-template-columns:1fr}
+  .experiment-input-grid{grid-template-columns:1fr}
+  .experiment-settings-grid{grid-template-columns:1fr 1fr}
+  .analysis-layout{grid-template-columns:minmax(0,1fr)}
+  .analysis-side{grid-template-columns:1fr}
+  .analysis-plotly{min-height:280px}
+  .pdf-annotation-pages{max-height:65vh}
+  .pdf-review-base,.pdf-review-overlay{max-width:100%}
+  .pdf-review-paper{max-width:100%;overflow:hidden}
+  .form-actions,.engine-actions{flex-wrap:wrap}
+  .upload-zone{padding:18px 10px}
+  .app-footer{margin-bottom:66px}
+}
+@media(max-width:390px){
+  #mainNav .nav-item{min-width:51px;font-size:8px}
+  #mainNav .nav-item .nav-icon{font-size:15px}
+  .mobile-signout{padding:6px 7px}
+  .top-actions{gap:4px}
+}
