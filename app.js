@@ -1269,7 +1269,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
           纵坐标名称:ar.y_label||"",
           纵坐标单位:ar.y_unit||"",
           计算摘要:ar.summary||null,
-          实验参数:ar.settings||null
+          实验参数:ar.settings||null,
+          计算公式:(formulaLibrary[record.experiment_slug]||[]).map(item=>({公式名称:item.title,LaTeX表达式:item.latex,说明:item.note||""}))
         };
         analysisFolder.file(rawFile,JSON.stringify({元数据:common,原始数据:chineseData},null,2));
         analysisFolder.file(analysisFile,JSON.stringify({元数据:common,分析结果:chineseAnalysis},null,2));
