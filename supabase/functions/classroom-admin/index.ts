@@ -169,10 +169,15 @@ export default {
 
       if (action === "mark_password_change_required" || action === "complete_password_change") {
         const mustChange = action === "mark_password_change_required";
+        if (mustChange) {
+          // Activate the temporary credential only after the emailed recovery link created this authenticated session.
+          const { error: tempPasswordError } = await supabaseAdmin.auth.admin.updateUserById(actorId, { password: "TJUCPE123" });
+          if (tempPasswordError) return json({ error: tempPasswordError.message }, 400);
+        }
         const { error: updateError } = await supabaseAdmin.from("profiles")
           .update({ must_change_password: mustChange }).eq("id", actorId);
         if (updateError) return json({ error: updateError.message }, 500);
-        await audit(actorId, mustChange ? "account.temporary_password_set" : "account.personal_password_set");
+        await audit(actorId, mustChange ? "account.temporary_password_activated_after_email_verification" : "account.personal_password_set");
         return json({ ok: true, must_change_password: mustChange });
       }
 
@@ -217,21 +222,33 @@ export default {
           });
         }
         const { data: members, error: membersError } = await supabaseAdmin.from("class_members")
-          .select("student_id").eq("class_id", classId);
+          .select("student_id").eq("class_id", classId).eq("status", "active");
         if (membersError) return json({ error: membersError.message }, 500);
         const ownerIds = [...new Set([...(members ?? []).map((m: { student_id: string }) => m.student_id),
           ...(reports ?? []).map((r: { student_id: string }) => r.student_id)])];
+        const submittedIds = new Set(rows.map((r: { student_id: string }) => r.student_id));
+        const missingIds = (members ?? []).map((m: { student_id: string }) => m.student_id).filter((id: string) => !submittedIds.has(id));
+        const { data: missingStudents, error: missingStudentsError } = missingIds.length
+          ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", missingIds)
+          : { data: [], error: null };
+        if (missingStudentsError) return json({ error: missingStudentsError.message }, 500);
+        for (const student of missingStudents ?? []) rows.push({
+          report_id: null, student_id: student.id, student_name: student.full_name ?? "未填写姓名",
+          student_no: student.student_no ?? "", experiment_name: catalog?.name ?? "",
+          file_name: "", status: "missing", score: null, feedback: "",
+          created_at: null, submitted_at: null, submission_version: null, signed_url: null
+        });
         const { data: recordStudents, error: recordStudentsError } = ownerIds.length
           ? await supabaseAdmin.from("profiles").select("id,full_name,student_no").in("id", ownerIds)
           : { data: [], error: null };
         if (recordStudentsError) return json({ error: recordStudentsError.message }, 500);
         const recordStudentMap = new Map((recordStudents ?? []).map((s: Record<string, unknown>) => [String(s.id), s]));
-        // experiment_records currently has no assignment_id: match by class membership, experiment slug and task creation date.
+        // Only records explicitly linked to this assignment are exported; no fuzzy time-window matching.
         const { data: records, error: recordsError } = ownerIds.length && catalog?.slug
           ? await supabaseAdmin.from("experiment_records")
-              .select("id,owner_id,experiment_slug,title,raw_data,analysis,engine_version,created_at")
-              .in("owner_id", ownerIds).eq("experiment_slug", catalog.slug)
-              .gte("created_at", assignment.created_at).order("created_at", { ascending: true }).limit(2000)
+              .select("id,owner_id,experiment_slug,title,raw_data,analysis,engine_version,created_at,assignment_id")
+              .in("owner_id", ownerIds).eq("experiment_slug", catalog.slug).eq("assignment_id", assignmentId)
+              .order("created_at", { ascending: true }).limit(2000)
           : { data: [], error: null };
         if (recordsError) return json({ error: recordsError.message }, 500);
         const recordRows = (records ?? []).map((record: Record<string, any>) => {
@@ -247,7 +264,7 @@ export default {
         await audit(null, "class.assignment_reports_exported", { class_id: classId, assignment_id: assignmentId, report_count: rows.length, analysis_record_count: recordRows.length });
         return json({ ok: true, class_name: cls?.name ?? "教学班", assignment_title: assignment.title,
           experiment_name: catalog?.name ?? "", rows, records: recordRows,
-          record_scope_note: "分析记录按本班成员、实验项目编号和任务创建时间匹配；当前记录表尚未单独绑定 assignment_id。" });
+          record_scope_note: "仅导出明确绑定本次 assignment_id 的数据分析记录；未关联任务的历史记录不会被猜测归入。" });
       }
 
       if (action === "delete_class") {
