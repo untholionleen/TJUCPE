@@ -7,27 +7,20 @@ const end = source.indexOf("\n  function undoPdfAnnotation()", start);
 assert(start >= 0 && end > start, "PDF annotation builder must exist");
 const builder = source.slice(start, end);
 
-assert.match(builder, /const sourceBytes=gradingPdfBytes\.slice\(\)/, "PDF-Lib must receive a detached copy of the canonical Uint8Array");
+assert.match(source, /let gradingPdfBlob = null/, "canonical PDF source must be an immutable Blob");
+assert.doesNotMatch(source, /gradingPdfBytes/, "detached typed-array state must not be retained across PDF.js worker transfers");
+assert.match(builder, /new Uint8Array\(await gradingPdfBlob\.arrayBuffer\(\)\)/, "PDF-Lib must receive a fresh ArrayBuffer from the canonical Blob on each save");
 assert.match(builder, /ignoreEncryption:\s*true/, "encrypted PDFs should be handled with an explicit compatibility option");
 assert.match(builder, /%PDF-/, "generated PDF must be signature-validated");
 assert.match(builder, /Number\.isFinite\(p\?\.x\).*Number\.isFinite\(p\?\.y\)/s, "invalid annotation coordinates must be filtered");
 
-const renderStart = source.indexOf("  async function renderPdfAnnotation(bytes){");
+const renderStart = source.indexOf("  async function renderPdfAnnotation(pdfBlob){");
 const renderEnd = source.indexOf("\n  async function buildAnnotatedPdf(){", renderStart);
 assert(renderStart >= 0 && renderEnd > renderStart, "PDF preview renderer must exist");
 const renderer = source.slice(renderStart, renderEnd);
-assert.match(renderer, /bytes instanceof Uint8Array\?bytes\.slice\(\):new Uint8Array\(bytes\)\.slice\(\)/,
-  "PDF.js must receive its own disposable copy, not the canonical save buffer");
-assert.match(source, /gradingPdfBytes=new Uint8Array\(await data\.arrayBuffer\(\)\)/,
-  "the canonical save bytes must be kept as a Uint8Array when the report is loaded");
-
-// Simulate the transferable-buffer behavior used by PDF.js workers.
-const canonical = Uint8Array.from([37, 80, 68, 70, 45, 49]);
-const previewCopy = canonical.slice();
-structuredClone(previewCopy.buffer, { transfer: [previewCopy.buffer] });
-assert.equal(previewCopy.byteLength, 0, "transferred preview copy should be detached");
-assert.equal(canonical.byteLength, 6, "canonical save bytes must remain attached");
-assert.deepEqual(Array.from(canonical), [37, 80, 68, 70, 45, 49]);
+assert.match(renderer, /const previewBuffer=await pdfBlob\.arrayBuffer\(\)/,
+  "PDF.js must receive a disposable ArrayBuffer from the canonical Blob");
+assert.match(source, /gradingPdfBlob=data/, "the original downloaded Blob must remain canonical");
 
 const saveStart = source.indexOf("  async function saveGrade(){");
 const saveEnd = source.indexOf("\n  let adminUsersCache=[];", saveStart);
@@ -41,11 +34,15 @@ assert.match(save, /if\(!confirmError&&confirmedRow\?\.storage_path===newPath\)/
 assert.match(save, /数据库确认请求也未成功，临时文件已保留/, "ambiguous commit must preserve the uploaded file");
 assert.match(save, /失败阶段：\"\+failedStage/, "the user must see the stage that actually failed");
 
-
-assert.match(source, /let gradingPdfBlob = null/, "canonical PDF source must be an immutable Blob");
-assert.doesNotMatch(source, /gradingPdfBytes/, "detached typed-array state must not be retained across PDF.js worker transfers");
-assert.match(builder, /await gradingPdfBlob\.arrayBuffer\(\)/, "PDF-Lib must receive a fresh ArrayBuffer from the canonical Blob on each save");
-assert.match(source, /const previewBuffer=await pdfBlob\.arrayBuffer\(\)/, "PDF.js must receive a disposable ArrayBuffer from the Blob");
-assert.doesNotMatch(source, /gradingPdfBlob\.slice\(/, "the canonical Blob should not be mutated or sliced");
-
-console.log("PDF review-save safety smoke test passed.");
+// Each Blob.arrayBuffer() call yields an independent buffer; transferring the preview
+// buffer must not detach the Blob or the buffer created later for PDF-Lib.
+(async () => {
+  const canonicalBlob = new Blob([Uint8Array.from([37, 80, 68, 70, 45, 49])], { type: "application/pdf" });
+  const previewBuffer = await canonicalBlob.arrayBuffer();
+  structuredClone(previewBuffer, { transfer: [previewBuffer] });
+  assert.equal(previewBuffer.byteLength, 0, "transferred PDF.js preview buffer should be detached");
+  const saveBuffer = await canonicalBlob.arrayBuffer();
+  assert.equal(saveBuffer.byteLength, 6, "fresh PDF-Lib save buffer must remain attached");
+  assert.deepEqual(Array.from(new Uint8Array(saveBuffer)), [37, 80, 68, 70, 45, 49]);
+  console.log("PDF review-save safety smoke test passed.");
+})().catch(error => { console.error(error); process.exitCode = 1; });
