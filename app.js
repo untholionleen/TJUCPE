@@ -1124,7 +1124,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const rows=data.rows||[];
       const csv="\uFEFF"+[headers,...rows.map(r=>[r.student_name,r.student_no,r.experiment_name,r.file_name,statusLabel(r.status),r.score,r.feedback,r.created_at,r.submitted_at,r.submission_version])].map(r=>r.map(csvCell).join(",")).join("\r\n");
       folder.file("00_任务报告汇总.csv",csv);
-      folder.file("数据说明.txt","本压缩包由 TJUCPE 物理化学实验平台导出。\n包含本班该次实验任务的报告文件、报告汇总表和学生数据处理记录。\n报告文件为提交时的当前有效版本；教师批阅版会反映为当前报告文件。\n实验数据记录按班级成员、实验项目编号与任务创建时间匹配；目前实验数据记录表尚未单独关联 assignment_id，因此该部分是时间/项目匹配范围。\n学生姓名、学号和成绩仅用于课程教学管理。");
+      folder.file("数据说明.txt","本压缩包由 TJUCPE 物理化学实验平台导出。\n包含本班该次任务的全体成员状态、报告文件、中文汇总表及与该任务精确关联的数据处理记录。\n只有在学生进入本次任务后保存的数据分析记录才会归入本次任务；历史未关联任务的数据不会按时间猜测归档。\n学生姓名、学号和成绩仅用于课程教学管理。");
       const reportFolder=folder.folder("报告文件");
       const analysisFolder=folder.folder("学生数据处理记录");
       const recordRows=data.records||[];
@@ -1161,7 +1161,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       folder.file("导出说明.txt","任务："+data.assignment_title+"\n实验："+data.experiment_name+"\n报告记录："+rows.length+"\n成功下载文件："+downloaded+"\n未获取到文件："+failed+"\n未获取文件的记录仍保留在汇总 CSV 中。");
       const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
       downloadBlob(blob,safeFileName(data.class_name)+"_"+safeFileName(data.assignment_title)+"_全班实验数据.zip");
-      toast("导出完成：报告记录 "+rows.length+" 条、报告文件 "+downloaded+" 份、数据处理记录 "+recordRows.length+" 条"+(failed?"；另有 "+failed+" 份报告文件未能下载。":"。"));
+      const submittedCount=rows.filter(r=>r.status!=="missing").length;toast("导出完成：班级成员 "+rows.length+" 人、已提交报告 "+submittedCount+" 份、报告文件 "+downloaded+" 份、任务数据处理记录 "+recordRows.length+" 条"+(failed?"；另有 "+failed+" 份报告文件未能下载。":"。"));
     }catch(err){toast("班级任务导出失败："+friendlyError(err),true);}
     finally{if(button){button.disabled=false;button.textContent="导出本次班级数据";}}
   }
