@@ -84,7 +84,7 @@
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, activeAssignmentId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
-  let gradingPdfBlob = null, gradingStrokes = {}, catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
+  let gradingPdfBlob = null, gradingStrokes = {}, pdfAnnotationTool = "draw", catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   function friendlyError(input){
     const raw=typeof input==="string"?input:(input?.message||String(input??""));
@@ -533,7 +533,7 @@
       $("engineWorkflowDescription").textContent=def.note;
       engine.renderSetup(slug,$("experimentSpecificInputs"),$("experimentSpecificSettings"));
       renderFormulaReference(slug);
-      $("fitSelectionLabel").textContent="拟合范围：全部有效数据点（可在图上框选或套索选点）";
+      $("fitSelectionLabel").textContent="拟合范围：全部有效数据点（整体线性拟合）";
     }else{
       $("dedicatedEnginePanel").classList.add("hidden");
       $("genericRawPanel").classList.remove("hidden");
@@ -751,21 +751,13 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(plotlyReady&&window.Plotly&&typeof Plotly.react==="function"){
       $("analysisPlotly").classList.remove("hidden");$("analysisChart").classList.add("hidden");$("fitRangeFallback").classList.add("hidden");
       Plotly.react("analysisPlotly",plotData,layout,{
-        responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:["select2d","lasso2d"],
+        responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:[],
         toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-selection",height:900,width:1400,scale:2}
       }).then(graph=>{
         plotlyGraph=graph;
         const node=$("analysisPlotly");
-        node.removeAllListeners?.("plotly_selected");
-        node.on("plotly_selected",event=>{
-          const chosen=(event?.points||[]).filter(p=>p.curveNumber===0&&plotData[p.curveNumber]?.mode==="markers");
-          selectedFitIndices=[...new Set(chosen.map(p=>Number(p.customdata)).filter(Number.isInteger))];
-          $("fitSelectionLabel").textContent=selectedFitIndices.length
-            ?("已选中 "+selectedFitIndices.length+" 个原始点；点击“运行本实验专属计算”按选区重新拟合。")
-            :"未选中有效原始点，将使用全部数据拟合。";
-        });
-        node.removeAllListeners?.("plotly_deselect");
-        node.on("plotly_deselect",()=>{selectedFitIndices=[];$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";});
+        selectedFitIndices=[];
+        $("fitSelectionLabel").textContent="拟合范围：全部有效数据点（整体线性拟合）";
       }).catch(error=>{
         $("pythonPlotStatus").textContent="交互图暂不可用："+friendlyError(error)+"；可以使用下方区间输入继续计算。";
         $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");$("fitRangeFallback").classList.remove("hidden");
@@ -1026,6 +1018,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const pts=stroke.points||[];if(!pts.length)return;
       ctx.strokeStyle=stroke.color||"#d7263d";ctx.fillStyle=stroke.color||"#d7263d";
       ctx.lineWidth=stroke.width||2.2;ctx.lineCap="round";ctx.lineJoin="round";
+      if(stroke.kind==="text"){ctx.font=(stroke.fontSize||16)+"px sans-serif";ctx.textBaseline="top";ctx.fillText(stroke.text||"",pts[0].x*w,pts[0].y*h);return;}
       if(pts.length===1){ctx.beginPath();ctx.arc(pts[0].x*w,pts[0].y*h,2,0,Math.PI*2);ctx.fill();return;}
       ctx.beginPath();ctx.moveTo(pts[0].x*w,pts[0].y*h);
       for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x*w,pts[i].y*h);
@@ -1059,7 +1052,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       overlay.addEventListener("pointerdown",e=>{
         if(e.button!==0)return;overlay.setPointerCapture(e.pointerId);
         const rect=overlay.getBoundingClientRect(),point={x:(e.clientX-rect.left)/rect.width,y:(e.clientY-rect.top)/rect.height};
-        const stroke={color:"#d7263d",width:2.2,points:[point]};
+        if(pdfAnnotationTool==="text"){const value=window.prompt("请输入要写入 PDF 的文字：");if(value&&value.trim()){(gradingStrokes[pageNo] ||= []).push({kind:"text",text:value.trim(),color:"#d7263d",fontSize:16,points:[point]});annotationCanvasRedraw(overlay,pageNo);}overlay.releasePointerCapture?.(e.pointerId);return;}
+        const stroke={kind:"draw",color:"#d7263d",width:2.2,points:[point]};
         (gradingStrokes[pageNo] ||= []).push(stroke);overlay.dataset.drawing="1";annotationCanvasRedraw(overlay,pageNo);
       });
       overlay.addEventListener("pointermove",e=>{
@@ -1088,6 +1082,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         const pts=(stroke.points||[]).filter(p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y));
         if(!pts.length)continue;
         const points=pts.map(p=>({x:Math.max(0,Math.min(1,p.x))*width,y:height-Math.max(0,Math.min(1,p.y))*height}));
+        if(stroke.kind==="text"){const labelCanvas=document.createElement("canvas");const fontSize=Math.max(8,Math.min(48,Number(stroke.fontSize)||16));const ctx=labelCanvas.getContext("2d");ctx.font=fontSize+"px sans-serif";const metrics=ctx.measureText(stroke.text||"");labelCanvas.width=Math.max(1,Math.ceil(metrics.width+8));labelCanvas.height=Math.ceil(fontSize*1.6);const draw=labelCanvas.getContext("2d");draw.font=fontSize+"px sans-serif";draw.textBaseline="top";draw.fillStyle=stroke.color||"#d7263d";draw.fillText(stroke.text||"",4,0);const png=await pdf.embedPng(labelCanvas.toDataURL("image/png"));const targetWidth=Math.min(width*0.8,Math.max(24,metrics.width/labelCanvas.width*labelCanvas.width/1.25));const targetHeight=targetWidth*labelCanvas.height/labelCanvas.width;page.drawImage(png,{x:points[0].x,y:points[0].y-targetHeight,width:targetWidth,height:targetHeight});continue;}
         const thickness=Number.isFinite(stroke.width)?Math.max(0.5,Math.min(12,stroke.width)):2.2;
         if(points.length===1){
           page.drawCircle({x:points[0].x,y:points[0].y,size:1.4,color:PDFLib.rgb(0.84,0.10,0.18)});
@@ -1843,6 +1838,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     }else showAuth();
   }
   function bindEvents(){
+    $("pdfToolDraw")?.addEventListener("click",()=>{pdfAnnotationTool="draw";$("pdfToolDraw").classList.add("active");$("pdfToolText")?.classList.remove("active");});
+    $("pdfToolText")?.addEventListener("click",()=>{pdfAnnotationTool="text";$("pdfToolText").classList.add("active");$("pdfToolDraw")?.classList.remove("active");});
     document.body.addEventListener("change",e=>{const fileInput=e.target.closest(".experiment-table-file");if(fileInput)importExperimentTableFile(fileInput);});
     $("authForm").addEventListener("submit",handleAuthSubmit);
     $("confirmEmailToken").addEventListener("click",confirmPendingEmailToken);

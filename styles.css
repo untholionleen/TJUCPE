@@ -133,3 +133,6 @@
 /* Responsive admin controls, data tables and formula layout */
 @media(max-width:760px){.admin-toolbar,.user-admin-toolbar,.template-download-bar{display:flex;flex-direction:column;align-items:stretch;gap:10px}.admin-toolbar button,.user-admin-toolbar button,.template-download-bar button{width:100%;min-height:42px}.table-wrap,.data-table-wrap,.users-table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.users-table-wrap table,.table-wrap table{min-width:760px}.profile-role-select{min-width:112px;min-height:38px}.experiment-data-block textarea{min-height:190px;font-size:13px}.latex-display{max-width:100%;overflow-x:auto;padding:12px 6px}.katex-display{overflow-x:auto;overflow-y:hidden;padding:4px 0}.card,.panel,.metric-card{min-width:0}.nav-item{min-height:42px}}
 button:disabled{opacity:.58;cursor:wait}.template-download-bar button{min-height:38px}.account-action-result{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* v2.0 PDF text insertion tools */
+.pdf-annotation-toolbar .active{background:#dcefeb;border-color:#168b83;color:#145b58;font-weight:700}
