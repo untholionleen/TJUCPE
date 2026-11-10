@@ -395,7 +395,7 @@
     }
     return {name:picked?.name||null,rows:out};
   }
-  async async function importExperimentTableFile(input){
+  async function importExperimentTableFile(input){
     const file=input.files?.[0],key=input.dataset.tableKey;
     if(!file||!currentExperiment||!key)return;
     const target=$("expData_"+key);
@@ -533,7 +533,7 @@
       $("engineWorkflowDescription").textContent=def.note;
       engine.renderSetup(slug,$("experimentSpecificInputs"),$("experimentSpecificSettings"));
       renderFormulaReference(slug);
-      $("fitSelectionLabel").textContent="拟合范围：全部有效数据点（可在图上框选或套索选点）";
+      $("fitSelectionLabel").textContent="拟合范围：全部有效数据点（整体线性拟合）";
     }else{
       $("dedicatedEnginePanel").classList.add("hidden");
       $("genericRawPanel").classList.remove("hidden");
@@ -751,21 +751,13 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(plotlyReady&&window.Plotly&&typeof Plotly.react==="function"){
       $("analysisPlotly").classList.remove("hidden");$("analysisChart").classList.add("hidden");$("fitRangeFallback").classList.add("hidden");
       Plotly.react("analysisPlotly",plotData,layout,{
-        responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:["select2d","lasso2d"],
+        responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:[],
         toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-selection",height:900,width:1400,scale:2}
       }).then(graph=>{
         plotlyGraph=graph;
         const node=$("analysisPlotly");
-        node.removeAllListeners?.("plotly_selected");
-        node.on("plotly_selected",event=>{
-          const chosen=(event?.points||[]).filter(p=>p.curveNumber===0&&plotData[p.curveNumber]?.mode==="markers");
-          selectedFitIndices=[...new Set(chosen.map(p=>Number(p.customdata)).filter(Number.isInteger))];
-          $("fitSelectionLabel").textContent=selectedFitIndices.length
-            ?("已选中 "+selectedFitIndices.length+" 个原始点；点击“运行本实验专属计算”按选区重新拟合。")
-            :"未选中有效原始点，将使用全部数据拟合。";
-        });
-        node.removeAllListeners?.("plotly_deselect");
-        node.on("plotly_deselect",()=>{selectedFitIndices=[];$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";});
+        selectedFitIndices=[];
+        $("fitSelectionLabel").textContent="拟合范围：全部有效数据点（整体线性拟合）";
       }).catch(error=>{
         $("pythonPlotStatus").textContent="交互图暂不可用："+friendlyError(error)+"；可以使用下方区间输入继续计算。";
         $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");$("fitRangeFallback").classList.remove("hidden");
