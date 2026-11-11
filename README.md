@@ -18,6 +18,7 @@ Supabase 迁移按顺序记录在 `supabase/migrations/`。本次 v2.1 新增：
 - `20261111131435_tjucpe_teacher_workbook_templates_storage_and_query_efficiency_v21.sql`
 - `20261111142825_tjucpe_teacher_workbook_storage_policy_privilege_tuning_v22.sql`
 - `20261111142948_tjucpe_student_analysis_write_restriction_v23.sql`
+- `20261111144211_tjucpe_teacher_reference_storage_outer_name_fix_v24.sql`
 
 本次没有清空、删除或重置现有学生报告、提交版本、PDF 批注或教师历史参考记录。`experiment_records` 的历史学生记录保留可读，但新的分析记录写入仅允许教师/管理员。`lab-reports` 为私有 Storage。
 

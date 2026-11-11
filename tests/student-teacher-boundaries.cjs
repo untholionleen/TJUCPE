@@ -37,7 +37,7 @@ assert.ok(m21.includes("create table if not exists public.assignment_templates")
 assert.ok(m21.includes("assignment_templates_select_staff_or_student"), "student template read RLS must exist");
 assert.ok(m22.includes("assignment_templates_updated_by_idx"), "template updater FK must be indexed");
 assert.ok(m22.includes("revoke all on table public.assignment_templates from anon, authenticated"), "template grants must use least privilege");
-assert.ok(m22.includes("(storage.foldername(name))[2]"), "storage rule must parse class ID from path segment 2");
+assert.ok(m22.includes("(storage.foldername(objects.name))[2]"), "storage rule must parse class ID from path segment 2");
 assert.ok(!m22.includes("storage.foldername(c.name)"), "storage rule must not inspect classes.name as a path");
 assert.ok(m23.includes("records_insert_staff_only"), "new analysis records must be staff-only");
 assert.ok(m23.includes("private.is_staff()"), "staff access must be enforced in RLS");
