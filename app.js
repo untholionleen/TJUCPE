@@ -777,26 +777,16 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       $("analysisPlotly").classList.remove("hidden");$("analysisChart").classList.add("hidden");
       Plotly.react("analysisPlotly",plotData,layout,{
         responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:[],
-        toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-selection",height:900,width:1400,scale:2}
+        toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-all-valid-data",height:900,width:1400,scale:2}
       }).then(graph=>{
         plotlyGraph=graph;
-        const node=$("analysisPlotly");
-        node.removeAllListeners?.("plotly_selected");
-        node.on("plotly_selected",event=>{
-          const chosen=(event?.points||[]).filter(p=>p.curveNumber===0&&plotData[p.curveNumber]?.mode==="markers");
-          selectedFitIndices=[...new Set(chosen.map(p=>Number(p.customdata)).filter(Number.isInteger))];
-          $("fitSelectionLabel").textContent=selectedFitIndices.length
-            ?("已选中 "+selectedFitIndices.length+" 个原始点；点击“运行本实验专属计算”按选区重新拟合。")
-            :"未选中有效原始点，将使用全部数据拟合。";
-        });
-        node.removeAllListeners?.("plotly_deselect");
-        node.on("plotly_deselect",()=>{selectedFitIndices=[];$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";});
+        // v2.0: no range/lasso selection listeners; regression always uses all valid points.
       }).catch(error=>{
-        $("pythonPlotStatus").textContent="交互图暂不可用："+friendlyError(error)+"；可以使用下方区间输入继续计算。";
+        $("pythonPlotStatus").textContent="交互图暂不可用："+friendlyError(error)+"；回归仍使用全部有效数据点。";
         $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");undefined
       });
     }else{
-      $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");$("fitRangeFallback").classList.remove("hidden");
+      $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");
       if(chart){chart.destroy();chart=null;}
       const datasets=[];
       (result.series||[]).forEach((series,index)=>{
@@ -812,9 +802,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
                   y:{title:{display:true,text:firstSeries?.yLabel||"Y"},grid:{color:"#e9eff2"}}}
         }
       });
-      $("fitRangeStart").value=1;$("fitRangeEnd").value=Math.max(1,basePoints.length);
-      $("fitRangeStart").max=Math.max(1,basePoints.length);$("fitRangeEnd").max=Math.max(1,basePoints.length);
-      $("pythonPlotStatus").textContent="交互绘图库暂不可用，已切换为 Chart.js 备用图。可用下方起止点设置拟合区间。";
+      $("pythonPlotStatus").textContent="交互绘图库暂不可用，已切换为 Chart.js 备用图；拟合始终使用全部有效数据点。";
     }
     $("analysisResult").classList.remove("hidden");
     const metrics=(result.metrics||[]).map(([label,value,unit])=>
@@ -852,16 +840,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       sourceTables:tables,settings
     };
   }
-  function applyFitRange(){
-    const points=(dedicatedResult?.series?.[0]?.points||[]).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
-    if(!points.length){toast("请先运行实验计算。",true);return;}
-    let from=Math.max(1,Math.floor(Number($("fitRangeStart").value)||1));
-    let to=Math.min(points.length,Math.floor(Number($("fitRangeEnd").value)||points.length));
-    if(from>to){const swap=from;from=to;to=swap;}
-    selectedFitIndices=points.slice(from-1,to).map((p,index)=>Number.isInteger(p.i)?p.i:from-1+index);
-    $("fitSelectionLabel").textContent="已选择第 "+from+"–"+to+" 个数据点（"+selectedFitIndices.length+" 点）；点击“运行本实验专属计算”重新拟合。";
-    toast("拟合区间已设置："+from+"–"+to+"。请重新运行实验计算。");
-  }
+  // Range selection has been removed in v2.0; clear the all-point fit state only if called by legacy code.
   function clearDedicatedSelection(){
     selectedFitIndices=[];
     $("fitSelectionLabel").textContent="拟合范围：全部有效数据点";
