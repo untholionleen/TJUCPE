@@ -259,5 +259,6 @@
   </div>
   <dialog id="reportViewerDialog" class="modal report-viewer"><div class="modal-head"><strong id="reportViewerTitle">报告预览</strong><button id="closeReportViewer" class="icon-button">×</button></div><iframe id="reportViewerFrame" title="PDF报告预览" class="report-frame hidden"></iframe><article id="reportViewerDocx" class="docx-preview hidden"></article></dialog>
   <dialog id="feedbackDialog" class="modal"><div class="modal-head"><strong>教师反馈</strong><button id="closeFeedback" class="icon-button">×</button></div><div id="feedbackContent" class="feedback-content"></div></dialog>
+  <dialog id="classQrDialog" class="modal class-qr-dialog"><div class="modal-head"><strong id="classQrTitle">班级加入二维码</strong><button id="closeClassQr" class="icon-button">×</button></div><div class="class-qr-body"><canvas id="classQrCanvas" width="260" height="260" aria-label="班级加入二维码"></canvas><div class="class-qr-code-label">班级加入码</div><strong id="classQrCode" class="class-qr-code"></strong><label>扫码加入链接<input id="classQrLink" readonly></label><button id="copyClassQrLink" class="btn btn-primary">复制加入链接</button><p class="muted tiny">学生登录平台后扫码即可自动填入班级加入码，核对后点击加入班级。</p></div></dialog>
 </body>
 </html>

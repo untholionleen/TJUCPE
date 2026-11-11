@@ -48,6 +48,9 @@
   }
   const ENGINE_VERSION = "tjucpe-webcalc-1.0.0";
   const APP_REDIRECT_URL = "https://untholionleen.github.io/TJUCPE/";
+  const INITIAL_CLASS_JOIN_CODE = (new URLSearchParams(window.location.search).get("join") || "").trim().toUpperCase();
+  let initialJoinCodeApplied = false;
+  let qrLibraryPromise = null;
   const emailSendTimes=new Map();
   function emailCooldownRemaining(email){
     const key=String(email||"").trim().toLowerCase();
@@ -1384,6 +1387,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const [classResult,auxiliary]=await Promise.all([classesPromise,auxiliaryPromise]);
     if(classResult.error){$("classList").textContent=friendlyError(classResult.error);return;}
     classesCache=classResult.data||[];
+    if(profile.role==="student" && INITIAL_CLASS_JOIN_CODE && !initialJoinCodeApplied && $("joinClassCode")){
+      $("joinClassCode").value=INITIAL_CLASS_JOIN_CODE;
+      initialJoinCodeApplied=true;
+      toast("已识别班级二维码，请核对班级加入码后点击“加入班级”。");
+    }
     if($("referenceClass")){
       const activeClasses=classesCache.filter(c=>c.is_active);
       $("referenceClass").innerHTML=activeClasses.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
@@ -1406,7 +1414,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       <strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.course_code||"课程班级")}</small>
       <p>${escapeHtml(c.description||"")}</p>
       ${staff?`<code>加入码：${escapeHtml(c.join_code||"—")}</code>
-      <div class="class-card-actions"><button class="btn btn-outline btn-sm" data-class-edit="${c.id}">修改</button>
+      <div class="class-card-actions"><button class="btn btn-outline btn-sm" data-class-qr="${c.id}">显示二维码</button><button class="btn btn-outline btn-sm" data-class-edit="${c.id}">修改</button>
       <button class="btn btn-outline btn-sm" data-class-toggle="${c.id}">${c.is_active?"停用/归档":"重新启用"}</button>
       <button class="btn btn-outline btn-sm" data-class-delete="${c.id}">备份并删除</button></div>`: ""}
       ${!c.is_active?'<small class="muted">已停用，历史报告保留</small>':""}
@@ -1672,6 +1680,30 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       toast(profile.role==="admin"?"账号永久删除完成："+deleted+"/"+ids.length+" 个成功。":"教师操作完成：永久删除 "+deleted+" 个账号，移出本班 "+removed+" 人。");
       await loadClassRoster(classId);
     }
+  }
+  async function loadQrLibrary(){
+    if(window.QRCode?.toCanvas)return window.QRCode;
+    if(!qrLibraryPromise){
+      qrLibraryPromise=(async()=>{
+        const urls=["https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js","https://unpkg.com/qrcode@1.5.4/build/qrcode.min.js"];
+        let lastError;
+        for(const src of urls){
+          try{await new Promise((resolve,reject)=>{const script=document.createElement("script");script.src=src;script.async=true;script.onload=resolve;script.onerror=()=>{script.remove();reject(new Error("二维码组件加载失败"));};document.head.appendChild(script);});if(window.QRCode?.toCanvas)return window.QRCode;}
+          catch(err){lastError=err;}
+        }
+        throw lastError||new Error("二维码组件不可用");
+      })().catch(err=>{qrLibraryPromise=null;throw err;});
+    }
+    return qrLibraryPromise;
+  }
+  async function showClassQr(classId){
+    const row=classesCache.find(item=>item.id===classId);if(!row?.join_code){toast("未找到班级加入码。",true);return;}
+    const dialog=$("classQrDialog"),canvas=$("classQrCanvas"),title=$("classQrTitle"),link=$("classQrLink"),code=$("classQrCode");
+    title.textContent=row.name+" · 班级加入二维码";code.textContent=row.join_code;
+    const joinUrl=new URL(APP_REDIRECT_URL);joinUrl.searchParams.set("join",row.join_code);link.value=joinUrl.toString();
+    dialog.showModal();
+    try{const qr=await loadQrLibrary();await qr.toCanvas(canvas,joinUrl.toString(),{width:260,margin:2,errorCorrectionLevel:"M"});}
+    catch(err){const ctx=canvas.getContext("2d");canvas.width=520;canvas.height=160;ctx.clearRect(0,0,520,160);ctx.fillStyle="#203447";ctx.font="20px sans-serif";ctx.fillText("二维码暂不可用，请复制班级加入链接",12,48);ctx.font="16px monospace";ctx.fillText(row.join_code,12,88);toast("二维码组件加载失败，班级加入码仍可复制使用。",true);}
   }
   async function joinClass(){
     const code=$("joinClassCode").value.trim().toUpperCase();if(!code){toast("请输入教师提供的班级加入码。",true);return;}
@@ -1996,13 +2028,15 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function createClass(){
     const name=$("newClassName").value.trim();if(!name){toast("请填写班级名称。",true);return;}
+    const wasEditing=!!classEditingId;
     const teacherId=profile.role==="admin"?($("newClassTeacher").value||user.id):user.id;
     const payload={name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim(),teacher_id:teacherId};
-    const result=classEditingId
+    const result=wasEditing
       ?await db.from("classes").update(payload).eq("id",classEditingId)
-      :await db.from("classes").insert(payload);
+      :await db.from("classes").insert(payload).select("id,name,join_code").single();
     if(result.error){toast(friendlyError(result.error),true);return;}
-    toast(classEditingId?"班级信息已更新。":"班级创建成功。");clearClassForm();await loadClasses();
+    toast(wasEditing?"班级信息已更新。":"班级创建成功。");clearClassForm();await loadClasses();
+    if(!wasEditing&&result.data?.id)showClassQr(result.data.id);
   }
   async function publishAssignment(){
     const slug=$("taskExperiment").value,cls=$("classTaskSelect").value,exp=experiments.find(x=>x.slug===slug);
@@ -2332,6 +2366,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("saveGrade").addEventListener("click",saveGrade);
     $("savePdfAnnotations").addEventListener("click",saveGrade);
     $("usersBody").addEventListener("change",e=>{const el=e.target.closest("[data-role-user]");if(el){el.disabled=true;changeRole(el.dataset.roleUser,el.value).finally(()=>{el.disabled=false;});}});
+    $("classList").addEventListener("click",e=>{const qr=e.target.closest("[data-class-qr]");if(qr)showClassQr(qr.dataset.classQr);});
+    $("copyClassQrLink")?.addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("classQrLink").value);toast("班级加入链接已复制。");}catch{ $("classQrLink").select();document.execCommand("copy");toast("班级加入链接已复制。");}});
+    $("closeClassQr")?.addEventListener("click",()=>$("classQrDialog").close());
     $("createClass").addEventListener("click",createClass);
     $("clearClassForm").addEventListener("click",clearClassForm);
     $("publishAssignment").addEventListener("click",publishAssignment);

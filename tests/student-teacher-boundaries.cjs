@@ -42,3 +42,11 @@ assert.ok(!m22.includes("storage.foldername(c.name)"), "storage rule must not in
 assert.ok(m23.includes("records_insert_staff_only"), "new analysis records must be staff-only");
 assert.ok(m23.includes("private.is_staff()"), "staff access must be enforced in RLS");
 console.log("TJUCPE student/teacher workflow smoke tests passed.");
+
+// QR enrollment is a link-assisted version of the existing authenticated join flow.
+assert.match(html, /id="classQrDialog"/, "class QR dialog is required");
+assert.match(html, /id="classQrCanvas"/, "class QR canvas is required");
+assert.match(app, /INITIAL_CLASS_JOIN_CODE/, "QR query parameter must be captured");
+assert.match(app, /data-class-qr/, "teacher class card must expose QR action");
+assert.match(app, /action:"join_class",join_code:code/, "QR enrollment must reuse authenticated join endpoint");
+assert.match(app, /showClassQr\(result\.data\.id\)/, "new class creation must show its QR code");
