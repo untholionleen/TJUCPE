@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.css" integrity="sha384-WwGtaC6ywCHxA5cstpj/3+xIZTez8dq2IcBQaXRkenHZ7FVVq1ZROtURwfbtTlG" crossorigin="anonymous">
-  <link rel="stylesheet" href="styles.css?v=20261108-workflow-21">
+  <link rel="stylesheet" href="styles.css?v=20261111-tjucpe-v2">
   <script src="config.js?v=20261107-publishable-key-2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2.119.0'"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js'"></script>
@@ -19,9 +19,9 @@
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js" integrity="sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE" crossorigin="anonymous"></script>
-  <script defer src="experiment-engine.js?v=20261108-engine-9"></script>
+  <script defer src="experiment-engine.js?v=20261111-tjucpe-v2"></script>
   
-  <script defer src="app.js?v=20261108-detached-buffer-fix-27"></script>
+  <script defer src="app.js?v=20261111-tjucpe-v2"></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status"></div>
@@ -85,7 +85,7 @@
       <div class="sidebar-bottom">
         <div class="sidebar-help"><span class="help-mark">?</span><div><strong>需要帮助？</strong><small>查看平台使用说明</small></div></div>
         <button id="signOut" class="nav-item signout"><span class="nav-icon">↪</span> 退出登录</button>
-        <div class="sidebar-foot">TJUCPE · v1.0.0</div>
+        <div class="sidebar-foot">TJUCPE · v2.0.0</div>
       </div>
     </aside>
 
@@ -130,7 +130,7 @@
           <div class="engine-settings-head"><strong>实验参数与常数</strong><span class="tiny muted">带有“按指导书填写”的项目必须核对后输入，不会自动套用未知常数。</span></div>
           <div id="experimentSpecificSettings" class="field-grid experiment-settings-grid"></div>
           <section id="formulaReference" class="formula-reference panel-inset"></section>
-          <div class="engine-actions"><button id="runDedicatedAnalysis" class="btn btn-primary">运行本实验专属计算</button><button id="clearFitSelection" class="btn btn-outline btn-sm" type="button">清除拟合选区</button><span id="fitSelectionLabel" class="tiny muted">拟合范围：全部有效数据点（可在图上框选或套索选点）</span></div>
+          <div class="engine-actions"><button id="runDedicatedAnalysis" class="btn btn-primary">运行本实验专属计算</button><span id="fitSelectionLabel" class="tiny muted">拟合范围：全部有效数据点</span></div>
         </section>
         <div class="analysis-layout">
           <div class="analysis-main">
@@ -157,7 +157,7 @@
             </section>
             <section class="panel chart-panel">
               <div class="panel-heading"><div><h3>图形分析</h3><p>支持高清 PNG 导出；原始数据可导出为 CSV，便于继续在 Origin / MATLAB 中处理。</p></div><button id="downloadChart" class="btn btn-outline btn-sm" disabled>↓ 导出 PNG</button></div>
-              <div class="python-plot-stage"><div class="python-plot-heading"><strong>Python 科研图形（Matplotlib）</strong><span id="pythonPlotStatus">交互图优先；高清 Python 图按需生成</span><button type="button" id="renderPythonPlot" class="btn btn-outline btn-sm hidden">生成 Python 高清图</button></div><img id="pythonPlotImage" class="python-plot-image hidden" alt="Matplotlib 实验数据图形"><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>运行实验计算后生成 Python 图形</strong><small>支持多组数据、拟合曲线、高清 PNG 导出。</small></div></div><div class="selection-workspace"><div class="selection-workspace-heading"><strong>Origin 式拟合区间选择</strong><span>在数据点图上使用矩形框选或套索选择，再重新运行专属计算</span><button type="button" id="clearFitSelection" class="btn btn-outline btn-sm">清除选区</button></div><div id="fitRangeFallback" class="fit-range-fallback hidden"><span>备用拟合区间（按数据点序号）</span><label>起始点<input id="fitRangeStart" type="number" min="1" value="1"></label><label>结束点<input id="fitRangeEnd" type="number" min="1" value="10"></label><button type="button" id="applyFitRange" class="btn btn-outline btn-sm">应用区间</button></div><div id="analysisPlotly" class="analysis-plotly"></div></div><canvas id="analysisChart" class="hidden"></canvas>
+              <div class="python-plot-stage"><div class="python-plot-heading"><strong>Python 科研图形（Matplotlib）</strong><span id="pythonPlotStatus">交互图优先；高清 Python 图按需生成</span><button type="button" id="renderPythonPlot" class="btn btn-outline btn-sm hidden">生成 Python 高清图</button></div><img id="pythonPlotImage" class="python-plot-image hidden" alt="Matplotlib 实验数据图形"><div id="chartPlaceholder" class="chart-placeholder"><span>⌁</span><strong>运行实验计算后生成 Python 图形</strong><small>支持多组数据、拟合曲线、高清 PNG 导出。</small></div></div><div class="fit-policy-note">拟合范围：全部有效数据点。系统不再提供框选/套索选区，回归斜率和统计结果统一基于完整有效数据集计算。</div><div id="analysisPlotly" class="analysis-plotly"></div><canvas id="analysisChart" class="hidden"></canvas>
               <div class="chart-footer"><span id="chartCaption">当前没有图表</span><button id="downloadCsv" class="text-action" disabled>导出 Origin CSV　↓</button></div>
               <div id="engineWarnings" class="engine-warnings hidden"></div>
             </section>
@@ -174,20 +174,21 @@
       </section>
 
       <section id="reportsPage" class="page hidden">
-        <div class="page-heading"><div><div class="eyebrow">REPORT CENTER</div><h1>我的实验报告</h1><p class="muted">上传 PDF / Word 报告，查看提交进度与批阅意见。</p></div><button id="newReport" class="btn btn-primary">＋ 提交新报告</button></div>
+        <div class="page-heading"><div><div class="eyebrow">REPORT CENTER</div><h1>我的实验报告</h1><p class="muted">下载实验 Excel 模板，独立完成数据处理，并同时提交原始工作簿与 PDF/Word 报告。</p></div><button id="newReport" class="btn btn-primary">＋ 提交新报告</button></div>
         <section class="panel student-only" id="studentTaskPanel"><div class="panel-heading"><div><h3>我的待完成实验任务</h3><p>教师发布并向您开放的任务会显示在这里。</p></div></div><div id="studentTaskList" class="student-task-list"><p class="muted">正在加载任务……</p></div></section>
         <section class="panel">
           <div class="panel-heading"><div><h3>报告记录</h3><p>仅本人和有权限的课程教师可查看报告文件。</p></div><span class="small-tag">PRIVATE STORAGE</span></div>
           <div class="table-scroll"><table class="data-table"><thead><tr><th>实验项目</th><th>报告文件</th><th>提交时间</th><th>状态</th><th>成绩</th><th>操作</th></tr></thead><tbody id="reportsBody"><tr><td colspan="6" class="muted center">正在加载……</td></tr></tbody></table></div>
         </section>
         <div id="reportUploadPanel" class="panel hidden">
-          <div class="panel-heading"><div><h3>提交实验报告</h3><p>允许 PDF、DOCX 格式，单个文件最大 20 MB。</p></div><button id="closeReportPanel" class="icon-button">×</button></div>
+          <div class="panel-heading"><div><h3>提交实验报告</h3><p>报告支持 PDF / DOCX，数据附件支持 XLSX / XLS / CSV；每个文件最大 20 MB。</p></div><button id="closeReportPanel" class="icon-button">×</button></div>
           <div class="field-grid">
             <label>所属班级<select id="reportClass"></select></label>
             <label>教师布置的任务<select id="reportAssignment"></select></label>
             <label>报告标题<input id="reportTitle" placeholder="填写本次实验报告标题"></label>
           </div>
           <label class="upload-zone" for="reportFile"><span>↑</span><strong id="reportFileName">点击选择报告文件</strong><small>PDF / DOCX · 最大 20 MB</small><input id="reportFile" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>
+          <label class="upload-zone" for="reportDataFile"><span>▦</span><strong id="reportDataFileName">点击选择 Excel 数据文件</strong><small>XLSX / XLS / CSV · 必须与报告同时提交</small><input id="reportDataFile" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"></label>
           <div class="form-actions"><button id="submitReport" class="btn btn-primary">提交报告</button></div>
         </div>
       </section>
@@ -200,7 +201,8 @@
           <div class="panel-heading"><div><h3>批阅报告</h3><p id="gradingTitle"></p></div><button id="closeGrading" class="icon-button">×</button></div>
           <div class="field-grid"><label>成绩（0–100）<input id="gradeScore" type="number" min="0" max="100" step="0.5"></label><label>批阅状态<select id="gradeStatus"><option value="graded">已批阅</option><option value="returned">退回修改</option></select></label></div>
           <label>教师反馈<textarea id="gradeFeedback" rows="5" placeholder="请填写计算过程、数据处理、图表或报告格式方面的意见。"></textarea></label>
-          <section class="grading-preview-panel"><div class="panel-heading"><div><h3>报告在线批阅预览</h3><p class="muted">文件直接嵌入当前批阅区，不会另开浏览器页面。</p></div><button id="closeGradingPreview" class="btn btn-outline btn-sm">关闭预览 ×</button></div><div id="pdfAnnotationToolbar" class="pdf-annotation-toolbar hidden"><strong>PDF 页面批注</strong><span>鼠标或触控笔可直接在页面上圈画、标记</span><button id="undoPdfAnnotation" class="btn btn-outline btn-sm">撤销上一步</button><button id="clearPdfAnnotations" class="btn btn-outline btn-sm">清空本次标注</button><button id="savePdfAnnotations" class="btn btn-primary btn-sm">保存批注并发布</button></div><div id="gradingPreviewContent" class="grading-preview-content">点击“打开批阅”后在此处预览 PDF / DOCX。</div></section>
+          <section class="panel grading-data-comparison"><div class="panel-heading"><div><h3>学生原始数据与教师参考曲线</h3><p id="gradingDataSummary" class="muted">批阅时读取学生提交的 Excel 工作簿。</p></div><label>教师参考数据<select id="gradingReferenceSelect"></select></label></div><div id="gradingCompareCharts" class="grading-compare-charts"></div></section>
+          <section class="grading-preview-panel"><div class="panel-heading"><div><h3>报告在线批阅预览</h3><p class="muted">文件直接嵌入当前批阅区，不会另开浏览器页面。</p></div><button id="closeGradingPreview" class="btn btn-outline btn-sm">关闭预览 ×</button></div><div id="pdfAnnotationToolbar" class="pdf-annotation-toolbar hidden"><strong>PDF 编辑工具</strong><select id="pdfAnnotationMode"><option value="draw">手写 / 圈画</option><option value="text-add">插入文字</option><option value="text-edit">修改 / 删除文字</option></select><input id="pdfTextInput" maxlength="200" placeholder="输入要写入 PDF 的文字"><input id="pdfTextSize" type="number" min="6" max="48" value="12" title="字号"><input id="pdfTextColor" type="color" value="#c62828" title="文字颜色"><button id="undoPdfAnnotation" class="btn btn-outline btn-sm">撤销</button><button id="clearPdfAnnotations" class="btn btn-outline btn-sm">清空本次标注</button><button id="savePdfAnnotations" class="btn btn-primary btn-sm">保存批注并发布</button></div><div id="gradingPreviewContent" class="grading-preview-content">点击“打开批阅”后在此处预览 PDF / DOCX。</div></section>
           <div class="form-actions"><button id="saveGrade" class="btn btn-primary">保存批阅结果</button></div>
         </div>
       </section>
@@ -216,11 +218,13 @@
 
       <section id="classesPage" class="page hidden">
         <div class="page-heading"><div><div class="eyebrow">CLASSROOM MANAGEMENT</div><h1>班级与实验任务</h1><p class="muted">教师创建班级、发布实验任务；学生加入班级后按任务提交。</p></div></div>
-        <section class="panel"><div class="panel-heading"><div><h3>班级列表</h3><p>学生仅能查看已加入的班级。</p></div></div><div id="classList" class="class-grid">加载中…</div><div class="inline-form"><input id="joinClassCode" placeholder="学生输入教师提供的班级加入码"><button id="joinClass" class="btn btn-primary">加入班级</button></div></section>
+        <section class="panel"><div class="panel-heading"><div><h3>班级列表</h3><p>学生仅能查看已加入的班级。</p></div></div><div id="classList" class="class-grid">加载中…</div><div id="classBackupDownloadResult" class="assignment-export-result hidden"></div><div class="inline-form"><input id="joinClassCode" placeholder="学生输入教师提供的班级加入码"><button id="joinClass" class="btn btn-primary">加入班级</button></div></section>
         <div id="classManagerTools" class="hidden">
           <section class="panel"><h3>创建班级</h3><div class="field-grid"><label>班级名称<input id="newClassName"></label><label>课程代码<input id="newClassCode"></label><label>说明<input id="newClassDesc"></label><label id="newClassTeacherLabel" class="hidden">负责教师<select id="newClassTeacher"></select></label></div><div class="form-actions"><button id="createClass" class="btn btn-primary">创建班级</button><button id="clearClassForm" class="btn btn-outline">清空表单</button></div></section>
           <section class="panel"><h3>批量导入学生名单</h3><p class="muted tiny">CSV / XLSX 三列：邮箱、姓名、学号（学号可空）。系统通过 Supabase Auth 发送邀请邮件。</p><label>名单文件<input id="rosterFile" type="file" accept=".csv,.xlsx,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"></label><button id="importRoster" class="btn btn-outline">批量邀请学生</button></section>
           <section class="panel"><h3>发布实验任务</h3><div class="field-grid"><label>管理班级<select id="classTaskSelect"></select></label><label>实验项目<select id="taskExperiment"></select></label><label>任务名称<input id="taskTitle"></label><label>截止时间<input id="taskDue" type="datetime-local"></label></div><label>任务要求<textarea id="taskInstructions" rows="3"></textarea></label><button id="publishAssignment" class="btn btn-primary">发布任务</button><div id="classAssignments" class="assignment-list"></div><div id="assignmentExportResult" class="assignment-export-result hidden"></div><section class="panel roster-panel"><div class="panel-heading"><div><h3>班级学生名单</h3><p class="muted">教师仅能管理自己所负责班级的学生；管理员可管理全部班级。</p></div><div><button id="classBulkReset" class="btn btn-outline btn-sm">批量重置密码</button> <button id="classBulkDelete" class="btn btn-outline btn-sm">批量删除账号</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>选择</th><th>姓名</th><th>学号</th><th>状态</th><th>加入时间</th></tr></thead><tbody id="classRosterBody"><tr><td colspan="5">请选择班级。</td></tr></tbody></table></div></section><div id="accountActionResult" class="tiny muted"></div></section>
+          <section class="panel"><h3>实验 Excel 模板编制</h3><p class="muted tiny">教师 / 管理员可调整工作表标题及显示表头；内部计算字段名称、数量和顺序受到保护。</p><label>实验项目<select id="templateDesignExperiment"></select></label><label>模板结构 JSON<textarea id="templateDesignJson" rows="12" spellcheck="false"></textarea></label><button id="saveTemplateDesign" class="btn btn-primary">保存模板配置</button></section>
+          <section class="panel"><h3>教师参考数据管理</h3><p class="muted tiny">按班级与实验项目上传 Excel / CSV 参考数据，批阅时可与学生原始数据叠加对照。</p><div class="field-grid"><label>所属班级<select id="referenceClass"></select></label><label>实验项目<select id="referenceExperiment"></select></label><label>参考数据名称<input id="referenceTitle" placeholder="例如：PC-01 教师参考数据"></label><label>参考工作簿<input id="referenceFile" type="file" accept=".xlsx,.xls,.csv"></label></div><label>说明<textarea id="referenceNotes" rows="2"></textarea></label><button id="saveReferenceSet" class="btn btn-primary">上传并保存参考数据</button><div id="referenceSetList" class="reference-set-list"></div></section>
           <section class="panel catalog-manager-panel">
             <div class="panel-heading"><div><h3>实验项目管理</h3><p class="muted">教师和管理员可新增、修改、停用或重新启用实验项目。停用不删除历史任务与报告。</p></div></div>
             <div class="field-grid"><label>项目编号<input id="catalogCode" placeholder="PC-15"></label><label>项目 slug<input id="catalogSlug" placeholder="experiment-slug"></label><label>项目名称<input id="catalogName" placeholder="实验名称"></label><label>所属类别<input id="catalogCategory" placeholder="界面化学 / 电化学等"></label></div>

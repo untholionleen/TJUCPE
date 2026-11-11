@@ -320,21 +320,212 @@ export default {
           record_scope_note: "仅导出明确绑定本次 assignment_id 的数据处理记录；未关联任务的历史记录不会按时间猜测归档。"
         });
       }
+
+      if (action === "export_class_backup") {
+        if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
+        if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
+
+        const [classResult, assignmentResult, memberResult, reportResult, referenceResult] = await Promise.all([
+          supabaseAdmin.from("classes").select("*").eq("id", classId).maybeSingle(),
+          supabaseAdmin.from("experiment_assignments").select("*").eq("class_id", classId).order("created_at"),
+          supabaseAdmin.from("class_members").select("*").eq("class_id", classId).order("joined_at"),
+          supabaseAdmin.from("report_submissions").select("*").eq("class_id", classId).order("created_at").limit(3000),
+          supabaseAdmin.from("experiment_reference_sets").select("*").eq("class_id", classId).order("updated_at")
+        ]);
+        if (classResult.error || !classResult.data) return json({ error: classResult.error?.message ?? "Class not found" }, 404);
+        for (const result of [assignmentResult, memberResult, reportResult, referenceResult]) {
+          if (result.error) return json({ error: result.error.message }, 500);
+        }
+
+        const assignments = assignmentResult.data ?? [];
+        const members = memberResult.data ?? [];
+        const reports = reportResult.data ?? [];
+        const references = referenceResult.data ?? [];
+        const reportIds = reports.map((row: Record<string, any>) => String(row.id));
+        const assignmentIds = assignments.map((row: Record<string, any>) => String(row.id));
+
+        const [revisionResult, recordResult] = await Promise.all([
+          reportIds.length
+            ? supabaseAdmin.from("report_revisions").select("*").in("report_id", reportIds).order("changed_at")
+            : Promise.resolve({ data: [], error: null }),
+          assignmentIds.length
+            ? supabaseAdmin.from("experiment_records").select("*").in("assignment_id", assignmentIds).order("created_at").limit(10000)
+            : Promise.resolve({ data: [], error: null })
+        ]);
+        if (revisionResult.error) return json({ error: revisionResult.error.message }, 500);
+        if (recordResult.error) return json({ error: recordResult.error.message }, 500);
+        const revisions = revisionResult.data ?? [];
+        const records = recordResult.data ?? [];
+
+        const studentIds = [...new Set([
+          ...members.map((row: Record<string, any>) => String(row.student_id)),
+          ...reports.map((row: Record<string, any>) => String(row.student_id))
+        ])];
+        const profileResult = studentIds.length
+          ? await supabaseAdmin.from("profiles").select("id,full_name,student_no,role,account_status").in("id", studentIds)
+          : { data: [], error: null };
+        if (profileResult.error) return json({ error: profileResult.error.message }, 500);
+        const profiles = profileResult.data ?? [];
+        const profileMap = new Map(profiles.map((row: Record<string, any>) => [String(row.id), row]));
+
+        const paths = [...new Set([
+          ...reports.flatMap((row: Record<string, any>) => [row.storage_path, row.data_file_path, row.annotation_source_path]),
+          ...revisions.flatMap((row: Record<string, any>) => [row.previous_storage_path, row.previous_data_file_path])
+        ].filter((path: unknown): path is string => typeof path === "string" && path.length > 0))];
+
+        const signedUrlMap = new Map<string, string>();
+        for (let offset = 0; offset < paths.length; offset += 80) {
+          const chunk = paths.slice(offset, offset + 80);
+          const signed = await supabaseAdmin.storage.from("lab-reports").createSignedUrls(chunk, 900);
+          if (signed.error) return json({ error: "备份文件链接生成失败：" + signed.error.message }, 500);
+          for (const item of signed.data ?? []) {
+            if (item.path && item.signedUrl && !item.error) signedUrlMap.set(item.path, item.signedUrl);
+          }
+        }
+        const missingLinks = paths.filter(path => !signedUrlMap.has(path));
+        if (missingLinks.length) {
+          return json({ error: "有 " + missingLinks.length + " 个报告或数据文件无法读取，已中止备份；班级不会被删除。" }, 500);
+        }
+
+        const safe = (value: unknown) => String(value ?? "未命名").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+        const files: Record<string, unknown>[] = [];
+        const addFile = (path: unknown, displayName: string, kind: string, reportId = "") => {
+          if (typeof path !== "string" || !path) return;
+          files.push({
+            path,
+            archive_name: displayName,
+            kind,
+            report_id: reportId,
+            signed_url: signedUrlMap.get(path)
+          });
+        };
+        for (const report of reports as Record<string, any>[]) {
+          const person = profileMap.get(String(report.student_id)) ?? {};
+          const studentFolder = safe(person.student_no || person.full_name || report.student_id);
+          addFile(report.storage_path, "报告文件/" + studentFolder + "/" + safe(report.file_name), "report", report.id);
+          addFile(report.data_file_path, "数据工作簿/" + studentFolder + "/" + safe(report.data_file_name), "student_data", report.id);
+          if (report.annotation_source_path && report.annotation_source_path !== report.storage_path) {
+            addFile(report.annotation_source_path, "PDF原件/" + studentFolder + "/" + report.id + "_annotation_source.pdf", "annotation_source", report.id);
+          }
+        }
+        for (const revision of revisions as Record<string, any>[]) {
+          const report = reports.find((row: Record<string, any>) => String(row.id) === String(revision.report_id));
+          const person = report ? profileMap.get(String(report.student_id)) ?? {} : {};
+          const studentFolder = safe(person.student_no || person.full_name || "学生");
+          addFile(revision.previous_storage_path, "历史报告版本/" + studentFolder + "/" + revision.report_id + "_v" + revision.version + "_" + safe(revision.previous_file_name), "report_revision", revision.report_id);
+          addFile(revision.previous_data_file_path, "历史数据版本/" + studentFolder + "/" + revision.report_id + "_v" + revision.version + "_" + safe(revision.previous_data_file_name), "data_revision", revision.report_id);
+        }
+
+        const backupName = "TJUCPE_" + safe(classResult.data.name) + "_班级完整备份_" + new Date().toISOString().replace(/[:.]/g, "-") + ".zip";
+        const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+        const { data: receipt, error: receiptError } = await supabaseAdmin.from("class_backup_receipts").insert({
+          class_id: classId,
+          actor_id: actorId,
+          expires_at: expiresAt,
+          backup_file_name: backupName,
+          metadata: {
+            member_count: members.length,
+            assignment_count: assignments.length,
+            report_count: reports.length,
+            revision_count: revisions.length,
+            analysis_record_count: records.length,
+            reference_set_count: references.length,
+            file_count: files.length
+          }
+        }).select("id,expires_at").single();
+        if (receiptError || !receipt) return json({ error: "备份凭证创建失败：" + (receiptError?.message ?? "unknown") }, 500);
+
+        await audit(null, "class.backup_prepared", {
+          class_id: classId,
+          backup_id: receipt.id,
+          file_count: files.length,
+          report_count: reports.length,
+          analysis_record_count: records.length
+        });
+        return json({
+          ok: true,
+          backup_id: receipt.id,
+          expires_at: receipt.expires_at,
+          backup_file_name: backupName,
+          class: classResult.data,
+          assignments,
+          members,
+          profiles,
+          reports,
+          revisions,
+          experiment_records: records,
+          reference_sets: references,
+          files,
+          counts: {
+            member_count: members.length,
+            assignment_count: assignments.length,
+            report_count: reports.length,
+            revision_count: revisions.length,
+            analysis_record_count: records.length,
+            reference_set_count: references.length,
+            file_count: files.length
+          }
+        });
+      }
+
+      if (action === "ack_class_backup_downloaded") {
+        if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
+        if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
+        const backupId = String(body.backup_id ?? "");
+        const fileName = String(body.backup_file_name ?? "").slice(0, 240);
+        const { data: receipt, error: receiptError } = await supabaseAdmin.from("class_backup_receipts")
+          .select("id,expires_at,downloaded_at,used_at")
+          .eq("id", backupId).eq("class_id", classId).eq("actor_id", actorId).maybeSingle();
+        if (receiptError || !receipt) return json({ error: "备份凭证不存在。" }, 404);
+        if (receipt.used_at || receipt.downloaded_at) return json({ error: "该备份凭证已使用或已确认。" }, 409);
+        if (new Date(receipt.expires_at).getTime() <= Date.now()) return json({ error: "备份凭证已过期，请重新生成备份。" }, 409);
+        const { error } = await supabaseAdmin.from("class_backup_receipts")
+          .update({ downloaded_at: new Date().toISOString(), backup_file_name: fileName || "班级完整备份.zip" })
+          .eq("id", backupId).eq("class_id", classId).eq("actor_id", actorId);
+        if (error) return json({ error: "备份确认写入失败：" + error.message }, 500);
+        await audit(null, "class.backup_download_confirmed", { class_id: classId, backup_id: backupId, file_name: fileName });
+        return json({ ok: true, backup_id: backupId });
+      }
+
       if (action === "delete_class") {
         if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
         if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
-        const { data: reportRows, error: reportError } = await supabaseAdmin
-          .from("report_submissions").select("id").eq("class_id", classId).limit(1);
-        if (reportError) return json({ error: reportError.message }, 500);
-        if (reportRows?.length) return json({ error: "该班级已有报告记录。为保护报告、成绩和审计关联，请先停用/归档，不能永久删除。" }, 409);
-        await audit(null, "class.permanently_deleted", { class_id: classId });
-        const { error: assignmentError } = await supabaseAdmin.from("experiment_assignments").delete().eq("class_id", classId);
-        if (assignmentError) return json({ error: assignmentError.message }, 500);
-        const { error: memberError } = await supabaseAdmin.from("class_members").delete().eq("class_id", classId);
-        if (memberError) return json({ error: memberError.message }, 500);
-        const { error: classError } = await supabaseAdmin.from("classes").delete().eq("id", classId);
-        if (classError) return json({ error: classError.message }, 500);
-        return json({ ok: true, class_id: classId });
+        const backupId = String(body.backup_id ?? "");
+        if (!backupId) return json({ error: "删除班级前必须完成完整备份并确认下载。" }, 409);
+
+        const { data: deleted, error: deleteError } = await supabaseAdmin.rpc("tjucpe_finalize_class_delete", {
+          p_class_id: classId,
+          p_backup_id: backupId,
+          p_actor_id: actorId
+        });
+        if (deleteError || !deleted?.ok) {
+          return json({ error: "班级删除未完成，数据库事务已回滚：" + (deleteError?.message ?? "invalid backup receipt") }, 409);
+        }
+
+        const paths = Array.isArray(deleted.storage_paths) ? deleted.storage_paths.filter((p: unknown) => typeof p === "string") : [];
+        let removedFiles = 0;
+        const cleanupWarnings: string[] = [];
+        for (let offset = 0; offset < paths.length; offset += 100) {
+          const chunk = paths.slice(offset, offset + 100);
+          const { error } = await supabaseAdmin.storage.from("lab-reports").remove(chunk);
+          if (error) cleanupWarnings.push(error.message);
+          else removedFiles += chunk.length;
+        }
+        if (cleanupWarnings.length) {
+          await audit(null, "class.backup_storage_cleanup_warning", {
+            class_id: classId, backup_id: backupId, warnings: cleanupWarnings.slice(0, 10)
+          });
+        }
+        return json({
+          ok: true,
+          class_id: classId,
+          report_count: deleted.report_count ?? 0,
+          analysis_record_count: deleted.analysis_record_count ?? 0,
+          reference_set_count: deleted.reference_set_count ?? 0,
+          removed_files: removedFiles,
+          cleanup_warning: cleanupWarnings.length > 0,
+          cleanup_messages: cleanupWarnings
+        });
       }
 
       if (action === "join_class") {

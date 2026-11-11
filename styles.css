@@ -133,3 +133,21 @@
 /* Responsive admin controls, data tables and formula layout */
 @media(max-width:760px){.admin-toolbar,.user-admin-toolbar,.template-download-bar{display:flex;flex-direction:column;align-items:stretch;gap:10px}.admin-toolbar button,.user-admin-toolbar button,.template-download-bar button{width:100%;min-height:42px}.table-wrap,.data-table-wrap,.users-table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.users-table-wrap table,.table-wrap table{min-width:760px}.profile-role-select{min-width:112px;min-height:38px}.experiment-data-block textarea{min-height:190px;font-size:13px}.latex-display{max-width:100%;overflow-x:auto;padding:12px 6px}.katex-display{overflow-x:auto;overflow-y:hidden;padding:4px 0}.card,.panel,.metric-card{min-width:0}.nav-item{min-height:42px}}
 button:disabled{opacity:.58;cursor:wait}.template-download-bar button{min-height:38px}.account-action-result{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* TJUCPE 2.0 */
+.pdf-annotation-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;background:#f5f8fa;border:1px solid #dbe5eb;border-radius:10px;margin-bottom:12px}
+.pdf-annotation-toolbar input,.pdf-annotation-toolbar select{max-width:210px;min-width:90px;padding:7px;border:1px solid #cdd9df;border-radius:7px;background:#fff}
+.pdf-annotation-toolbar #pdfTextInput{flex:1;min-width:180px}
+.grading-data-comparison{margin-bottom:16px}
+.grading-compare-charts{display:grid;grid-template-columns:1fr;gap:16px}
+.grading-data-chart{min-height:280px;padding:12px;border:1px solid #e2e9ed;border-radius:10px;background:#fff}
+.grading-data-chart canvas{width:100%!important;height:250px!important}
+.reference-set-list{display:grid;gap:8px;margin-top:12px}
+.reference-set-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px;border:1px solid #e1e8ec;border-radius:8px}
+.reference-set-row small{display:block;color:#657b89}
+#templateDesignJson{width:100%;font:12px/1.55 ui-monospace,Consolas,monospace}
+.fit-policy-note{padding:10px 12px;margin-bottom:10px;border-radius:8px;background:#f4f7fa;color:#39566a;font-size:13px}
+#classBackupDownloadResult{margin-top:12px}
+.pdf-review-paper{position:relative}.pdf-review-base{display:block}
+.pdf-review-overlay{position:absolute;inset:0;touch-action:none;cursor:crosshair}
+@media(max-width:700px){.pdf-annotation-toolbar input,.pdf-annotation-toolbar select{max-width:none;flex:1 1 130px}.reference-set-row{align-items:flex-start}}

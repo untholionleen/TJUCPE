@@ -51,7 +51,7 @@
     const set=new Set(selected);
     return points.filter(p=>set.has(p.i));
   };
-  const linearRange = (points, selected) => linear(selectPoints(points,selected));
+  const linearRange = points => linear(points);
   const curve = (fit, min, max, count=160) => Array.from({length:count},(_,i)=>{const x=min+(max-min)*i/(count-1);return{x,y:fit.predict(x)};});
   const stats = ys => {
     const a=ys.filter(Number.isFinite); if(!a.length) return {};

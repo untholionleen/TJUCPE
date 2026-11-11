@@ -8,7 +8,7 @@
 - **教师端**：创建/修改/停用/永久删除无历史报告班级；分班导入名单；发布、修改和关闭实验任务；管理本班学生；生成密码恢复链接；在线预览 PDF 并直接页面圈画批注，发布新的批阅版 PDF。教师工作台仅显示教学管理指标，不显示学生个人学习工作台。
 - **管理员端**：管理全站账号与角色、跨班级管理、永久删除学生账号、重置密码；管理班级与实验目录；无历史报告的班级可永久删除，有历史报告时阻止硬删除并保留归档；查看审计日志、Supabase 检测和技术资料。
 - **实验项目管理**：14 个已建立实验模板；教师/管理员可新增、编辑、停用和重新启用实验目录项。新建项目默认通用数据工作区，专属公式需经课程教师核验后再启用。
-- **Origin 风格数据处理**：专属实验表格、逐表 Excel/CSV 导入、CSV 导出、交互矩形/套索拟合选区、重新拟合、残差和统计结果；Matplotlib/Python 生成科研图，Plotly 提供交互选区。
+- **Origin 风格数据处理**：专属实验表格、逐表 Excel/CSV 导入、CSV 导出、交互矩形/套索拟合选区、重新拟合、残差和统计结果；Matplotlib/Python 生成科研图，Plotly 提供交互式图表；拟合统一使用全部有效数据点。
 - **报告版本**：批阅 PDF 作为新版本上传，更新当前报告路径；原始 PDF 不覆盖，版本表保留旧文件路径，学生与教师读取同一当前版本。
 
 ## 数据库部署状态
@@ -24,8 +24,12 @@ Supabase 项目 `TJUCPE` 已连接并完成以下迁移：
 - `20261107181407_tjucpe_active_class_submission_guard_v8`
 - `20261107181850_tjucpe_rls_performance_policy_tuning_v9`
 - `20261107181935_tjucpe_legacy_report_resubmit_guard_v10`
+- `20261110232736_tjucpe_v2_paired_data_reference_pdf_editor_backup`
+- `20261110232838_tjucpe_v2_class_backup_delete_transaction`
+- `20261110232934_tjucpe_v2_reset_annotations_on_student_resubmit`
+- `20261111000130_tjucpe_v2_reference_data_least_privilege`
 
-当前业务表已启用 RLS，`lab-reports` 是私有 Storage bucket。`classroom-admin` Edge Function 当前为 ACTIVE v10，新增安全班级永久删除操作。2026-11-08 已清空旧测试 Auth 用户和教学业务记录，保留 14 个实验目录、数据库结构和迁移历史；详见 `docs/RESET_AND_FIRST_ADMIN.md`。
+当前业务表已启用 RLS，`lab-reports` 是私有 Storage bucket。`classroom-admin` Edge Function 当前为 ACTIVE v24，支持完整班级备份导出、下载确认及事务删除。2026-11-08 已清空旧测试 Auth 用户和教学业务记录，保留 14 个实验目录、数据库结构和迁移历史；详见 `docs/RESET_AND_FIRST_ADMIN.md`。
 
 **兼容性说明**：已有的旧报告即使没有 `class_id` / `assignment_id` 也会保留，不会被伪造归班；新报告必须关联有效班级和教师发布的实验任务。
 

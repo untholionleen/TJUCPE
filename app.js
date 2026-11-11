@@ -84,7 +84,8 @@
   ];
   let authMode = "login", user = null, profile = null, currentExperiment = null;
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, activeAssignmentId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
-  let gradingPdfBlob = null, gradingStrokes = {}, catalogEditingId = null, catalogOriginalSlug = null, classEditingId = null;
+  let gradingPdfBlob = null, gradingStrokes = {}, gradingTextAnnotations = {}, gradingAnnotationSourcePath = null, gradingAnnotationSourceFileName = null, pdfAnnotationMode = "draw";
+  let gradingStudentSheets = [], gradingReferenceSets = [], catalogRowsCache = [], pendingClassDelete = null;
   const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
   function friendlyError(input){
     const raw=typeof input==="string"?input:(input?.message||String(input??""));
@@ -265,9 +266,12 @@
     const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,config,is_active").order("code");
     if(!error&&Array.isArray(data)){
       const rows=data.filter(x=>x.is_active||["teacher","admin"].includes(profile?.role));
+      catalogRowsCache=data;
       const merged=rows.map(row=>{
         const base=experiments.find(x=>x.slug===row.slug)||{slug:row.slug,code:row.code,x:"X",y:"Y",xu:"",yu:"",note:"该项目尚无专属计算模板。可使用通用数据表；由教师审核后再发布专属算法。"};
-        return {...base,slug:row.slug,code:row.code,name:row.name,group:row.category||"其他",desc:row.description||"",active:row.is_active,catalogId:row.id,config:row.config||{}};
+        const templateTables=Array.isArray(row.config?.template_tables)?row.config.template_tables:[];
+        const tables=(base.tables||[]).map(table=>{const item=templateTables.find(value=>value.key===table.key);return item?{...table,title:item.title||table.title,headers:Array.isArray(item.headers)?item.headers:table.headers}:table;});
+        return {...base,tables,slug:row.slug,code:row.code,name:row.name,group:row.category||"其他",desc:row.description||"",active:row.is_active,catalogId:row.id,config:row.config||{}};
       });
       experiments.splice(0,experiments.length,...merged);
     }
@@ -426,42 +430,62 @@
     downloadBlob(blob,safeFileName(def.name)+"_"+safeFileName(table.title)+"_数据模板.txt");
     toast("TXT 数据模板已生成。请填写空白行后上传，或直接在网页表格中录入。");
   }
-  function spreadsheetXmlEscape(value){
-    return String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+  async function createXlsxFallback(def){
+    if(!window.JSZip)throw new Error("XLSX 组件与 ZIP 备用组件均未加载。");
+    if(!Array.isArray(def.tables)||!def.tables.length)throw new Error("当前实验没有可导出的数据表。");
+    const zip=new JSZip(),sheetXml=[],sheetNames=[];
+    const xml=value=>String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+    const column=n=>{let out="";for(n++;n;n=Math.floor((n-1)/26))out=String.fromCharCode(65+(n-1)%26)+out;return out;};
+    const used=new Set();
+    for(let i=0;i<def.tables.length;i++){
+      const table=def.tables[i],headers=table.headers?.length===table.columns?.length?table.headers:table.columns;
+      const base=String(table.title||table.key||("Sheet"+(i+1))).replace(/[\\/?*:[\]]/g," ").trim().slice(0,24)||("Sheet"+(i+1));
+      let name=(base+"_"+(i+1)).slice(0,31),suffix=1;
+      while(used.has(name.toLowerCase()))name=(base.slice(0,24)+"_"+(++suffix)).slice(0,31);
+      used.add(name.toLowerCase());sheetNames.push(name);
+      const rows=[headers,...Array.from({length:40},()=>headers.map(()=>""))];
+      const body=rows.map((row,r)=>{
+        const cells=row.map((value,c)=>{
+          if(value===null||value===undefined||String(value)==="")return "";
+          return '<c r="'+column(c)+(r+1)+'" t="inlineStr"><is><t xml:space="preserve">'+xml(value)+'</t></is></c>';
+        }).join("");
+        return '<row r="'+(r+1)+'">'+cells+'</row>';
+      }).join("");
+      const last=column(Math.max(0,headers.length-1))+rows.length;
+      const cols=headers.map((_,c)=>'<col min="'+(c+1)+'" max="'+(c+1)+'" width="22" customWidth="1"/>').join("");
+      sheetXml.push('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:'+last+'"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><cols>'+cols+'</cols><sheetData>'+body+'</sheetData></worksheet>');
+    }
+    zip.file("[Content_Types].xml",'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheetXml.map((_,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("")+'</Types>');
+    zip.file("_rels/.rels",'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+    zip.file("xl/workbook.xml",'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sheetNames.map((name,i)=>'<sheet name="'+xml(name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join("")+'</sheets></workbook>');
+    zip.file("xl/_rels/workbook.xml.rels",'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheetNames.map((_,i)=>'<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join("")+'</Relationships>');
+    sheetXml.forEach((content,i)=>zip.file("xl/worksheets/sheet"+(i+1)+".xml",content));
+    return await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
   }
-  function downloadExperimentWorkbook(slug){
+  async function downloadExperimentWorkbook(slug){
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
     if(!def){toast("未找到该实验的数据表结构。",true);return;}
     try{
-      // Generate synchronously during the click event so browsers do not block the download
-      // after a third-party CDN load or another asynchronous wait.
       if(window.XLSX?.utils){
         const wb=XLSX.utils.book_new();
         def.tables.forEach((table,i)=>{
           const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
-          const aoa=[headers,...Array.from({length:20},()=>headers.map(()=>""))];
-          const ws=XLSX.utils.aoa_to_sheet(aoa);
+          const ws=XLSX.utils.aoa_to_sheet([headers,...Array.from({length:40},()=>headers.map(()=>""))]);
           ws["!cols"]=headers.map(()=>({wch:22}));
           XLSX.utils.book_append_sheet(wb,ws,(i+1)+"_"+table.key.slice(0,20));
         });
         const bytes=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+        if(!bytes?.byteLength)throw new Error("SheetJS 返回了空工作簿。");
         downloadBlob(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),safeFileName(def.name)+"_实验数据录入模板.xlsx");
-        toast("Excel 模板已生成：每张实验数据表位于独立工作表。");
-        return;
+      }else{
+        const blob=await createXlsxFallback(def);
+        if(!blob?.size)throw new Error("Open XML 备用工作簿为空。");
+        downloadBlob(blob,safeFileName(def.name)+"_实验数据录入模板.xlsx");
       }
-      // Offline / CDN fallback: Excel 2003 XML Spreadsheet, opened directly by Excel.
-      const xmlHeader='<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>';
-      const ns='xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"';
-      const sheets=def.tables.map(table=>{
-        const headers=table.headers?.length===table.columns.length?table.headers:table.columns;
-        const sheetName=spreadsheetXmlEscape((table.title||table.key).slice(0,31));
-        const makeRow=row=>"<Row>"+row.map(v=>'<Cell><Data ss:Type="String">'+spreadsheetXmlEscape(v)+'</Data></Cell>').join("")+"</Row>";
-        return '<Worksheet ss:Name="'+sheetName+'"><Table>'+makeRow(headers)+Array.from({length:20},()=>makeRow(headers.map(()=>""))).join("")+"</Table></Worksheet>";
-      }).join("");
-      downloadBlob(new Blob([xmlHeader,"<Workbook "+ns+">",sheets,"</Workbook>"],{type:"application/vnd.ms-excel"}),safeFileName(def.name)+"_实验数据录入模板.xls");
-      toast("Excel 兼容模板已生成（XLS 格式）。每张实验数据表位于独立工作表。");
+      toast("已生成标准 XLSX 工作簿；每个实验数据表均对应独立工作表。");
     }catch(err){toast("Excel 模板生成失败："+friendlyError(err),true);}
   }
+
   const formulaLibrary = {
     "surface-tension": [
       {title:"Szyszkowski 表面张力方程",latex:String.raw`\gamma=\gamma_0-a\ln(1+bc)`,note:"用于表面张力–浓度拟合；请核对浓度单位和参数定义。"},
@@ -686,7 +710,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const button=$("runDedicatedAnalysis");if(button){button.disabled=true;button.textContent="正在计算…";}
     try{
       const {def,tables,settings}=readDedicatedInputs();
-      const result=window.TJUCPE_EXPERIMENT_ENGINE.analyze(def.slug,tables,settings,selectedFitIndices);
+      selectedFitIndices=[];
+    const result=window.TJUCPE_EXPERIMENT_ENGINE.analyze(def.slug,tables,settings,[]);
       dedicatedTables=tables;dedicatedResult=result;
       let plotlyReady=!!window.Plotly;
       if(!plotlyReady){
@@ -740,7 +765,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       autosize:true,paper_bgcolor:"#ffffff",plot_bgcolor:"#ffffff",
       font:{family:"Noto Sans SC, Arial, sans-serif",size:12,color:"#486274"},
       margin:{l:72,r:28,t:36,b:70},legend:{orientation:"h",y:-0.22,x:0},
-      dragmode:"select",
+      dragmode:"pan",
       xaxis:{title:firstSeries?.xLabel||"X",gridcolor:"#e9eff2",zerolinecolor:"#d4e0e5",linecolor:"#bfcdd4"},
       yaxis:{title:firstSeries?.yLabel||"Y",gridcolor:"#e9eff2",zerolinecolor:"#d4e0e5",linecolor:"#bfcdd4"},
       selectdirection:"any",hovermode:"closest"
@@ -749,9 +774,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("pythonPlotStatus").textContent="交互图已准备好。需要高分辨率科研图片时，再点击“生成 Python 高清图”。";
     $("renderPythonPlot").classList.remove("hidden");
     if(plotlyReady&&window.Plotly&&typeof Plotly.react==="function"){
-      $("analysisPlotly").classList.remove("hidden");$("analysisChart").classList.add("hidden");$("fitRangeFallback").classList.add("hidden");
+      $("analysisPlotly").classList.remove("hidden");$("analysisChart").classList.add("hidden");
       Plotly.react("analysisPlotly",plotData,layout,{
-        responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:["select2d","lasso2d"],
+        responsive:true,displaylogo:false,scrollZoom:true,modeBarButtonsToAdd:[],
         toImageButtonOptions:{format:"png",filename:(currentExperiment?.slug||"experiment")+"-selection",height:900,width:1400,scale:2}
       }).then(graph=>{
         plotlyGraph=graph;
@@ -768,7 +793,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         node.on("plotly_deselect",()=>{selectedFitIndices=[];$("fitSelectionLabel").textContent="拟合范围：全部有效数据点";});
       }).catch(error=>{
         $("pythonPlotStatus").textContent="交互图暂不可用："+friendlyError(error)+"；可以使用下方区间输入继续计算。";
-        $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");$("fitRangeFallback").classList.remove("hidden");
+        $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");undefined
       });
     }else{
       $("analysisPlotly").classList.add("hidden");$("analysisChart").classList.remove("hidden");$("fitRangeFallback").classList.remove("hidden");
@@ -947,19 +972,47 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     body.innerHTML=lastRecords.map(r=>`<tr><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${escapeHtml(r.file_name||"报告文件")}</td><td>${new Date(r.created_at).toLocaleDateString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td>${r.score??"—"}</td><td><button class="action-link" data-report-download="${r.id}">预览</button> <button class="action-link" data-report-feedback="${r.id}">反馈</button> ${r.status==="submitted"?`<button class="action-link" data-report-withdraw="${r.id}">撤回</button>`:""} ${["draft","returned","withdrawn"].includes(r.status)?`${r.class_id&&r.assignment_id?`<button class="action-link" data-report-edit="${r.id}">修改并重交</button> `:""}<button class="action-link" data-report-delete="${r.id}">删除</button>`:""}</td></tr>`).join("");
   }
   async function submitReport(){
-    const file=$("reportFile").files[0],classId=$("reportClass").value,assignmentId=$("reportAssignment").value,assignmentOption=$("reportAssignment").selectedOptions[0],slug=assignmentOption?.dataset.slug||"",title=$("reportTitle").value.trim();
-    if(!file||!title||!classId||!assignmentId||!slug){toast("请先加入班级并选择教师布置的实验任务，再选择报告文件。",true);return;}
-    if(file.size>20*1024*1024){toast("文件超过 20 MB，请压缩后再上传。",true);return;}
-    const ext=file.name.split(".").pop().toLowerCase();
-    if(!["pdf","docx"].includes(ext)){toast("仅支持 PDF 或 DOCX 文件。",true);return;}
-    const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-    const path=user.id+"/"+crypto.randomUUID()+"_"+safeName;
-    const {error:uploadError}=await db.storage.from("lab-reports").upload(path,file,{upsert:false,contentType:file.type||(ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document")});
-    if(uploadError){toast("文件上传失败："+friendlyError(uploadError)+"。请确认已执行 Storage 迁移。",true);return;}
-    const {error}=await db.from("report_submissions").insert({student_id:user.id,class_id:classId,assignment_id:assignmentId,experiment_slug:slug,title,file_name:file.name,storage_path:path,status:"submitted"});
-    if(error){await db.storage.from("lab-reports").remove([path]);toast("报告记录写入失败："+friendlyError(error),true);return;}
-    toast("报告已提交。");$("reportUploadPanel").classList.add("hidden");$("reportFile").value="";$("reportFileName").textContent="点击选择报告文件";$("reportTitle").value="";loadReports();loadOverview();
+    const reportFile=$("reportFile").files?.[0],dataFile=$("reportDataFile")?.files?.[0];
+    const classId=$("reportClass").value,assignmentId=$("reportAssignment").value,assignmentOption=$("reportAssignment").selectedOptions[0];
+    const slug=assignmentOption?.dataset.slug||"",title=$("reportTitle").value.trim(),button=$("submitReport");
+    if(button.disabled)return;
+    if(!reportFile||!dataFile||!title||!classId||!assignmentId||!slug){
+      toast("请同时选择 PDF/Word 实验报告和 Excel 数据文件，并填写报告标题、班级和实验任务。",true);return;
+    }
+    if(reportFile.size>20*1024*1024||dataFile.size>20*1024*1024){toast("单个文件不能超过 20 MB。",true);return;}
+    const reportExt=reportFile.name.split(".").pop().toLowerCase(),dataExt=dataFile.name.split(".").pop().toLowerCase();
+    if(!["pdf","docx"].includes(reportExt)){toast("报告文件仅支持 PDF 或 DOCX。",true);return;}
+    if(!["xlsx","xls","csv"].includes(dataExt)){toast("数据文件仅支持 XLSX、XLS 或 CSV。",true);return;}
+    const mime={pdf:"application/pdf",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",xls:"application/vnd.ms-excel",csv:"text/csv"};
+    const makePath=file=>user.id+"/"+crypto.randomUUID()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+    const reportPath=makePath(reportFile),dataPath=makePath(dataFile),storage=db.storage.from("lab-reports");
+    let uploaded=[];
+    button.disabled=true;button.dataset.originalText=button.textContent;button.textContent="正在上传报告与 Excel 数据…";
+    try{
+      for(const [file,path] of [[reportFile,reportPath],[dataFile,dataPath]]){
+        const ext=file.name.split(".").pop().toLowerCase();
+        const {error}=await storage.upload(path,file,{upsert:false,contentType:file.type||mime[ext]});
+        if(error)throw new Error("文件上传失败："+friendlyError(error));
+        uploaded.push(path);
+      }
+      const {error}=await db.from("report_submissions").insert({
+        student_id:user.id,class_id:classId,assignment_id:assignmentId,experiment_slug:slug,title,
+        file_name:reportFile.name,storage_path:reportPath,data_file_name:dataFile.name,data_file_path:dataPath,status:"submitted"
+      });
+      if(error)throw new Error("报告与 Excel 数据关联失败："+friendlyError(error));
+      toast("报告与原始 Excel 数据已作为同一次提交上传成功。");
+      $("reportUploadPanel").classList.add("hidden");
+      $("reportFile").value="";$("reportDataFile").value="";$("reportTitle").value="";
+      $("reportFileName").textContent="点击选择报告文件";$("reportDataFileName").textContent="点击选择 Excel 数据文件";
+      await loadReports();await loadOverview();
+    }catch(err){
+      if(uploaded.length)await storage.remove(uploaded);
+      toast("提交失败："+friendlyError(err),true);
+    }finally{
+      button.disabled=false;button.textContent=button.dataset.originalText||"提交报告";delete button.dataset.originalText;
+    }
   }
+
   async function downloadReport(id){const row=lastRecords.find(r=>r.id===id);if(row)await openReportViewer(row);}
   async function withdrawReport(id){
     const row=lastRecords.find(r=>r.id===id);if(!row||row.status!=="submitted")return;
@@ -969,22 +1022,37 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     toast("报告已撤回，可修改后重新提交。");await loadReports();await loadOverview();
   }
   async function editReport(id){
-    const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status)||!row.class_id||!row.assignment_id)return;
-    const picker=document.createElement("input");picker.type="file";picker.accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const row=lastRecords.find(r=>r.id===id);
+    if(!row||!["draft","returned","withdrawn"].includes(row.status)||!row.class_id||!row.assignment_id)return;
+    const picker=document.createElement("input");picker.type="file";picker.multiple=true;picker.accept=".pdf,.docx,.xlsx,.xls,.csv";
     picker.onchange=async()=>{
-      const file=picker.files?.[0];if(!file)return;
-      if(file.size>20*1024*1024){toast("文件超过 20 MB。",true);return;}
-      const ext=file.name.split(".").pop().toLowerCase();if(!["pdf","docx"].includes(ext)){toast("仅支持 PDF / DOCX。",true);return;}
-      const path=user.id+"/"+crypto.randomUUID()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-      const {error:upErr}=await db.storage.from("lab-reports").upload(path,file,{upsert:false,contentType:file.type||(ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document")});
-      if(upErr){toast("新文件上传失败："+upErr.message,true);return;}
-      const {error}=await db.from("report_submissions").update({file_name:file.name,storage_path:path,status:"submitted",submitted_at:new Date().toISOString(),withdrawn_at:null}).eq("id",id);
-      if(error){await db.storage.from("lab-reports").remove([path]);toast("报告更新失败："+error.message,true);return;}
-      // Preserve the previous file: report_revisions keeps its path for version history.
-      toast("已保存新版本并重新提交，旧版本已保留。");await loadReports();await loadOverview();
+      const files=Array.from(picker.files||[]);
+      const reportFile=files.find(f=>["pdf","docx"].includes(f.name.split(".").pop().toLowerCase()));
+      const dataFile=files.find(f=>["xlsx","xls","csv"].includes(f.name.split(".").pop().toLowerCase()));
+      if(!reportFile||!dataFile){toast("请在同一次选择中同时选中新的 PDF/DOCX 报告与 XLSX/XLS/CSV 数据文件。",true);return;}
+      if(reportFile.size>20*1024*1024||dataFile.size>20*1024*1024){toast("单个文件不能超过 20 MB。",true);return;}
+      const mime={pdf:"application/pdf",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",xls:"application/vnd.ms-excel",csv:"text/csv"};
+      const path=file=>user.id+"/"+crypto.randomUUID()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const reportPath=path(reportFile),dataPath=path(dataFile),storage=db.storage.from("lab-reports");let uploaded=[];
+      try{
+        for(const [file,target] of [[reportFile,reportPath],[dataFile,dataPath]]){
+          const ext=file.name.split(".").pop().toLowerCase();
+          const {error}=await storage.upload(target,file,{upsert:false,contentType:file.type||mime[ext]});
+          if(error)throw new Error("文件上传失败："+friendlyError(error));
+          uploaded.push(target);
+        }
+        const {error}=await db.from("report_submissions").update({
+          file_name:reportFile.name,storage_path:reportPath,data_file_name:dataFile.name,data_file_path:dataPath,
+          status:"submitted",submitted_at:new Date().toISOString(),withdrawn_at:null
+        }).eq("id",id);
+        if(error)throw new Error("报告新版本提交失败："+friendlyError(error));
+        toast("报告和 Excel 数据已作为同一版本重新提交，上一版本已保留。");
+        await loadReports();await loadOverview();
+      }catch(err){if(uploaded.length)await storage.remove(uploaded);toast("重新提交失败："+friendlyError(err),true);}
     };
     picker.click();
   }
+
   async function deleteReport(id){
     const row=lastRecords.find(r=>r.id===id);if(!row||!["draft","returned","withdrawn"].includes(row.status))return;
     if(!confirm("确认删除这份报告及其全部历史文件版本？此操作不可恢复。"))return;
@@ -1015,7 +1083,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     gradingRecord=reviewRows.find(r=>r.id===id);if(!gradingRecord)return;
     $("gradingTitle").textContent=experimentName(gradingRecord.experiment_slug)+" · "+(gradingRecord.file_name||"报告");
     $("gradeScore").value=gradingRecord.score??"";$("gradeStatus").value=gradingRecord.status==="returned"?"returned":"graded";$("gradeFeedback").value=gradingRecord.feedback||"";
-    $("gradingPanel").classList.remove("hidden");await loadGradingPreview(gradingRecord);$("gradingPanel").scrollIntoView({behavior:"smooth",block:"start"});
+    $("gradingPanel").classList.remove("hidden");await Promise.all([loadGradingPreview(gradingRecord),loadGradingDataComparison(gradingRecord).catch(err=>{$("gradingDataSummary").textContent=friendlyError(err);})]);$("gradingPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }
   async function downloadReviewFile(id){const row=reviewRows.find(r=>r.id===id);if(row)await openGrading(id);}
   let gradingPreviewUrl=null;
@@ -1030,6 +1098,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       ctx.beginPath();ctx.moveTo(pts[0].x*w,pts[0].y*h);
       for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x*w,pts[i].y*h);
       ctx.stroke();
+    });
+    (gradingTextAnnotations[pageNo]||[]).forEach(item=>{
+      if(!item.text)return;ctx.fillStyle=item.color||"#c62828";ctx.font="600 "+(Number(item.size)||12)+"px Arial,sans-serif";ctx.textBaseline="top";
+      ctx.fillText(item.text,Math.max(0,Math.min(1,item.x))*w,Math.max(0,Math.min(1,item.y))*h);
     });
   }
   async function renderPdfAnnotation(pdfBlob){
@@ -1059,7 +1131,20 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       overlay.addEventListener("pointerdown",e=>{
         if(e.button!==0)return;overlay.setPointerCapture(e.pointerId);
         const rect=overlay.getBoundingClientRect(),point={x:(e.clientX-rect.left)/rect.width,y:(e.clientY-rect.top)/rect.height};
-        const stroke={color:"#d7263d",width:2.2,points:[point]};
+        if(pdfAnnotationMode==="text-add"){
+          const value=$("pdfTextInput")?.value?.trim()||"";if(!value){toast("请先填写要插入 PDF 的文字。",true);return;}
+          (gradingTextAnnotations[pageNo]||=[]).push({text:value,x:point.x,y:point.y,size:Number($("pdfTextSize")?.value)||12,color:$("pdfTextColor")?.value||"#c62828",createdAt:Date.now()});
+          annotationCanvasRedraw(overlay,pageNo);return;
+        }
+        if(pdfAnnotationMode==="text-edit"){
+          const items=gradingTextAnnotations[pageNo]||[];let nearest=-1,best=.06;
+          items.forEach((item,index)=>{const d=Math.hypot(item.x-point.x,item.y-point.y);if(d<best){best=d;nearest=index;}});
+          if(nearest<0){toast("请点击已有文字批注附近进行修改。");return;}
+          const old=items[nearest],value=window.prompt("修改文字批注（留空删除）：",old.text);
+          if(value===null)return;if(!value.trim())items.splice(nearest,1);else items[nearest]={...old,text:value.trim(),createdAt:Date.now()};
+          annotationCanvasRedraw(overlay,pageNo);return;
+        }
+        const stroke={color:"#d7263d",width:2.2,points:[point],createdAt:Date.now()};
         (gradingStrokes[pageNo] ||= []).push(stroke);overlay.dataset.drawing="1";annotationCanvasRedraw(overlay,pageNo);
       });
       overlay.addEventListener("pointermove",e=>{
@@ -1096,27 +1181,39 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         }
       }
     }
+    for(const [pageKey,items] of Object.entries(gradingTextAnnotations)){
+      const page=pages[Number(pageKey)-1];if(!page||!items?.length)continue;
+      const {width,height}=page.getSize(),canvas=document.createElement("canvas");
+      canvas.width=Math.max(1,Math.ceil(width*2));canvas.height=Math.max(1,Math.ceil(height*2));
+      const ctx=canvas.getContext("2d");
+      items.forEach(item=>{ctx.fillStyle=item.color||"#c62828";ctx.font="600 "+(Number(item.size)||12)*2+"px Arial, 'Microsoft YaHei', sans-serif";ctx.textBaseline="top";ctx.fillText(String(item.text||""),Math.max(0,Math.min(1,Number(item.x)||0))*canvas.width,Math.max(0,Math.min(1,Number(item.y)||0))*canvas.height);});
+      const png=await fetch(canvas.toDataURL("image/png")).then(response=>response.arrayBuffer());
+      page.drawImage(await pdf.embedPng(png),{x:0,y:0,width,height});
+    }
     const output=await pdf.save({useObjectStreams:true});
     if(!(output instanceof Uint8Array)||output.length<8||String.fromCharCode(output[0],output[1],output[2],output[3],output[4])!=="%PDF-")throw new Error("PDF 批阅版生成结果校验失败，原始报告未被修改。");
     return output;
   }
   function undoPdfAnnotation(){
-    const keys=Object.keys(gradingStrokes).sort((a,b)=>Number(b)-Number(a));
-    const key=keys.find(k=>(gradingStrokes[k]||[]).length);
-    if(!key)return;
-    gradingStrokes[key].pop();
-    const canvas=document.querySelector('.pdf-review-page[data-page="'+key+'"] .pdf-review-overlay');
-    if(canvas)annotationCanvasRedraw(canvas,Number(key));
+    let newest=null;
+    for(const [page,items] of Object.entries(gradingStrokes))for(let i=0;i<(items||[]).length;i++){const at=Number(items[i].createdAt)||0;if(!newest||at>newest.at)newest={kind:"stroke",page,index:i,at};}
+    for(const [page,items] of Object.entries(gradingTextAnnotations))for(let i=0;i<(items||[]).length;i++){const at=Number(items[i].createdAt)||0;if(!newest||at>newest.at)newest={kind:"text",page,index:i,at};}
+    if(!newest)return;const source=newest.kind==="text"?gradingTextAnnotations:gradingStrokes;source[newest.page].splice(newest.index,1);
+    const canvas=document.querySelector('.pdf-review-page[data-page="'+newest.page+'"] .pdf-review-overlay');
+    if(canvas)annotationCanvasRedraw(canvas,Number(newest.page));
   }
   function clearPdfAnnotations(){
     if(!confirm("清除本次尚未保存的全部 PDF 批注？"))return;
-    gradingStrokes={};
+    gradingStrokes={};gradingTextAnnotations={};
     document.querySelectorAll(".pdf-review-overlay").forEach(canvas=>annotationCanvasRedraw(canvas,Number(canvas.closest(".pdf-review-page")?.dataset.page||1)));
   }
   async function loadGradingPreview(row){
     const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
-    gradingPdfBlob=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
-    const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
+    gradingPdfBlob=null;gradingStrokes={};gradingTextAnnotations={};$("pdfAnnotationToolbar")?.classList.add("hidden");
+    gradingAnnotationSourcePath=row.annotation_source_path||row.storage_path;gradingAnnotationSourceFileName=row.annotation_source_file_name||row.file_name;
+    const saved=row.review_annotations;
+    if(saved?.strokes||saved?.texts){gradingStrokes=saved.strokes||{};gradingTextAnnotations=saved.texts||{};}else if(saved&&typeof saved==="object"&&!Array.isArray(saved))gradingStrokes=saved;
+    const {data,error}=await db.storage.from("lab-reports").download(gradingAnnotationSourcePath);
     if(error){host.textContent="报告读取失败："+friendlyError(error);return;}
     if((row.file_name||"").toLowerCase().endsWith(".pdf")){
       // Keep the original Blob as canonical immutable bytes. PDF.js gets a disposable
@@ -1135,7 +1232,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   function closeGradingPreview(){
     if(gradingPreviewUrl){URL.revokeObjectURL(gradingPreviewUrl);gradingPreviewUrl=null;}
-    gradingPdfBlob=null;gradingStrokes={};$("pdfAnnotationToolbar")?.classList.add("hidden");
+    gradingPdfBlob=null;gradingStrokes={};gradingTextAnnotations={};gradingAnnotationSourcePath=null;gradingAnnotationSourceFileName=null;$("pdfAnnotationToolbar")?.classList.add("hidden");
     $("gradingPreviewContent").innerHTML="点击“打开批阅”后在此处预览 PDF / DOCX。";
   }
 
@@ -1149,7 +1246,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const update={score,feedback:$("gradeFeedback").value.trim(),status,reviewed_by:user.id,reviewed_at:new Date().toISOString()};
     let newPath=null,stage="检查批阅内容";
     const reportId=gradingRecord.id;
-    const hasAnnotations=Object.values(gradingStrokes).some(list=>Array.isArray(list)&&list.length);
+    const hasAnnotations=Object.values(gradingStrokes).some(list=>Array.isArray(list)&&list.length)||Object.values(gradingTextAnnotations).some(list=>Array.isArray(list)&&list.length);
     saveButtons.forEach(button=>{button.disabled=true;button.dataset.originalText=button.textContent;button.textContent="正在保存…";});
     try{
       if(gradingPdfBlob&&hasAnnotations){
@@ -1165,7 +1262,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         update.storage_path=newPath;
         const original=(gradingRecord.file_name||"实验报告.pdf").replace(/\.pdf$/i,"");
         update.file_name=original+"_批阅版.pdf";
-        update.review_annotations=gradingStrokes;
+        update.review_annotations={strokes:gradingStrokes,texts:gradingTextAnnotations};
+        update.annotation_source_path=gradingAnnotationSourcePath||gradingRecord.storage_path;
+        update.annotation_source_file_name=gradingAnnotationSourceFileName||gradingRecord.file_name;
+        update.submission_version=(gradingRecord.submission_version||1)+1;
+      }else if(gradingPdfBlob&&gradingAnnotationSourcePath&&gradingRecord.storage_path!==gradingAnnotationSourcePath){
+        stage="恢复原始 PDF 并清除批注";
+        update.storage_path=gradingAnnotationSourcePath;update.file_name=gradingAnnotationSourceFileName||gradingRecord.file_name;
+        update.annotation_source_path=null;update.annotation_source_file_name=null;update.review_annotations=[];
         update.submission_version=(gradingRecord.submission_version||1)+1;
       }
       stage="写入批阅记录与版本历史";
@@ -1284,6 +1388,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const [classResult,auxiliary]=await Promise.all([classesPromise,auxiliaryPromise]);
     if(classResult.error){$("classList").textContent=friendlyError(classResult.error);return;}
     classesCache=classResult.data||[];
+    if($("referenceClass")){
+      const activeClasses=classesCache.filter(c=>c.is_active);
+      $("referenceClass").innerHTML=activeClasses.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
+      if(activeClassId&&activeClasses.some(c=>c.id===activeClassId))$("referenceClass").value=activeClassId;
+    }
     const teacherLabel=$("newClassTeacher")?.closest("label");
     if(profile.role==="admin"&&$("newClassTeacher")){
       if(auxiliary.error){toast("教师列表读取失败："+friendlyError(auxiliary.error),true);}
@@ -1303,7 +1412,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       ${staff?`<code>加入码：${escapeHtml(c.join_code||"—")}</code>
       <div class="class-card-actions"><button class="btn btn-outline btn-sm" data-class-edit="${c.id}">修改</button>
       <button class="btn btn-outline btn-sm" data-class-toggle="${c.id}">${c.is_active?"停用/归档":"重新启用"}</button>
-      <button class="btn btn-outline btn-sm" data-class-delete="${c.id}">删除班级</button></div>`: ""}
+      <button class="btn btn-outline btn-sm" data-class-delete="${c.id}">备份并删除</button></div>`: ""}
       ${!c.is_active?'<small class="muted">已停用，历史报告保留</small>':""}
     </article>`).join("")||'<p class="muted">当前没有班级。</p>';
     const active=visible.filter(c=>c.is_active);
@@ -1321,14 +1430,59 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       return;
     }
     await loadClassAssignments();
+    if(staff&&$("referenceClass")?.value)await loadReferenceSets();
   }
   async function deleteClass(id){
     const row=classesCache.find(c=>c.id===id);if(!row)return;
-    if(!confirm("确定永久删除班级“"+row.name+"”？仅当没有历史报告时允许删除；如已有报告，请先归档以保留教学记录。"))return;
-    const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"delete_class",class_id:id}});
-    if(error||!data?.ok){toast("删除班级失败："+(error?.message||data?.error||"未知错误"),true);return;}
-    if(activeClassId===id)activeClassId=null;toast("班级已删除。");await loadClasses();
+    if(!confirm("将先下载“"+row.name+"”的完整备份（学生名单、实验任务、报告、Excel、历史版本、分析记录及参考数据）。备份成功并确认下载后才允许删除。继续？"))return;
+    const host=$("classBackupDownloadResult");
+    if(!host){toast("班级备份区域尚未加载，已取消删除。",true);return;}
+    host.classList.remove("hidden");host.textContent="正在准备班级完整备份…";
+    try{
+      if(!window.JSZip)throw new Error("ZIP 组件未加载，请刷新页面后重试。");
+      const result=await invokePlatformFunction("classroom-admin",{body:{action:"export_class_backup",class_id:id}});
+      if(result.error||!result.data?.ok)throw new Error(result.error?.message||result.data?.error||"备份清单读取失败。");
+      const data=result.data,zip=new JSZip(),root="TJUCPE_"+safeFileName(row.name)+"_完整备份";
+      for(const key of ["class","assignments","members","profiles","reports","revisions","experiment_records","reference_sets","counts"]){
+        zip.file(root+"/数据/"+key+".json",JSON.stringify(data[key]??null,null,2));
+      }
+      zip.file(root+"/README.txt","TJUCPE 2.0 班级完整备份。请保留整个 ZIP 及目录结构。");
+      let total=0;
+      for(let i=0;i<(data.files||[]).length;i++){
+        const item=data.files[i];
+        if(!item.signed_url)throw new Error("缺少备份文件下载链接："+(item.archive_name||item.path));
+        const response=await fetch(item.signed_url);
+        if(!response.ok)throw new Error("文件下载失败："+(item.archive_name||item.path)+"（HTTP "+response.status+"）");
+        const blob=await response.blob();total+=blob.size;
+        if(total>500*1024*1024)throw new Error("班级文件超过 500 MB 浏览器打包保护阈值，班级未删除。");
+        const archiveName=String(item.archive_name||("文件_"+i)).split("..").join("_").replace(/^\/+/,"");
+        zip.file(root+"/"+archiveName,blob);
+      }
+      const archive=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:4}});
+      if(!archive.size)throw new Error("备份 ZIP 为空。");
+      const fileName=data.backup_file_name||("TJUCPE_"+safeFileName(row.name)+"_班级完整备份.zip");
+      presentPreparedDownload(archive,fileName,"classBackupDownloadResult");
+      host.insertAdjacentHTML("beforeend",'<p class="tiny muted">ZIP 已打包。请先点击“点击下载 ZIP”保存文件，再确认删除。</p><button id="confirmClassBackupDelete" class="btn btn-danger btn-sm">我已下载完整备份，确认永久删除</button>');
+      $("confirmClassBackupDelete").addEventListener("click",confirmClassBackupDelete);
+      pendingClassDelete={classId:id,backupId:data.backup_id,fileName};
+      toast("班级完整备份已生成。下载并确认后才会删除。");
+    }catch(err){
+      pendingClassDelete=null;host.textContent="备份失败，班级未删除："+friendlyError(err);toast("备份失败，班级未删除："+friendlyError(err),true);
+    }
   }
+  async function confirmClassBackupDelete(){
+    if(!pendingClassDelete)return;
+    if(!confirm("请确认完整 ZIP 已保存至本地。确认后将永久删除该班级及所有关联数据。"))return;
+    const pending=pendingClassDelete;
+    const ack=await invokePlatformFunction("classroom-admin",{body:{action:"ack_class_backup_downloaded",class_id:pending.classId,backup_id:pending.backupId,backup_file_name:pending.fileName}});
+    if(ack.error||!ack.data?.ok){toast("备份下载确认失败，班级未删除："+(ack.error?.message||ack.data?.error||"未知错误"),true);return;}
+    const deleted=await invokePlatformFunction("classroom-admin",{body:{action:"delete_class",class_id:pending.classId,backup_id:pending.backupId}});
+    if(deleted.error||!deleted.data?.ok){toast("班级删除未完成，备份仍保留："+(deleted.error?.message||deleted.data?.error||"未知错误"),true);return;}
+    pendingClassDelete=null;if(activeClassId===pending.classId)activeClassId=null;
+    toast("班级已备份并删除；报告 "+(deleted.data.report_count??0)+" 份，分析记录 "+(deleted.data.analysis_record_count??0)+" 条。");
+    await loadClasses();
+  }
+
   async function editClass(id){
     const row=classesCache.find(c=>c.id===id);if(!row)return;
     classEditingId=id;
@@ -1562,10 +1716,118 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
     }catch(err){toast("名单导入失败："+friendlyError(err),true);}
   }
+  function populateTemplateDesigner(){
+    const select=$("templateDesignExperiment"),refSelect=$("referenceExperiment");
+    const choices=(catalogRowsCache||[]).filter(row=>window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.some(def=>def.slug===row.slug));
+    if(select){
+      const current=select.value;
+      select.innerHTML=choices.map(row=>'<option value="'+escapeHtml(row.slug)+'">'+escapeHtml(row.code+" · "+row.name)+'</option>').join("");
+      if(choices.some(row=>row.slug===current))select.value=current;
+      const row=choices.find(item=>item.slug===select.value)||choices[0];
+      if(row){const def=window.TJUCPE_EXPERIMENT_ENGINE.definitions.find(item=>item.slug===row.slug);$("templateDesignJson").value=JSON.stringify({tables:row.config?.template_tables||def.tables.map(t=>({key:t.key,title:t.title,columns:t.columns,headers:t.headers}))},null,2);}
+    }
+    if(refSelect){
+      const current=refSelect.value;
+      refSelect.innerHTML=choices.map(row=>'<option value="'+escapeHtml(row.slug)+'">'+escapeHtml(row.code+" · "+row.name)+'</option>').join("");
+      if(choices.some(row=>row.slug===current))refSelect.value=current;
+    }
+  }
+  async function saveTemplateDesign(){
+    if(!["teacher","admin"].includes(profile?.role)){toast("仅教师和管理员可编制实验模板。",true);return;}
+    const slug=$("templateDesignExperiment").value,row=catalogRowsCache.find(item=>item.slug===slug),def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(item=>item.slug===slug);
+    if(!row||!def){toast("请选择已有实验项目。",true);return;}
+    let parsed;try{parsed=JSON.parse($("templateDesignJson").value);}catch(err){toast("模板 JSON 格式错误："+err.message,true);return;}
+    if(!Array.isArray(parsed?.tables)||parsed.tables.length!==def.tables.length){toast("模板必须保留该实验的全部数据表。",true);return;}
+    const tables=[];
+    for(const base of def.tables){
+      const item=parsed.tables.find(value=>value.key===base.key);
+      if(!item||JSON.stringify(item.columns)!==JSON.stringify(base.columns)||!Array.isArray(item.headers)||item.headers.length!==base.columns.length||item.headers.some(value=>!String(value??"").trim())){
+        toast("只能修改工作表标题和显示表头，不能改变计算所需的字段 key、数量或顺序。",true);return;
+      }
+      tables.push({key:base.key,title:String(item.title||base.title).trim(),columns:base.columns,headers:item.headers.map(value=>String(value).trim())});
+    }
+    const config={...(row.config||{}),template_tables:tables,template_schema_version:2};
+    const {error}=await db.from("experiment_catalog").update({config,updated_by:user.id}).eq("id",row.id);
+    if(error){toast("模板保存失败："+friendlyError(error),true);return;}
+    row.config=config;toast("实验 Excel 模板配置已保存到云端。");await renderCatalog();await loadExperimentCatalogManager();
+  }
+  async function loadReferenceSets(){
+    const host=$("referenceSetList"),classId=$("referenceClass")?.value;if(!host||!classId||!["teacher","admin"].includes(profile?.role))return;
+    const {data,error}=await db.from("experiment_reference_sets").select("id,title,experiment_slug,source_file_name,notes,updated_at").eq("class_id",classId).order("updated_at",{ascending:false});
+    if(error){host.textContent="参考数据读取失败："+friendlyError(error);return;}
+    host.innerHTML=(data||[]).map(row=>'<div class="reference-set-row"><div><strong>'+escapeHtml(row.title)+'</strong><small>'+escapeHtml(experimentName(row.experiment_slug))+' · '+escapeHtml(row.source_file_name||"")+' · '+new Date(row.updated_at).toLocaleString("zh-CN")+'</small><p>'+escapeHtml(row.notes||"")+'</p></div><button class="btn btn-outline btn-sm" data-reference-delete="'+row.id+'">删除</button></div>').join("")||"该班级尚无参考数据。";
+  }
+  async function saveReferenceSet(){
+    if(!["teacher","admin"].includes(profile?.role)){toast("仅教师和管理员可上传参考数据。",true);return;}
+    const classId=$("referenceClass").value,slug=$("referenceExperiment").value,file=$("referenceFile").files?.[0],title=$("referenceTitle").value.trim();
+    if(!classId||!slug||!file||!title){toast("请填写参考数据名称并选择班级、实验和工作簿。",true);return;}
+    if(file.size>20*1024*1024){toast("参考工作簿不能超过 20 MB。",true);return;}
+    try{
+      const isCsv=/\.csv$/i.test(file.name),raw=isCsv?await file.text():await file.arrayBuffer();
+      const workbook=XLSX.read(raw,{type:isCsv?"string":"array"});
+      const sheets=workbook.SheetNames.slice(0,20).map(name=>({name,rows:XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true}).slice(0,3000)}));
+      if(!sheets.length||!sheets.some(sheet=>sheet.rows.some(row=>row.some(value=>value!==null&&value!==""))))throw new Error("文件中没有可读取的数据。");
+      if(sheets.reduce((sum,sheet)=>sum+sheet.rows.length,0)>12000)throw new Error("参考数据总行数超过 12,000，请拆分工作簿。");
+      const {error}=await db.from("experiment_reference_sets").insert({class_id:classId,experiment_slug:slug,title,source_file_name:file.name,data_json:{schema_version:1,sheets},notes:$("referenceNotes").value.trim(),created_by:user.id});
+      if(error)throw error;$("referenceTitle").value="";$("referenceFile").value="";$("referenceNotes").value="";
+      toast("教师参考数据已保存到云端。");await loadReferenceSets();
+    }catch(err){toast("参考数据导入失败："+friendlyError(err),true);}
+  }
+  async function deleteReferenceSet(id){
+    if(!confirm("删除这份教师参考数据？学生报告及其他参考数据不会受到影响。"))return;
+    const {error}=await db.from("experiment_reference_sets").delete().eq("id",id);
+    if(error)toast("参考数据删除失败："+friendlyError(error),true);else{toast("参考数据已删除。");await loadReferenceSets();}
+  }
+  function numericValue(value){
+    if(value===null||value===undefined||String(value).trim()==="")return NaN;
+    const number=Number(String(value).replace(/,/g,"").trim());return Number.isFinite(number)?number:NaN;
+  }
+  function compareWorkbookSheet(sheet){
+    const rows=Array.isArray(sheet?.rows)?sheet.rows.filter(Array.isArray):[];if(rows.length<3)return null;
+    let headerIndex=rows.findIndex(row=>row.some(value=>typeof value==="string"&&value.trim()!==""));if(headerIndex<0)headerIndex=0;
+    const headers=rows[headerIndex]||[],data=rows.slice(headerIndex+1),width=Math.max(headers.length,...data.map(row=>row.length)),cols=[];
+    for(let c=0;c<width;c++)if(data.filter(row=>Number.isFinite(numericValue(row[c]))).length>=2)cols.push(c);
+    if(cols.length<2)return null;
+    const xCol=cols[0],series=cols.slice(1).map(col=>({label:String(headers[col]??("Y"+(col+1))),data:data.map(row=>({x:numericValue(row[xCol]),y:numericValue(row[col])})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))})).filter(item=>item.data.length>=2);
+    return series.length?{xLabel:String(headers[xCol]??"X"),series}:null;
+  }
+  function renderGradingComparison(){
+    const host=$("gradingCompareCharts"),summary=$("gradingDataSummary");if(!host||!summary)return;
+    host.querySelectorAll("canvas").forEach(canvas=>{const chart=Chart.getChart(canvas);if(chart)chart.destroy();});
+    if(!gradingRecord?.data_file_path){host.innerHTML='<p class="muted">此为 1.0 历史报告，没有单独的 Excel 数据附件；不会自动补造数据。</p>';summary.textContent="旧报告仍可正常批阅。";return;}
+    const reference=gradingReferenceSets.find(row=>row.id===$("gradingReferenceSelect")?.value),refSheets=reference?.data_json?.sheets||[],charts=[];
+    gradingStudentSheets.forEach((sheet,index)=>{
+      const student=compareWorkbookSheet(sheet);if(!student)return;
+      const refSheet=refSheets.find(item=>item.name===sheet.name)||refSheets[index]||refSheets[0],teacher=refSheet?compareWorkbookSheet(refSheet):null;
+      const datasets=student.series.map(item=>({label:"学生 · "+item.label,data:item.data,showLine:false,pointRadius:4}));
+      if(teacher)teacher.series.forEach(item=>datasets.push({label:"教师参考 · "+item.label,data:item.data,showLine:false,pointStyle:"rectRot",pointRadius:4}));
+      charts.push({name:sheet.name,xLabel:student.xLabel,datasets});
+    });
+    if(!charts.length){host.innerHTML='<p class="muted">已读取工作簿，但没有识别到至少两列有效数值数据。请核对表头与数据行。</p>';summary.textContent="未生成对照图。";return;}
+    host.innerHTML=charts.map((item,index)=>'<div class="grading-data-chart"><strong>'+escapeHtml(item.name)+'</strong><canvas id="gradingCompareCanvas'+index+'"></canvas></div>').join("");
+    charts.forEach((item,index)=>new Chart($("gradingCompareCanvas"+index).getContext("2d"),{type:"scatter",data:{datasets:item.datasets},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:"bottom"}},scales:{x:{type:"linear",title:{display:true,text:item.xLabel}},y:{title:{display:true,text:"实验测量值"}}}}}));
+    summary.textContent="已读取 "+gradingStudentSheets.length+" 张学生工作表；"+(reference?"正在叠加教师参考数据："+reference.title:"当前仅显示学生原始数据。");
+  }
+  async function loadGradingDataComparison(row){
+    gradingStudentSheets=[];gradingReferenceSets=[];const host=$("gradingCompareCharts"),select=$("gradingReferenceSelect");
+    host.textContent="正在读取学生 Excel 与教师参考数据…";
+    if(row.class_id){
+      const {data,error}=await db.from("experiment_reference_sets").select("id,title,data_json,source_file_name").eq("class_id",row.class_id).eq("experiment_slug",row.experiment_slug).order("updated_at",{ascending:false});
+      if(error)throw new Error("教师参考数据读取失败："+friendlyError(error));gradingReferenceSets=data||[];
+    }
+    select.innerHTML='<option value="">不选择参考数据</option>'+gradingReferenceSets.map(item=>'<option value="'+item.id+'">'+escapeHtml(item.title)+'</option>').join("");
+    if(gradingReferenceSets.length)select.value=gradingReferenceSets[0].id;
+    if(!row.data_file_path){renderGradingComparison();return;}
+    const {data,error}=await db.storage.from("lab-reports").download(row.data_file_path);if(error)throw new Error("学生 Excel 数据读取失败："+friendlyError(error));
+    const workbook=XLSX.read(await data.arrayBuffer(),{type:"array"});
+    gradingStudentSheets=workbook.SheetNames.slice(0,20).map(name=>({name,rows:XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true}).slice(0,3000)}));
+    renderGradingComparison();
+  }
   async function loadExperimentCatalogManager(){
     const host=$("experimentCatalogAdminList");if(!host)return;
-    const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,is_active").order("code");
+    const {data,error}=await db.from("experiment_catalog").select("id,slug,code,name,category,description,config,is_active").order("code");
     if(error){host.textContent=friendlyError(error);return;}
+    catalogRowsCache=data||[];populateTemplateDesigner();
     host.innerHTML=(data||[]).map(x=>`<div class="catalog-admin-row"><div><strong>${escapeHtml(x.code)} · ${escapeHtml(x.name)}</strong><small>${escapeHtml(x.slug)} · ${escapeHtml(x.category||"其他")} · ${x.is_active?"启用":"已停用"}</small></div><div><button class="btn btn-outline btn-sm" data-catalog-edit="${x.id}">编辑</button><button class="btn btn-outline btn-sm" data-catalog-toggle="${x.id}" data-active="${x.is_active}">${x.is_active?"停用":"启用"}</button></div></div>`).join("")||"尚无实验项目。";
   }
   async function editCatalogItem(id){
@@ -1896,6 +2158,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const reviewDownload=e.target.closest("[data-review-download]");if(reviewDownload)downloadReviewFile(reviewDownload.dataset.reviewDownload);
       const classEdit=e.target.closest("[data-class-edit]");if(classEdit)editClass(classEdit.dataset.classEdit);
       const classDelete=e.target.closest("[data-class-delete]");if(classDelete)deleteClass(classDelete.dataset.classDelete);
+      const refDelete=e.target.closest("[data-reference-delete]");if(refDelete)deleteReferenceSet(refDelete.dataset.referenceDelete);
       const taskSubmit=e.target.closest("[data-task-submit]");if(taskSubmit){activeAssignmentId=taskSubmit.dataset.taskSubmit;$("reportUploadPanel").classList.remove("hidden");$("reportClass").value=taskSubmit.dataset.classId;$("classTaskSelect").value=taskSubmit.dataset.classId;loadClassAssignments().then(()=>{$("reportAssignment").value=taskSubmit.dataset.taskSubmit;$("reportTitle").value=taskSubmit.closest(".student-task-card").querySelector("strong").textContent;$("reportUploadPanel").scrollIntoView({behavior:"smooth",block:"center"});});}
       const classToggle=e.target.closest("[data-class-toggle]");if(classToggle)toggleClass(classToggle.dataset.classToggle);
       const assignmentEdit=e.target.closest("[data-assignment-edit]");if(assignmentEdit)editAssignment(assignmentEdit.dataset.assignmentEdit);
@@ -1910,12 +2173,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("runAnalysis").addEventListener("click",runAnalysis);
     $("runDedicatedAnalysis").addEventListener("click",runDedicatedAnalysis);
     $("renderPythonPlot").addEventListener("click",generatePythonPlot);
-    $("clearFitSelection").addEventListener("click",clearDedicatedSelection);
-    $("applyFitRange")?.addEventListener("click",applyFitRange);
     $("clearData").addEventListener("click",()=>{$("dataInput").value="";clearAnalysis();$("dataCount").textContent="等待输入数据";});
     $("dataFile").addEventListener("change",async e=>{const file=e.target.files[0];if(file)$("dataInput").value=await file.text();$("dataCount").textContent=file?file.name:"等待输入数据";});
     $("downloadCsv").addEventListener("click",downloadCsv);
-    $("clearFitSelection")?.addEventListener("click",clearDedicatedSelection);
     $("downloadChart").addEventListener("click",()=>{const image=$("pythonPlotImage");if(image&&!image.classList.contains("hidden")&&image.src){const a=document.createElement("a");a.href=image.src;a.download=(currentExperiment?.slug||"analysis")+"-matplotlib.png";a.click();}else if(window.Plotly&&plotlyGraph){Plotly.downloadImage("analysisPlotly",{format:"png",filename:(currentExperiment?.slug||"analysis")+"-selection",width:1800,height:1200,scale:2});}else if(chart){const a=document.createElement("a");a.href=chart.toBase64Image("image/png",1);a.download=(currentExperiment?.slug||"analysis")+".png";a.click();}});
     $("saveRecord").addEventListener("click",saveRecord);
     $("newReport").addEventListener("click",()=>{$("reportUploadPanel").classList.remove("hidden");loadClasses();});
@@ -1946,6 +2206,12 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("adminTestConnection").addEventListener("click",runAdminConnectionCheck);
     $("saveCatalogItem").addEventListener("click",saveCatalogItem);
     $("clearCatalogForm").addEventListener("click",clearCatalogForm);
+    $("templateDesignExperiment")?.addEventListener("change",populateTemplateDesigner);
+    $("saveTemplateDesign")?.addEventListener("click",saveTemplateDesign);
+    $("referenceClass")?.addEventListener("change",loadReferenceSets);
+    $("saveReferenceSet")?.addEventListener("click",saveReferenceSet);
+    $("gradingReferenceSelect")?.addEventListener("change",renderGradingComparison);
+    $("pdfAnnotationMode")?.addEventListener("change",e=>{pdfAnnotationMode=e.target.value;});
     $("undoPdfAnnotation").addEventListener("click",undoPdfAnnotation);
     $("clearPdfAnnotations").addEventListener("click",clearPdfAnnotations);
     $("closeReportViewer").addEventListener("click",()=>$("reportViewerDialog").close());
