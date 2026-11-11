@@ -241,11 +241,12 @@
     $("overviewEyebrow").textContent=isStaff?"TEACHING MANAGEMENT":"YOUR LAB SPACE";
     $("overviewTitle").textContent=isStaff?"教学管理工作台":"早上好，";
     if(!isStaff)$("overviewTitle").innerHTML="早上好，<span id=\"welcomeName\">"+escapeHtml(name)+"</span>";
-    $("overviewSubtitle").textContent=isStaff?"管理教学班、实验任务与报告批阅。":"从实验数据开始，完成分析、作图与报告提交。";
+    $("overviewSubtitle").textContent=isStaff?"管理教学班、在线 Excel 模板、数据分析与报告批阅。":"下载实验模板、填写 Excel 数据，并同步提交实验报告。";
   }
   function go(page){
     const allowed=["overview","experiments","analysis","reports","review","users","classes","system"];
     if(!allowed.includes(page)) page="overview";
+    if((page==="experiments"||page==="analysis")&&![ "teacher","admin" ].includes(profile?.role)) page="overview";
     if(page==="reports"&&["teacher","admin"].includes(profile?.role)) page="overview";
     if(page==="review"&&!["teacher","admin"].includes(profile?.role)) page="overview";
     if(page==="users"&&profile?.role!=="admin") page="overview";
@@ -400,6 +401,7 @@
     return {name:picked?.name||null,rows:out};
   }
   async function importExperimentTableFile(input){
+    if(!["teacher","admin"].includes(profile?.role)){toast("学生端不提供实验数据处理与导入功能。",true);input.value="";return;}
     const file=input.files?.[0],key=input.dataset.tableKey;
     if(!file||!currentExperiment||!key)return;
     const target=$("expData_"+key);
@@ -409,7 +411,7 @@
         target.value=(await file.text()).replace(/^\uFEFF/,"");
         toast("已导入文件文本；请确认列顺序与当前实验表格一致。");
       }else{
-        await ensureExternalLibrary("XLSX",["https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js","https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"]);
+        await ensureExternalLibrary("XLSX",["https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js","https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"]);
         const workbook=XLSX.read(await file.arrayBuffer(),{type:"array"});
         const mapped=mapExcelTable(currentExperiment.slug,key,workbook);
         if(mapped.message)throw new Error(mapped.message);
@@ -463,6 +465,8 @@
     return await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
   }
   async function downloadExperimentWorkbook(slug){
+    if(!["teacher","admin"].includes(profile?.role)){toast("学生端只提供教师发布的模板下载。",true);return;}
+    await ensureExternalLibrary("XLSX",["https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js","https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"]);
     const def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(x=>x.slug===slug);
     if(!def){toast("未找到该实验的数据表结构。",true);return;}
     try{
@@ -538,6 +542,7 @@
   }
 
   function openExperiment(slug){
+    if(!["teacher","admin"].includes(profile?.role)){toast("学生端仅提供实验模板下载与报告提交。",true);return;}
     currentExperiment=experiments.find(e=>e.slug===slug)||experiments[0];
     $("analysisGroup").textContent=currentExperiment.code+" · "+currentExperiment.group;
     $("analysisTitle").textContent=currentExperiment.name;
@@ -706,6 +711,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     return {def,tables,settings};
   }
   async function runDedicatedAnalysis(){
+    if(!["teacher","admin"].includes(profile?.role)){toast("学生端不开放数据计算功能。",true);return;}
+    try{await ensureExternalLibrary("Chart",["https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js","https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js"]);}catch(err){toast("图表组件加载失败："+friendlyError(err),true);return;}
     if(!window.TJUCPE_EXPERIMENT_ENGINE){toast("实验算法组件尚未加载，请刷新页面后重试。",true);return;}
     const button=$("runDedicatedAnalysis");if(button){button.disabled=true;button.textContent="正在计算…";}
     try{
@@ -846,7 +853,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("fitSelectionLabel").textContent="拟合范围：全部有效数据点";
     if(window.Plotly&&$("analysisPlotly"))Plotly.relayout("analysisPlotly",{selection:{}}).catch(()=>{});
   }
-  function runAnalysis(){
+  async function runAnalysis(){
+    if(!["teacher","admin"].includes(profile?.role)){toast("实验数据处理由教师端统一完成。",true);return;}
+    try{await ensureExternalLibrary("Chart",["https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js","https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js"]);}catch(err){toast("图表组件加载失败："+friendlyError(err),true);return;}
     if(currentExperiment&&window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.some(x=>x.slug===currentExperiment.slug)){
       runDedicatedAnalysis();return;
     }
@@ -893,6 +902,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     latestAnalysis={points,rawRows,seriesLabels,fit,model,xLabel:$("xLabel").value,yLabel:$("yLabel").value,xUnit:$("xUnit").value,yUnit:$("yUnit").value,mean,sd,engine:ENGINE_VERSION};
   }
   async function saveRecord(){
+    if(!["teacher","admin"].includes(profile?.role)){toast("只有教师可以保存数据分析记录。",true);return;}
     if(!user||!latestAnalysis){toast("请先运行分析，再保存记录。",true);return;}
     const record={owner_id:user.id,assignment_id:activeAssignmentId||null,experiment_slug:currentExperiment?.slug||"custom",title:currentExperiment?.name||"数据分析",raw_data:{headers:latestAnalysis.seriesLabels,rows:latestAnalysis.rawRows,source_tables:latestAnalysis.sourceTables||null,export_headers:latestAnalysis.exportHeaders||null,export_rows:latestAnalysis.exportRows||null},analysis:{model:latestAnalysis.model,coefficients:latestAnalysis.fit?.coefficients||null,r2:latestAnalysis.fit?.r2??null,sse:latestAnalysis.fit?.sse??null,mean:latestAnalysis.mean,sd:latestAnalysis.sd,x_label:latestAnalysis.xLabel,y_label:latestAnalysis.yLabel,x_unit:latestAnalysis.xUnit,y_unit:latestAnalysis.yUnit,summary:latestAnalysis.analysisSummary||null,settings:latestAnalysis.settings||null},engine_version:latestAnalysis.engine||ENGINE_VERSION};
     const {error}=await db.from("experiment_records").insert(record);
@@ -900,6 +910,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     toast("分析记录已保存到个人空间。"); loadOverview();
   }
   function downloadCsv(){
+    if(!["teacher","admin"].includes(profile?.role)){toast("数据导出由教师端负责。",true);return;}
     if(!latestAnalysis){toast("请先运行实验计算，再导出数据。",true);return;}
     const rawHeaders=latestAnalysis.exportHeaders||[latestAnalysis.xLabel,latestAnalysis.yLabel];
     const rows=latestAnalysis.exportRows||latestAnalysis.rawRows||[];
@@ -928,23 +939,22 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       ]);
       $("staffMetricClasses").textContent=cq.count??"—";$("staffMetricTasks").textContent=aq.count??"—";$("staffMetricReports").textContent=rq.count??"—";return;
     }
-    const [records,reports]=await Promise.all([
-      db.from("experiment_records").select("id,created_at,title").eq("owner_id",user.id).order("created_at",{ascending:false}).limit(5),
-      db.from("report_submissions").select("id,status,feedback,created_at").eq("student_id",user.id)
+    const [tasks,reports]=await Promise.all([
+      db.from("experiment_assignments").select("id",{count:"exact",head:true}).eq("is_open",true),
+      db.from("report_submissions").select("id,status,feedback,created_at,experiment_slug").eq("student_id",user.id).order("created_at",{ascending:false}).limit(100)
     ]);
-    $("metricRecords").textContent=records.data?.length??0;
+    $("metricExperiments").textContent=tasks.count??"—";
     $("metricReports").textContent=reports.data?.length??0;
     $("metricFeedback").textContent=(reports.data||[]).filter(r=>r.status==="returned"||!!r.feedback).length;
-    if(records.data?.length||reports.data?.length){
-      const items=[...(records.data||[]).map(x=>({date:x.created_at,label:x.title,kind:"分析记录"})),...(reports.data||[]).map(x=>({date:x.created_at,label:"实验报告",kind:x.status}))].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
-      $("recentActivity").innerHTML=items.map(i=>`<div class="activity-row"><span>${escapeHtml(i.label)}</span><span>${escapeHtml(i.kind)}</span><small>${new Date(i.date).toLocaleString("zh-CN")}</small></div>`).join("");
-    }
+    $("recentActivity").innerHTML=reports.data?.length
+      ?reports.data.slice(0,5).map(r=>'<div class="activity-row"><span>'+escapeHtml(experimentName(r.experiment_slug)||"实验报告")+'</span><span>'+escapeHtml(statusLabel(r.status))+'</span><small>'+new Date(r.created_at).toLocaleString("zh-CN")+'</small></div>').join("")
+      :'<div class="empty-state"><div class="empty-icon">▤</div><strong>还没有报告记录</strong><p>先下载教师发布的 Excel 模板，填写数据后提交报告。</p><button class="btn btn-outline" data-goto="reports">查看实验任务与模板</button></div>';
   }
   function statusLabel(status){return ({draft:"草稿",submitted:"已提交",graded:"已批阅",returned:"退回修改",withdrawn:"已撤回",missing:"未提交"})[status]||status;}
   function statusClass(status){return status||"draft";}
   async function loadReports(){
     const body=$("reportsBody");body.innerHTML='<tr><td colspan="6" class="muted center">正在加载……</td></tr>';
-    const {data,error}=await db.from("report_submissions").select("*").eq("student_id",user.id).order("created_at",{ascending:false});
+    const {data,error}=await db.from("report_submissions").select("id,class_id,assignment_id,experiment_slug,file_name,storage_path,data_file_name,data_file_path,status,score,feedback,created_at,updated_at,submission_version,annotation_source_path,annotation_source_file_name,withdrawn_at").eq("student_id",user.id).order("created_at",{ascending:false}).limit(100);
     if(error){body.innerHTML=`<tr><td colspan="6" class="center">${escapeHtml(friendlyError(error))}</td></tr>`;return;}
     lastRecords=data||[];
     if(!lastRecords.length){body.innerHTML='<tr><td colspan="6" class="muted center">暂无报告记录，点击右上角提交第一份实验报告。</td></tr>';return;}
@@ -1044,17 +1054,19 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("feedbackContent").textContent=row.feedback||"该报告暂时没有教师反馈。";
     $("feedbackDialog").showModal();
   }
-  let reviewRows=[];
-  async function loadReviews(){
-    $("reviewBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';
-    const {data,error}=await db.from("report_submissions").select("*").order("created_at",{ascending:false}).limit(500);
+  let reviewRows=[],reviewOffset=0,reviewProfileCache={};
+  async function loadReviews(loadMore=false){
+    if(!loadMore){reviewOffset=0;reviewRows=[];reviewProfileCache={};$("reviewBody").innerHTML='<tr><td colspan="5" class="muted center">正在加载……</td></tr>';}
+    const pageSize=100;
+    const {data,error}=await db.from("report_submissions").select("id,student_id,class_id,assignment_id,experiment_slug,file_name,storage_path,data_file_name,data_file_path,annotation_source_path,annotation_source_file_name,review_annotations,status,score,feedback,created_at,reviewed_at,reviewed_by,submission_version").order("created_at",{ascending:false}).range(reviewOffset,reviewOffset+pageSize-1);
     if(error){$("reviewBody").innerHTML=`<tr><td colspan="5" class="center">${escapeHtml(friendlyError(error))}</td></tr>`;return;}
-    reviewRows=data||[];
-    const ids=[...new Set(reviewRows.map(r=>r.student_id))];
-    let profiles={};
-    if(ids.length){const result=await db.from("profiles").select("id,full_name,student_no").in("id",ids);(result.data||[]).forEach(p=>profiles[p.id]=p);}
+    reviewRows=reviewRows.concat(data||[]);
+    reviewOffset+=(data||[]).length;
+    $("loadMoreReviews")?.classList.toggle("hidden",(data||[]).length<pageSize);
+    const ids=[...new Set((data||[]).map(r=>r.student_id))].filter(id=>!reviewProfileCache[id]);
+    if(ids.length){const result=await db.from("profiles").select("id,full_name,student_no").in("id",ids);(result.data||[]).forEach(p=>reviewProfileCache[p.id]=p);}
     $("reviewBody").innerHTML=reviewRows.length?reviewRows.map(r=>{
-      const p=profiles[r.student_id]||{};
+      const p=reviewProfileCache[r.student_id]||{};
       return `<tr><td>${escapeHtml(p.full_name||"学生")}<small class="block muted">${escapeHtml(p.student_no||"")}</small></td><td>${escapeHtml(experimentName(r.experiment_slug))}</td><td>${new Date(r.created_at).toLocaleString("zh-CN")}</td><td><span class="status-pill ${statusClass(r.status)}">${statusLabel(r.status)}</span></td><td><button class="action-link" data-review-open="${r.id}">打开批阅</button></td></tr>`;
     }).join(""):'<tr><td colspan="5" class="muted center">暂无报告提交。</td></tr>';
   }
@@ -1062,7 +1074,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     gradingRecord=reviewRows.find(r=>r.id===id);if(!gradingRecord)return;
     $("gradingTitle").textContent=experimentName(gradingRecord.experiment_slug)+" · "+(gradingRecord.file_name||"报告");
     $("gradeScore").value=gradingRecord.score??"";$("gradeStatus").value=gradingRecord.status==="returned"?"returned":"graded";$("gradeFeedback").value=gradingRecord.feedback||"";
-    $("gradingPanel").classList.remove("hidden");await Promise.all([loadGradingPreview(gradingRecord),loadGradingDataComparison(gradingRecord).catch(err=>{$("gradingDataSummary").textContent=friendlyError(err);})]);$("gradingPanel").scrollIntoView({behavior:"smooth",block:"start"});
+    $("gradingPanel").classList.remove("hidden");await Promise.all([loadGradingPreview(gradingRecord),loadGradingDataComparison(gradingRecord).catch(err=>{$("gradingDataSummary").textContent=friendlyError(err);})]);populateGradingAnalysisControls();$("gradingPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }
   async function downloadReviewFile(id){const row=reviewRows.find(r=>r.id===id);if(row)await openGrading(id);}
   let gradingPreviewUrl=null;
@@ -1188,6 +1200,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function loadGradingPreview(row){
     const host=$("gradingPreviewContent");host.innerHTML="正在加载报告预览…";
+    await Promise.all([
+      ensureExternalLibrary("pdfjsLib",["https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js","https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"]),
+      ensureExternalLibrary("PDFLib",["https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js","https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"])
+    ]);
+    if(window.pdfjsLib?.GlobalWorkerOptions)window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
     gradingPdfBlob=null;gradingStrokes={};gradingTextAnnotations={};$("pdfAnnotationToolbar")?.classList.add("hidden");
     gradingAnnotationSourcePath=row.annotation_source_path||row.storage_path;gradingAnnotationSourceFileName=row.annotation_source_file_name||row.file_name;
     const saved=row.review_annotations;
@@ -1599,11 +1616,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const [taskResult]=await Promise.all([tasksPromise,rosterPromise]);
     const {data,error}=taskResult;
     if(error){$("classAssignments").textContent=friendlyError(error);return;}
-    const openTasks=(data||[]).filter(x=>x.is_open);
+    classAssignmentRows=data||[];
+    const openTasks=classAssignmentRows.filter(x=>x.is_open);
     $("classAssignments").innerHTML=(data||[]).map(a=>`<div class="assignment-row"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"")}</p></div><span class="status-pill ${a.is_open?"graded":"draft"}">${a.is_open?"开放":"关闭"}</span>${["teacher","admin"].includes(profile.role)?`<span class="assignment-actions"><button class="btn btn-outline btn-sm" data-assignment-edit="${a.id}">修改</button><button class="btn btn-outline btn-sm" data-assignment-toggle="${a.id}" data-open="${a.is_open}">${a.is_open?"关闭任务":"重新开放"}</button><button class="btn btn-outline btn-sm" data-assignment-export="${a.id}">导出本次班级数据</button></span>`:""}</div>`).join("")||"本班暂无实验任务。";
-    if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>`<article class="student-task-card"><div><strong>${escapeHtml(a.title)}</strong><small>${escapeHtml(a.experiment_catalog?.name||"实验")} · ${a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止"}</small><p>${escapeHtml(a.instructions||"请按教师要求完成实验并提交 PDF 报告。")}</p></div><div class="student-task-actions"><button class="btn btn-outline btn-sm" data-task-open-experiment="${escapeHtml(a.experiment_catalog?.slug||"")}" data-task-id="${a.id}" data-class-id="${classId}">开始实验</button><button class="btn btn-primary btn-sm" data-task-submit="${a.id}" data-class-id="${classId}">提交报告</button></div></article>`).join("")||'<p class="muted">当前班级暂无开放任务。</p>';
+    if(profile.role==="student")$("studentTaskList").innerHTML=openTasks.map(a=>'<article class="student-task-card"><div><strong>'+escapeHtml(a.title)+'</strong><small>'+escapeHtml(a.experiment_catalog?.name||"实验")+' · '+(a.due_at?"截止 "+new Date(a.due_at).toLocaleString("zh-CN"):"未设截止")+'</small><p>'+escapeHtml(a.instructions||"请按教师发布的 Excel 模板填写实验数据，并与 PDF/Word 报告同步提交。")+'</p></div><div class="student-task-actions"><button class="btn btn-outline btn-sm" data-task-template="'+a.id+'">↓ 下载 Excel 模板</button><button class="btn btn-primary btn-sm" data-task-submit="'+a.id+'" data-class-id="'+classId+'">提交报告</button></div></article>').join("")||'<p class="muted">当前班级暂无开放任务。</p>';
     $("reportAssignment").innerHTML=openTasks.map(a=>`<option value="${a.id}" data-slug="${escapeHtml(a.experiment_catalog?.slug||"")}">${escapeHtml(a.title)}</option>`).join("");
     $("reportClass").value=classId;
+    const templateSelect=$("templateAssignmentSelect");
+    if(templateSelect){const previous=templateSelect.value;templateSelect.innerHTML=classAssignmentRows.map(a=>`<option value="${a.id}">${escapeHtml(a.title)}${a.is_open?" · 开放":" · 已关闭"}</option>`).join("");if(classAssignmentRows.some(a=>a.id===previous))templateSelect.value=previous;else if(classAssignmentRows.length)templateSelect.value=classAssignmentRows[0].id;}
   }
   async function editAssignment(id){
     const {data,error}=await db.from("experiment_assignments").select("id,title,instructions,due_at").eq("id",id).maybeSingle();
@@ -1672,6 +1692,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
   }
   async function importClassRoster(){
     const classId=$("classTaskSelect").value,file=$("rosterFile").files[0];if(!classId||!file){toast("请选择班级和 CSV/XLSX 名单。",true);return;}
+    if(/\\.xlsx?$/i.test(file.name))await ensureExternalLibrary("XLSX",["https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js","https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"]);
     let rows=[];
     try{
       if(/\.xlsx?$/i.test(file.name)){
@@ -1695,67 +1716,189 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       toast("导入处理完成："+ok+"/"+students.length+" 个账号成功邀请。");$("rosterFile").value="";
     }catch(err){toast("名单导入失败："+friendlyError(err),true);}
   }
+  let classAssignmentRows=[];
+  let teacherWorkbookAssignmentId=null;
+  let gradingReferenceSheets=[];
+  let gradingAnalysisChart=null;
+
   function populateTemplateDesigner(){
-    const select=$("templateDesignExperiment"),refSelect=$("referenceExperiment");
-    const choices=(catalogRowsCache||[]).filter(row=>window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.some(def=>def.slug===row.slug));
-    if(select){
-      const current=select.value;
-      select.innerHTML=choices.map(row=>'<option value="'+escapeHtml(row.slug)+'">'+escapeHtml(row.code+" · "+row.name)+'</option>').join("");
-      if(choices.some(row=>row.slug===current))select.value=current;
-      const row=choices.find(item=>item.slug===select.value)||choices[0];
-      if(row){const def=window.TJUCPE_EXPERIMENT_ENGINE.definitions.find(item=>item.slug===row.slug);$("templateDesignJson").value=JSON.stringify({tables:row.config?.template_tables||def.tables.map(t=>({key:t.key,title:t.title,columns:t.columns,headers:t.headers}))},null,2);}
-    }
-    if(refSelect){
-      const current=refSelect.value;
-      refSelect.innerHTML=choices.map(row=>'<option value="'+escapeHtml(row.slug)+'">'+escapeHtml(row.code+" · "+row.name)+'</option>').join("");
-      if(choices.some(row=>row.slug===current))refSelect.value=current;
-    }
+    const select=$("referenceExperiment");
+    if(!select)return;
+    const choices=(catalogRowsCache||[]).filter(row=>row.is_active);
+    const current=select.value;
+    select.innerHTML=choices.map(row=>'<option value="'+escapeHtml(row.slug)+'">'+escapeHtml(row.code+" · "+row.name)+'</option>').join("");
+    if(choices.some(row=>row.slug===current))select.value=current;
   }
-  async function saveTemplateDesign(){
-    if(!["teacher","admin"].includes(profile?.role)){toast("仅教师和管理员可编制实验模板。",true);return;}
-    const slug=$("templateDesignExperiment").value,row=catalogRowsCache.find(item=>item.slug===slug),def=window.TJUCPE_EXPERIMENT_ENGINE?.definitions?.find(item=>item.slug===slug);
-    if(!row||!def){toast("请选择已有实验项目。",true);return;}
-    let parsed;try{parsed=JSON.parse($("templateDesignJson").value);}catch(err){toast("模板 JSON 格式错误："+err.message,true);return;}
-    if(!Array.isArray(parsed?.tables)||parsed.tables.length!==def.tables.length){toast("模板必须保留该实验的全部数据表。",true);return;}
-    const tables=[];
-    for(const base of def.tables){
-      const item=parsed.tables.find(value=>value.key===base.key);
-      if(!item||JSON.stringify(item.columns)!==JSON.stringify(base.columns)||!Array.isArray(item.headers)||item.headers.length!==base.columns.length||item.headers.some(value=>!String(value??"").trim())){
-        toast("只能修改工作表标题和显示表头，不能改变计算所需的字段 key、数量或顺序。",true);return;
-      }
-      tables.push({key:base.key,title:String(item.title||base.title).trim(),columns:base.columns,headers:item.headers.map(value=>String(value).trim())});
-    }
-    const config={...(row.config||{}),template_tables:tables,template_schema_version:2};
-    const {error}=await db.from("experiment_catalog").update({config,updated_by:user.id}).eq("id",row.id);
-    if(error){toast("模板保存失败："+friendlyError(error),true);return;}
-    row.config=config;toast("实验 Excel 模板配置已保存到云端。");await renderCatalog();await loadExperimentCatalogManager();
+  function assignmentWorkbookSnapshot(row){
+    const relation=row?.assignment_templates;
+    const record=Array.isArray(relation)?relation[0]:relation;
+    return record?.workbook_snapshot||null;
+  }
+  async function assignmentDefinition(row){
+    const slug=row?.experiment_catalog?.slug;
+    if(window.TJUCPE_EXPERIMENT_ENGINE?.definitions)return window.TJUCPE_EXPERIMENT_ENGINE.definitions.find(item=>item.slug===slug)||null;
+    if(!slug)return null;
+    const {data}=await db.from("experiment_catalog").select("slug,code,name,config").eq("slug",slug).maybeSingle();
+    return data?{slug:data.slug,code:data.code,name:data.name,tables:data.config?.template_tables||[]}:null;
+  }
+  async function downloadStudentAssignmentTemplate(id){
+    if(profile?.role!=="student")return;
+    const row=classAssignmentRows.find(item=>item.id===id);
+    if(!row){toast("任务已更新，请刷新页面后重试。",true);return;}
+    try{
+      const {data,error}=await db.from("assignment_templates").select("workbook_snapshot").eq("assignment_id",id).maybeSingle();
+      if(error)throw error;
+      const snapshot=data?.workbook_snapshot||null;
+      const def=snapshot?null:await assignmentDefinition(row);
+      await window.TJUCPEWorkbook.downloadXlsx(snapshot,safeFileName(row.title||"实验")+"_Excel数据模板.xlsx",def);
+      toast(snapshot?"已下载教师发布的 Excel 模板。":"已下载通用 Excel 模板；教师尚未保存任务专属模板。");
+    }catch(error){toast("模板下载失败："+friendlyError(error),true);}
+  }
+  async function openTeacherWorkbookEditor(){
+    if(!["teacher","admin"].includes(profile?.role)){toast("仅教师和管理员可设计模板。",true);return;}
+    const id=$("templateAssignmentSelect")?.value,row=classAssignmentRows.find(item=>item.id===id);
+    if(!row){toast("请先选择一个实验任务。",true);return;}
+    const button=$("openTeacherWorkbook");button.disabled=true;
+    $("teacherWorkbookStatus").textContent="正在载入在线 Excel……";
+    try{
+      const {data,error}=await db.from("assignment_templates").select("workbook_snapshot").eq("assignment_id",id).maybeSingle();
+      if(error)throw error;
+      await window.TJUCPEWorkbook.mount("teacherWorkbookEditor",data?.workbook_snapshot||assignmentWorkbookSnapshot(row),await assignmentDefinition(row),row.title);
+      teacherWorkbookAssignmentId=id;
+      $("teacherWorkbookStatus").textContent="已打开工作簿。可直接编辑单元格、公式、格式和工作表；编辑完成后请点击保存。";
+    }catch(error){$("teacherWorkbookStatus").textContent="Excel 编辑器加载失败："+friendlyError(error);toast(friendlyError(error),true);}
+    finally{button.disabled=false;}
+  }
+  async function saveTeacherWorkbookTemplate(){
+    const id=$("templateAssignmentSelect")?.value;
+    if(!["teacher","admin"].includes(profile?.role)||!id||id!==teacherWorkbookAssignmentId){toast("请先打开当前任务的在线 Excel 模板。",true);return;}
+    const button=$("saveTeacherWorkbook");button.disabled=true;
+    try{
+      const snapshot=window.TJUCPEWorkbook.snapshot(),size=new TextEncoder().encode(JSON.stringify(snapshot)).length;
+      if(size>390000)throw new Error("模板超过 390 KB 限制，请减少空白格式区域或拆分工作簿。");
+      const {error}=await db.from("assignment_templates").upsert({assignment_id:id,workbook_snapshot:snapshot,schema_version:1,updated_by:user.id},{onConflict:"assignment_id"});
+      if(error)throw error;
+      const row=classAssignmentRows.find(item=>item.id===id);
+      if(row)row.assignment_templates={workbook_snapshot:snapshot};
+      $("teacherWorkbookStatus").textContent="保存成功。学生现在可以在任务卡片中下载此模板（约 "+Math.ceil(size/1024)+" KB）。";
+      toast("任务 Excel 模板已保存。");
+    }catch(error){toast("模板保存失败："+friendlyError(error),true);}
+    finally{button.disabled=false;}
+  }
+  async function downloadTeacherWorkbookTemplate(){
+    const id=$("templateAssignmentSelect")?.value;
+    if(!id||id!==teacherWorkbookAssignmentId){toast("请先打开模板编辑器。",true);return;}
+    const row=classAssignmentRows.find(item=>item.id===id);
+    try{await window.TJUCPEWorkbook.downloadXlsx(window.TJUCPEWorkbook.snapshot(),safeFileName(row?.title||"实验")+"_教师模板.xlsx",await assignmentDefinition(row));}
+    catch(error){toast("模板导出失败："+friendlyError(error),true);}
+  }
+  async function readWorkbookBlob(blob){
+    await window.TJUCPEWorkbook.ensureXlsx();
+    const workbook=XLSX.read(await blob.arrayBuffer(),{type:"array"});
+    return workbook.SheetNames.slice(0,20).map(name=>({name,rows:XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true}).slice(0,3000)}));
+  }
+  async function loadSelectedReferenceForGrading(){
+    const row=gradingReferenceSets.find(item=>item.id===$("gradingReferenceSelect")?.value);
+    gradingReferenceSheets=[];
+    if(row?.storage_path){
+      const {data,error}=await db.storage.from("lab-reports").download(row.storage_path);
+      if(error){$("gradingDataSummary").textContent="教师参考文件读取失败："+friendlyError(error);return;}
+      gradingReferenceSheets=await readWorkbookBlob(data);
+    }else if(row?.data_json?.sheets)gradingReferenceSheets=row.data_json.sheets;
+    renderGradingComparison();
+  }
+  function gradingSheetInfo(sheet){
+    const rows=Array.isArray(sheet?.rows)?sheet.rows.filter(Array.isArray):[];
+    const head=rows.findIndex(row=>row.some(value=>typeof value==="string"&&value.trim()));
+    const headerIndex=head<0?0:head,headers=rows[headerIndex]||[],data=rows.slice(headerIndex+1),columns=[];
+    const width=Math.max(headers.length,...data.map(row=>row.length));
+    for(let c=0;c<width;c++)if(data.reduce((n,row)=>n+(Number.isFinite(numericValue(row[c]))?1:0),0)>=2)columns.push({index:c,label:String(headers[c]??("第"+(c+1)+"列"))});
+    return {headers,data,columns};
+  }
+  function populateGradingAnalysisControls(){
+    const select=$("gradingAnalysisSheet");if(!select)return;
+    const old=select.value;
+    select.innerHTML=gradingStudentSheets.map((sheet,index)=>'<option value="'+index+'">'+escapeHtml(sheet.name)+'</option>').join("");
+    if(gradingStudentSheets.some((sheet,index)=>String(index)===old))select.value=old;
+    populateGradingAnalysisColumns();
+  }
+  function populateGradingAnalysisColumns(){
+    const sheet=gradingStudentSheets[Number($("gradingAnalysisSheet")?.value)||0];
+    const x=$("gradingAnalysisX"),y=$("gradingAnalysisY");
+    if(!sheet||!x||!y){if($("gradingAnalysisResult"))$("gradingAnalysisResult").textContent="没有可用的 Excel 数据附件。";return;}
+    const info=gradingSheetInfo(sheet),options=info.columns.map(col=>'<option value="'+col.index+'">'+escapeHtml(col.label)+'</option>').join("");
+    x.innerHTML=options;y.innerHTML=options;
+    if(info.columns.length>1)y.value=String(info.columns[1].index);
+    $("gradingAnalysisStart").value="1";$("gradingAnalysisEnd").value=String(Math.max(1,info.data.length));
+    $("gradingAnalysisResult").textContent=info.columns.length>1?"选择数据列和拟合范围后运行分析。":"该工作表中至少需要两列有效数值。";
+  }
+  function runGradingDataAnalysis(){
+    if(!["teacher","admin"].includes(profile?.role))return;
+    const sheet=gradingStudentSheets[Number($("gradingAnalysisSheet").value)||0];
+    if(!sheet){toast("没有可分析的工作表。",true);return;}
+    const info=gradingSheetInfo(sheet),xCol=Number($("gradingAnalysisX").value),yCol=Number($("gradingAnalysisY").value);
+    const start=Math.max(1,Number($("gradingAnalysisStart").value)||1)-1;
+    const end=Math.min(info.data.length,Number($("gradingAnalysisEnd").value)||info.data.length);
+    const points=info.data.slice(start,end).map(row=>({x:numericValue(row[xCol]),y:numericValue(row[yCol])})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y));
+    if(points.length<2){toast("所选范围内至少需要两个有效数据点。",true);return;}
+    const degree=({linear:1,quadratic:2,cubic:3})[$("gradingAnalysisModel").value];
+    let fit=null;if(degree){try{fit=polyFit(points,degree);}catch(error){toast(error.message,true);return;}}
+    const mean=points.reduce((sum,p)=>sum+p.y,0)/points.length;
+    const sd=Math.sqrt(points.reduce((sum,p)=>sum+Math.pow(p.y-mean,2),0)/Math.max(1,points.length-1));
+    const sorted=[...points].sort((a,b)=>a.x-b.x);
+    const curve=fit?Array.from({length:100},(_,i)=>{const x=sorted[0].x+(sorted.at(-1).x-sorted[0].x)*i/99;return {x,y:fit.predict(x)};}):[];
+    if(gradingAnalysisChart)gradingAnalysisChart.destroy();
+    gradingAnalysisChart=new Chart($("gradingAnalysisCanvas").getContext("2d"),{type:"scatter",data:{datasets:[
+      {label:"学生原始数据",data:points,showLine:false,pointRadius:4},
+      ...(fit?[{label:"拟合曲线",data:curve,showLine:true,pointRadius:0,borderWidth:2}]:[])
+    ]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:"bottom"}},scales:{x:{type:"linear",title:{display:true,text:info.headers[xCol]||"X"}},y:{title:{display:true,text:info.headers[yCol]||"Y"}}}}});
+    $("gradingAnalysisResult").textContent="有效点 "+points.length+"；Y 均值 "+mean.toFixed(6)+"；样本标准差 "+sd.toFixed(6)+(fit?"；R² "+fit.r2.toFixed(6)+"；SSE "+fit.sse.toExponential(4):"；未拟合。");
   }
   async function loadReferenceSets(){
-    const host=$("referenceSetList"),classId=$("referenceClass")?.value;if(!host||!classId||!["teacher","admin"].includes(profile?.role))return;
-    const {data,error}=await db.from("experiment_reference_sets").select("id,title,experiment_slug,source_file_name,notes,updated_at").eq("class_id",classId).order("updated_at",{ascending:false});
-    if(error){host.textContent="参考数据读取失败："+friendlyError(error);return;}
-    host.innerHTML=(data||[]).map(row=>'<div class="reference-set-row"><div><strong>'+escapeHtml(row.title)+'</strong><small>'+escapeHtml(experimentName(row.experiment_slug))+' · '+escapeHtml(row.source_file_name||"")+' · '+new Date(row.updated_at).toLocaleString("zh-CN")+'</small><p>'+escapeHtml(row.notes||"")+'</p></div><button class="btn btn-outline btn-sm" data-reference-delete="'+row.id+'">删除</button></div>').join("")||"该班级尚无参考数据。";
+    const host=$("referenceSetList"),classId=$("referenceClass")?.value;
+    if(!host||!classId||!["teacher","admin"].includes(profile?.role))return;
+    const {data,error}=await db.from("experiment_reference_sets")
+      .select("id,title,experiment_slug,source_file_name,notes,storage_path,file_size_bytes,mime_type,updated_at")
+      .eq("class_id",classId).order("updated_at",{ascending:false}).limit(100);
+    if(error){host.textContent="参考工作簿读取失败："+friendlyError(error);return;}
+    host.innerHTML=(data||[]).map(row=>'<div class="reference-set-row"><div><strong>'+escapeHtml(row.title)+'</strong><small>'+escapeHtml(experimentName(row.experiment_slug))+' · '+escapeHtml(row.source_file_name||"")+(row.file_size_bytes?" · "+Math.ceil(row.file_size_bytes/1024)+" KB":"")+' · '+new Date(row.updated_at).toLocaleString("zh-CN")+'</small><p>'+escapeHtml(row.notes||"")+'</p></div><button class="btn btn-outline btn-sm" data-reference-delete="'+row.id+'">删除</button></div>').join("")||"该班级尚无参考数据。";
   }
   async function saveReferenceSet(){
     if(!["teacher","admin"].includes(profile?.role)){toast("仅教师和管理员可上传参考数据。",true);return;}
     const classId=$("referenceClass").value,slug=$("referenceExperiment").value,file=$("referenceFile").files?.[0],title=$("referenceTitle").value.trim();
-    if(!classId||!slug||!file||!title){toast("请填写参考数据名称并选择班级、实验和工作簿。",true);return;}
+    if(!classId||!slug||!file||!title){toast("请填写名称并选择班级、实验与参考工作簿。",true);return;}
     if(file.size>20*1024*1024){toast("参考工作簿不能超过 20 MB。",true);return;}
+    let storagePath=null;
     try{
-      const isCsv=/\.csv$/i.test(file.name),raw=isCsv?await file.text():await file.arrayBuffer();
-      const workbook=XLSX.read(raw,{type:isCsv?"string":"array"});
-      const sheets=workbook.SheetNames.slice(0,20).map(name=>({name,rows:XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true}).slice(0,3000)}));
-      if(!sheets.length||!sheets.some(sheet=>sheet.rows.some(row=>row.some(value=>value!==null&&value!==""))))throw new Error("文件中没有可读取的数据。");
-      if(sheets.reduce((sum,sheet)=>sum+sheet.rows.length,0)>12000)throw new Error("参考数据总行数超过 12,000，请拆分工作簿。");
-      const {error}=await db.from("experiment_reference_sets").insert({class_id:classId,experiment_slug:slug,title,source_file_name:file.name,data_json:{schema_version:1,sheets},notes:$("referenceNotes").value.trim(),created_by:user.id});
-      if(error)throw error;$("referenceTitle").value="";$("referenceFile").value="";$("referenceNotes").value="";
-      toast("教师参考数据已保存到云端。");await loadReferenceSets();
-    }catch(err){toast("参考数据导入失败："+friendlyError(err),true);}
+      if(!/\.(xlsx|xls|csv)$/i.test(file.name))throw new Error("参考数据仅支持 XLSX、XLS 或 CSV 文件。");
+      storagePath="teacher-reference/"+classId+"/"+crypto.randomUUID()+"_"+safeFileName(file.name);
+      const {error:uploadError}=await db.storage.from("lab-reports").upload(storagePath,file,{upsert:false,contentType:file.type||"application/octet-stream",cacheControl:"31536000"});
+      if(uploadError)throw uploadError;
+      const {error}=await db.from("experiment_reference_sets").insert({
+        class_id:classId,experiment_slug:slug,title,source_file_name:file.name,storage_path:storagePath,
+        file_size_bytes:file.size,mime_type:file.type||null,data_json:{schema_version:2,storage:"lab-reports"},
+        notes:$("referenceNotes").value.trim(),created_by:user.id
+      });
+      if(error)throw error;
+      $("referenceTitle").value="";$("referenceFile").value="";$("referenceNotes").value="";
+      toast("参考工作簿已放入私有文件存储，数据库只记录元信息。");await loadReferenceSets();
+    }catch(error){
+      if(storagePath)await db.storage.from("lab-reports").remove([storagePath]);
+      toast("参考工作簿上传失败："+friendlyError(error),true);
+    }
   }
   async function deleteReferenceSet(id){
-    if(!confirm("删除这份教师参考数据？学生报告及其他参考数据不会受到影响。"))return;
+    if(!confirm("删除这份教师参考工作簿？学生报告不会受到影响。"))return;
+    const {data:row,error:readError}=await db.from("experiment_reference_sets").select("id,storage_path").eq("id",id).maybeSingle();
+    if(readError||!row){toast("参考数据读取失败："+friendlyError(readError||"未找到记录"),true);return;}
     const {error}=await db.from("experiment_reference_sets").delete().eq("id",id);
-    if(error)toast("参考数据删除失败："+friendlyError(error),true);else{toast("参考数据已删除。");await loadReferenceSets();}
+    if(error){toast("参考数据删除失败："+friendlyError(error),true);return;}
+    if(row.storage_path){
+      const result=await db.storage.from("lab-reports").remove([row.storage_path]);
+      if(result.error)toast("数据库记录已删除，但 Storage 文件清理失败，请管理员检查。",true);
+      else toast("参考工作簿及记录已删除。");
+    }else toast("参考数据记录已删除。");
+    await loadReferenceSets();
   }
   function numericValue(value){
     if(value===null||value===undefined||String(value).trim()==="")return NaN;
@@ -1774,7 +1917,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const host=$("gradingCompareCharts"),summary=$("gradingDataSummary");if(!host||!summary)return;
     host.querySelectorAll("canvas").forEach(canvas=>{const chart=Chart.getChart(canvas);if(chart)chart.destroy();});
     if(!gradingRecord?.data_file_path){host.innerHTML='<p class="muted">此为 1.0 历史报告，没有单独的 Excel 数据附件；不会自动补造数据。</p>';summary.textContent="旧报告仍可正常批阅。";return;}
-    const reference=gradingReferenceSets.find(row=>row.id===$("gradingReferenceSelect")?.value),refSheets=reference?.data_json?.sheets||[],charts=[];
+    const reference=gradingReferenceSets.find(row=>row.id===$("gradingReferenceSelect")?.value),refSheets=gradingReferenceSheets.length?gradingReferenceSheets:(reference?.data_json?.sheets||[]),charts=[];
     gradingStudentSheets.forEach((sheet,index)=>{
       const student=compareWorkbookSheet(sheet);if(!student)return;
       const refSheet=refSheets.find(item=>item.name===sheet.name)||refSheets[index]||refSheets[0],teacher=refSheet?compareWorkbookSheet(refSheet):null;
@@ -1788,19 +1931,29 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     summary.textContent="已读取 "+gradingStudentSheets.length+" 张学生工作表；"+(reference?"正在叠加教师参考数据："+reference.title:"当前仅显示学生原始数据。");
   }
   async function loadGradingDataComparison(row){
-    gradingStudentSheets=[];gradingReferenceSets=[];const host=$("gradingCompareCharts"),select=$("gradingReferenceSelect");
-    host.textContent="正在读取学生 Excel 与教师参考数据…";
+    gradingStudentSheets=[];gradingReferenceSheets=[];gradingReferenceSets=[];
+    const host=$("gradingCompareCharts"),select=$("gradingReferenceSelect");
+    host.textContent="正在按需读取学生 Excel 与参考工作簿……";
+    await Promise.all([
+      window.TJUCPEWorkbook.ensureXlsx(),
+      ensureExternalLibrary("Chart",["https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js","https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js"])
+    ]);
     if(row.class_id){
-      const {data,error}=await db.from("experiment_reference_sets").select("id,title,data_json,source_file_name").eq("class_id",row.class_id).eq("experiment_slug",row.experiment_slug).order("updated_at",{ascending:false});
-      if(error)throw new Error("教师参考数据读取失败："+friendlyError(error));gradingReferenceSets=data||[];
+      const {data,error}=await db.from("experiment_reference_sets")
+        .select("id,title,data_json,source_file_name,storage_path,file_size_bytes,mime_type")
+        .eq("class_id",row.class_id).eq("experiment_slug",row.experiment_slug)
+        .order("updated_at",{ascending:false}).limit(30);
+      if(error)throw new Error("教师参考数据读取失败："+friendlyError(error));
+      gradingReferenceSets=data||[];
     }
     select.innerHTML='<option value="">不选择参考数据</option>'+gradingReferenceSets.map(item=>'<option value="'+item.id+'">'+escapeHtml(item.title)+'</option>').join("");
-    if(gradingReferenceSets.length)select.value=gradingReferenceSets[0].id;
-    if(!row.data_file_path){renderGradingComparison();return;}
-    const {data,error}=await db.storage.from("lab-reports").download(row.data_file_path);if(error)throw new Error("学生 Excel 数据读取失败："+friendlyError(error));
-    const workbook=XLSX.read(await data.arrayBuffer(),{type:"array"});
-    gradingStudentSheets=workbook.SheetNames.slice(0,20).map(name=>({name,rows:XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true}).slice(0,3000)}));
-    renderGradingComparison();
+    if(gradingReferenceSets.length){select.value=gradingReferenceSets[0].id;await loadSelectedReferenceForGrading();}
+    if(row.data_file_path){
+      const {data,error}=await db.storage.from("lab-reports").download(row.data_file_path);
+      if(error)throw new Error("学生 Excel 数据读取失败："+friendlyError(error));
+      gradingStudentSheets=await readWorkbookBlob(data);
+    }
+    renderGradingComparison();populateGradingAnalysisControls();
   }
   async function loadExperimentCatalogManager(){
     const host=$("experimentCatalogAdminList");if(!host)return;
@@ -1856,8 +2009,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(!slug||!cls||!exp){toast("请先选择班级和实验项目。",true);return;}
     const {data:catalog,error:catalogError}=await db.from("experiment_catalog").select("id,is_active").eq("slug",slug).maybeSingle();
     if(catalogError||!catalog?.is_active){toast("实验目录不存在或已停用，不能发布任务。",true);return;}
-    const {error}=await db.from("experiment_assignments").insert({class_id:cls,experiment_id:catalog.id,title:$("taskTitle").value.trim()||exp.name,instructions:$("taskInstructions").value.trim(),due_at:$("taskDue").value?new Date($("taskDue").value).toISOString():null,created_by:user.id,is_open:true,required:true});
-    if(error){toast("任务发布失败："+error.message,true);return;}toast("任务已发布。");await loadClassAssignments();
+    const {data:created,error}=await db.from("experiment_assignments").insert({class_id:cls,experiment_id:catalog.id,title:$("taskTitle").value.trim()||exp.name,instructions:$("taskInstructions").value.trim(),due_at:$("taskDue").value?new Date($("taskDue").value).toISOString():null,created_by:user.id,is_open:true,required:true}).select("id").single();
+    if(error){toast("任务发布失败："+error.message,true);return;}toast("任务已发布。请在下方在线 Excel 编辑器中设计并保存该任务模板。");await loadClassAssignments();if(created?.id&&$("templateAssignmentSelect"))$("templateAssignmentSelect").value=created.id;
   }
   async function loadSystemAdmin(){
     const {data,error}=await db.from("audit_logs").select("action,details,created_at").order("created_at",{ascending:false}).limit(100);
@@ -1948,7 +2101,11 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         $("newPassword").value="";
         return;
       }
-      showApp();updateUserChrome();renderCatalog();
+      showApp();updateUserChrome();
+      if(["teacher","admin"].includes(profile?.role)){
+        await ensureExternalLibrary("TJUCPE_EXPERIMENT_ENGINE",["experiment-engine.js?v=20261111-tjucpe-v2.1"]);
+        await renderCatalog();
+      }
       $("todayDate").textContent=new Date().toLocaleDateString("zh-CN",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
       go("overview");
     }catch(err){showAuth();toast(err.message||"读取用户资料失败。",true);await db.auth.signOut();}
@@ -2124,7 +2281,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-page]");if(b)go(b.dataset.page);});
     document.body.addEventListener("click",e=>{
       const goto=e.target.closest("[data-goto]");if(goto){if(goto.dataset.experiment)openExperiment(goto.dataset.experiment);else go(goto.dataset.goto);}
-      const taskOpen=e.target.closest("[data-task-open-experiment]");if(taskOpen){activeAssignmentId=taskOpen.dataset.taskId;activeClassId=taskOpen.dataset.classId;openExperiment(taskOpen.dataset.taskOpenExperiment);toast("已进入本次实验任务；保存的数据分析记录将关联到该任务。");}
+      const taskTemplate=e.target.closest("[data-task-template]");if(taskTemplate)downloadStudentAssignmentTemplate(taskTemplate.dataset.taskTemplate);
       const open=e.target.closest("[data-open-experiment]");if(open){activeAssignmentId=null;openExperiment(open.dataset.openExperiment);}
       const txtTemplate=e.target.closest("[data-template-txt]");if(txtTemplate&&currentExperiment)downloadExperimentTxt(currentExperiment.slug,txtTemplate.dataset.templateTxt);
       const xlsxTemplate=e.target.closest("[data-template-xlsx]");if(xlsxTemplate){if(currentExperiment)downloadExperimentWorkbook(currentExperiment.slug);else toast("请先打开一个实验，再下载该实验专属模板。",true);}
@@ -2185,11 +2342,16 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("adminTestConnection").addEventListener("click",runAdminConnectionCheck);
     $("saveCatalogItem").addEventListener("click",saveCatalogItem);
     $("clearCatalogForm").addEventListener("click",clearCatalogForm);
-    $("templateDesignExperiment")?.addEventListener("change",populateTemplateDesigner);
-    $("saveTemplateDesign")?.addEventListener("click",saveTemplateDesign);
+    $("openTeacherWorkbook")?.addEventListener("click",openTeacherWorkbookEditor);
+    $("saveTeacherWorkbook")?.addEventListener("click",saveTeacherWorkbookTemplate);
+    $("downloadTeacherWorkbook")?.addEventListener("click",downloadTeacherWorkbookTemplate);
+    $("templateAssignmentSelect")?.addEventListener("change",()=>{if(teacherWorkbookAssignmentId&&teacherWorkbookAssignmentId!==$("templateAssignmentSelect").value)$("teacherWorkbookStatus").textContent="任务已切换；点击“打开在线 Excel 编辑器”载入对应工作簿。";});
     $("referenceClass")?.addEventListener("change",loadReferenceSets);
     $("saveReferenceSet")?.addEventListener("click",saveReferenceSet);
-    $("gradingReferenceSelect")?.addEventListener("change",renderGradingComparison);
+    $("gradingReferenceSelect")?.addEventListener("change",loadSelectedReferenceForGrading);
+    $("gradingAnalysisSheet")?.addEventListener("change",populateGradingAnalysisColumns);
+    $("runGradingAnalysis")?.addEventListener("click",runGradingDataAnalysis);
+    $("loadMoreReviews")?.addEventListener("click",()=>loadReviews(true));
     $("pdfAnnotationMode")?.addEventListener("change",e=>{pdfAnnotationMode=e.target.value;});
     $("undoPdfAnnotation").addEventListener("click",undoPdfAnnotation);
     $("clearPdfAnnotations").addEventListener("click",clearPdfAnnotations);

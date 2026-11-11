@@ -151,3 +151,34 @@ button:disabled{opacity:.58;cursor:wait}.template-download-bar button{min-height
 .pdf-review-paper{position:relative}.pdf-review-base{display:block}
 .pdf-review-overlay{position:absolute;inset:0;touch-action:none;cursor:crosshair}
 @media(max-width:700px){.pdf-annotation-toolbar input,.pdf-annotation-toolbar select{max-width:none;flex:1 1 130px}.reference-set-row{align-items:flex-start}}
+
+
+/* TJUCPE v2.1 — teacher workbook and grading workspace */
+.teacher-template-panel{overflow:hidden}
+.teacher-workbook-editor{
+  width:100%;min-width:0;height:640px;min-height:520px;
+  overflow:hidden;border:1px solid #d8e1e8;border-radius:12px;background:#fff;
+}
+.teacher-workbook-editor .workbook-loading{
+  padding:22px;color:#607789;text-align:center;
+}
+.teacher-workbook-editor>div{width:100%;height:100%}
+.teacher-template-panel .form-actions{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+.teacher-template-panel label{display:block;margin-top:12px}
+.teacher-template-panel select{width:100%;max-width:520px}
+.grading-analysis-workspace{margin-top:16px}
+.grading-analysis-controls{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px}
+.grading-analysis-chart{height:360px;min-width:0;margin-top:16px;padding:12px;border:1px solid #e2e8ed;border-radius:10px;background:#fff}
+.grading-analysis-chart canvas{width:100%!important;height:100%!important}
+#teacherWorkbookStatus,#gradingAnalysisResult{line-height:1.7;white-space:normal}
+#loadMoreReviews{margin-left:6px}
+@media(max-width:760px){
+  .teacher-workbook-editor{height:520px;min-height:420px}
+  .grading-analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grading-analysis-chart{height:300px}
+  .teacher-template-panel .form-actions{display:grid;grid-template-columns:1fr}
+  .teacher-template-panel .form-actions button{width:100%}
+}
+@media(max-width:460px){
+  .grading-analysis-controls{grid-template-columns:1fr}
+}

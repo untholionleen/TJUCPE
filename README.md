@@ -2,49 +2,34 @@
 
 面向物理化学实验教学的浏览器工作区，包含学生端、教师端和管理员端。
 
-## 当前已部署能力
+## v2.1 学生提交与教师数据工作区
 
-- **学生端**：14 个实验专属数据模板；每张实验数据表均支持手动录入、TXT 模板下载/上传和多工作表 XLSX 模板下载/上传；按班级任务提交 PDF/DOCX；查看开放任务、提交报告、查看教师反馈和批阅后的 PDF。
-- **教师端**：创建/修改/停用/永久删除无历史报告班级；分班导入名单；发布、修改和关闭实验任务；管理本班学生；生成密码恢复链接；在线预览 PDF 并直接页面圈画批注，发布新的批阅版 PDF。教师工作台仅显示教学管理指标，不显示学生个人学习工作台。
-- **管理员端**：管理全站账号与角色、跨班级管理、永久删除学生账号、重置密码；管理班级与实验目录；无历史报告的班级可永久删除，有历史报告时阻止硬删除并保留归档；查看审计日志、Supabase 检测和技术资料。
-- **实验项目管理**：14 个已建立实验模板；教师/管理员可新增、编辑、停用和重新启用实验目录项。新建项目默认通用数据工作区，专属公式需经课程教师核验后再启用。
-- **Origin 风格数据处理**：专属实验表格、逐表 Excel/CSV 导入、CSV 导出、交互矩形/套索拟合选区、重新拟合、残差和统计结果；Matplotlib/Python 生成科研图，Plotly 提供交互式图表；拟合统一使用全部有效数据点。
-- **报告版本**：批阅 PDF 作为新版本上传，更新当前报告路径；原始 PDF 不覆盖，版本表保留旧文件路径，学生与教师读取同一当前版本。
+- **学生端**：只下载教师按任务发布的 Excel 模板，填写数据后与 PDF/DOCX 报告同步提交；查看报告状态、教师反馈和批阅版报告。不再提供学生制图、拟合或数据处理入口。
+- **教师端**：提供在线 Excel 工作簿设计器，无需修改 JSON；教师可按任务编辑工作表、单元格、公式和格式。批阅时同页查看报告与学生 Excel 数据，按需读取参考工作簿并执行数据比较、区间选择、线性/二次/三次拟合及图表分析。
+- **管理员端**：管理全站账号与角色、跨班级管理、班级与实验目录、审计日志和系统检测。
+- **文件与数据库**：学生报告、学生 Excel 数据和教师参考工作簿存放在私有 Storage；数据库保留必要的提交元数据和工作簿模板快照，不将教师参考 Excel 的全部单元格写入 JSONB。
+- **性能策略**：学生端按需加载轻量资源；在线 Excel、图表、PDF 编辑引擎只在教师使用对应功能时加载；教师报告列表每次分页 100 条；模板只在点击下载时单份读取；分析计算尽量在浏览器本地运行。
+- **报告版本**：批阅 PDF 作为新版本上传，原始 PDF 不覆盖，版本表保留旧文件路径；学生与教师读取同一当前版本。
 
 ## 数据库部署状态
 
-Supabase 项目 `TJUCPE` 已连接并完成以下迁移：
+Supabase 迁移按顺序记录在 `supabase/migrations/`。本次 v2.1 新增：
 
-- `20261107154542_tjucpe_classroom_catalog_assignments_v2`
-- `20261107170207_tjucpe_report_lifecycle_v3`
-- `20261107173313_report_student_edit_guard_v4`
-- `20261107175451_tjucpe_full_workflow_pdf_review_v5`
-- `20261107180243_tjucpe_query_performance_indexes_v6`
-- `20261107181323_tjucpe_report_resubmission_deadline_guard_v7`
-- `20261107181407_tjucpe_active_class_submission_guard_v8`
-- `20261107181850_tjucpe_rls_performance_policy_tuning_v9`
-- `20261107181935_tjucpe_legacy_report_resubmit_guard_v10`
-- `20261110232736_tjucpe_v2_paired_data_reference_pdf_editor_backup`
-- `20261110232838_tjucpe_v2_class_backup_delete_transaction`
-- `20261110232934_tjucpe_v2_reset_annotations_on_student_resubmit`
-- `20261111000130_tjucpe_v2_reference_data_least_privilege`
+- `20261111131435_tjucpe_teacher_workbook_templates_storage_and_query_efficiency_v21.sql`
+- `20261111142825_tjucpe_teacher_workbook_storage_policy_privilege_tuning_v22.sql`
+- `20261111142948_tjucpe_student_analysis_write_restriction_v23.sql`
 
-当前业务表已启用 RLS，`lab-reports` 是私有 Storage bucket。`classroom-admin` Edge Function 当前为 ACTIVE v24，支持完整班级备份导出、下载确认及事务删除。2026-11-08 已清空旧测试 Auth 用户和教学业务记录，保留 14 个实验目录、数据库结构和迁移历史；详见 `docs/RESET_AND_FIRST_ADMIN.md`。
-
-**兼容性说明**：已有的旧报告即使没有 `class_id` / `assignment_id` 也会保留，不会被伪造归班；新报告必须关联有效班级和教师发布的实验任务。
+本次没有清空、删除或重置现有学生报告、提交版本、PDF 批注或教师历史参考记录。`experiment_records` 的历史学生记录保留可读，但新的分析记录写入仅允许教师/管理员。`lab-reports` 为私有 Storage。
 
 ## 快速访问
 
-- 网站预览：<https://untholionleen.github.io/TJUCPE/>
+- 网站：<https://untholionleen.github.io/TJUCPE/>
 - GitHub 仓库：<https://github.com/untholionleen/TJUCPE>
 
-## 部署与验收边界
+## 性能与验收边界
 
-- 当前仓库公开；仅提交通用程序、迁移和文档，不提交学生名单、报告原件、成绩或其他个人数据。
-- 浏览器只使用 Supabase publishable key。严禁将 service_role、secret key 或数据库密码写入前端。
-- 代码推送不等于 Pages 已完成部署；以 GitHub Actions 中最新 `Deploy TJUCPE to GitHub Pages` 工作流成功为准。
-- 真实学生数据上线前，仍须使用两名合成学生、教师和管理员完成权限、报告提交、撤回、批阅 PDF 同步和文件历史验收。
-- 自动化计算模板是实验教学辅助工具；实验公式、单位、常数与结果仍须按课程指导书由教师逐项验收。
-- GitHub Pages 仅作预览；正式收集学生账号和报告前，应迁移至适合认证业务和敏感文件处理的托管环境。
+本版本通过前端按需加载、分页、减少重复查询、模板按需读取、参考 Excel 文件化存储和本地分析，降低日常数据库交互和数据库存储量。**30,000 次交互目前是容量目标，不是已完成的并发压测结果。**正式确认该指标前，仍需用合成账号和数据执行 30,000 次并发/持续交互测试，并观察 Database、Storage、Auth、网络出站流量、RLS 查询和 CDN 资源指标。
 
-详见 `docs/DEPLOYMENT.md`、`docs/SECURITY.md`、`docs/ALGORITHM_STATUS.md`。
+正式用于真实课程前，还应分别使用学生、教师和管理员账号验收权限，并使用 Microsoft Excel 与 WPS 完成中文、公式、日期/数字格式、多工作表和文件往返测试。自动化代码检查通过不等同于完成这些人工验收。
+
+详细说明见 `docs/TJUCPE_V2_1_TEACHER_WORKFLOW.md`、`docs/DEPLOYMENT.md`、`docs/SECURITY.md` 和 `docs/ALGORITHM_STATUS.md`。

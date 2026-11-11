@@ -6,6 +6,8 @@
 with expected(table_name) as (
   values
     ('profiles'),
+    ('assignment_templates'),
+    ('experiment_reference_sets'),
     ('experiment_records'),
     ('report_submissions'),
     ('audit_logs')
@@ -54,7 +56,7 @@ select
   privilege_type
 from information_schema.role_table_grants
 where table_schema = 'public'
-  and table_name in ('profiles','experiment_records','report_submissions','audit_logs')
+  and table_name in ('profiles','assignment_templates','experiment_reference_sets','experiment_records','report_submissions','audit_logs')
   and grantee in ('anon','authenticated')
 order by table_name, grantee, privilege_type;
 
@@ -89,3 +91,9 @@ order by event_object_schema, event_object_table, trigger_name;
 -- from public.profiles p
 -- join auth.users u on u.id = p.id
 -- where lower(u.email) = lower('YOUR_ADMIN_EMAIL@example.com');
+
+-- 8) Verify workbook indexes and teacher-only reference-file policies.
+select indexname,indexdef from pg_indexes where schemaname='public' and tablename='assignment_templates' order by indexname;
+select schemaname,tablename,policyname,cmd,qual,with_check from pg_policies where (schemaname='public' and tablename in ('assignment_templates','experiment_reference_sets')) or (schemaname='storage' and tablename='objects' and policyname like 'teacher_reference_objects%') order by schemaname,tablename,policyname;
+-- 9) Confirm analysis-record writes are limited to teaching staff.
+select policyname,cmd,roles,qual,with_check from pg_policies where schemaname='public' and tablename='experiment_records' order by policyname;
