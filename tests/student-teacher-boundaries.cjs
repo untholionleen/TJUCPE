@@ -13,7 +13,7 @@ assert.doesNotMatch(html, /id="templateDesignJson"/, "JSON template editor must 
 assert.match(html, /id="teacherWorkbookEditor"/, "online workbook editor is required");
 assert.match(html, /id="gradingAnalysisCanvas"/, "teacher grading chart is required");
 assert.match(html, /id="loadMoreReviews"/, "teacher review pagination is required");
-assert.match(html, /teacher-workbook\.js\?v=20261111-tjucpe-v2\.1/, "workbook editor must be deployed");
+assert.match(html, /teacher-workbook\.js\?v=20261111-tjucpe-v2\.2/, "workbook editor must be deployed");
 assert.doesNotMatch(html, /chart\.js|pdf\.js|pdf-lib|xlsx\.full|experiment-engine\.js/, "heavy libraries must not load on student entry");
 const studentPanel = html.slice(html.indexOf('id="overviewStudentPanel"'), html.indexOf('id="experimentsPage"'));
 assert.ok(studentPanel.includes('data-goto="reports"'), "student quick links must go to reports");
