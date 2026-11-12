@@ -45,11 +45,14 @@ console.log("TJUCPE student/teacher workflow smoke tests passed.");
 
 // QR enrollment is a link-assisted version of the existing authenticated join flow.
 assert.match(html, /id="classQrDialog"/, "class QR dialog is required");
-assert.match(html, /id="classQrCanvas"/, "class QR canvas is required");
+assert.match(html, /id="classQrRender"/, "dynamic class QR rendering container is required");
+assert.match(html, /id="retryClassQr"/, "class QR dialog must expose a retry action");
 assert.match(html, /id="createClassForm"/, "class creation must use a real form");
 assert.match(app, /createClassForm[^\n]*addEventListener\("submit"/, "class creation must use form submit");
 assert.match(app, /action:"create_class"/, "class creation must use the authenticated server endpoint");
 assert.match(app, /INITIAL_CLASS_JOIN_CODE/, "QR query parameter must be captured");
 assert.match(app, /data-class-qr/, "teacher class card must expose QR action");
+assert.match(app, /data-admin-class-qr/, "administrator class directory must expose QR action");
+assert.match(app, /new QRCodeLib\(render/, "QR generation must use the QRCode.js browser API");
 assert.match(app, /action:"join_class",join_code:code/, "QR enrollment must reuse authenticated join endpoint");
 assert.match(app, /showClassQr\(createdClass\.id\)/, "new class creation must show its QR code");
