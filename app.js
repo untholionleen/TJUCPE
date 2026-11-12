@@ -2204,6 +2204,195 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       assignmentPublishRunning=false;button.disabled=false;button.textContent="发布任务";
     }
   }
+  let adminClassSyncSelectValue="";
+  function renderAdminClassMetrics(totals={}){
+    $("adminClassMetricTotal").textContent=totals.class_count??0;
+    $("adminClassMetricActive").textContent=totals.active_class_count??0;
+    $("adminClassMetricMembers").textContent=totals.member_count??0;
+    $("adminClassMetricReports").textContent=totals.report_count??0;
+  }
+  function renderAdminClasses(){
+    const host=$("adminClassBody");
+    if(!host)return;
+    host.innerHTML=adminClassCache.map(function(cls){
+      const counts=cls.counts||{};
+      return '<tr>'+
+        '<td><strong>'+escapeHtml(cls.name)+'</strong><small>'+escapeHtml(cls.description||"")+'</small></td>'+
+        '<td>'+escapeHtml(cls.course_code||"—")+'</td>'+
+        '<td>'+escapeHtml(cls.teacher_name||"未设置")+'<small>'+escapeHtml(roleName(cls.teacher_role))+'</small></td>'+
+        '<td>'+(counts.member_count??0)+'</td><td>'+(counts.assignment_count??0)+'</td>'+
+        '<td>'+(counts.report_count??0)+'</td><td>'+(counts.reference_set_count??0)+'</td>'+
+        '<td><span class="status-pill '+(cls.is_active?"graded":"draft")+'">'+(cls.is_active?"启用":"已归档")+'</span><small>'+
+        (cls.last_sync_at?"最近核验："+new Date(cls.last_sync_at).toLocaleString("zh-CN"):"尚未核验")+'</small></td>'+
+        '<td><div class="admin-class-actions">'+
+        '<button class="action-link" data-admin-class-edit="'+cls.id+'">修改</button>'+
+        '<button class="action-link" data-admin-class-open="'+cls.id+'">工作台</button>'+
+        '<button class="action-link" data-admin-class-toggle="'+cls.id+'">'+(cls.is_active?"归档":"重新启用")+'</button>'+
+        '<button class="action-link" data-admin-class-sync="'+cls.id+'">同步核验</button>'+
+        '<button class="action-link danger" data-admin-class-delete="'+cls.id+'">备份并删除</button>'+
+        '</div></td></tr>';
+    }).join("")||'<tr><td colspan="9" class="muted center">目前没有教学班。可以在上方创建第一个班级。</td></tr>';
+    const options=adminClassCache.map(function(c){return '<option value="'+c.id+'">'+escapeHtml(c.name)+(c.is_active?"":"（已归档）")+'</option>';}).join("");
+    $("adminClassSyncSelect").innerHTML=options||'<option value="">暂无班级</option>';
+    if(adminClassSyncSelectValue&&adminClassCache.some(function(c){return c.id===adminClassSyncSelectValue;}))$("adminClassSyncSelect").value=adminClassSyncSelectValue;
+  }
+  async function loadAdminClasses(){
+    const host=$("adminClassBody");
+    if(host)host.innerHTML='<tr><td colspan="9" class="muted center">正在读取全平台班级与关联数据……</td></tr>';
+    try{
+      const data=await invokeClassroomAdminDirect({action:"admin_list_classes"});
+      adminClassCache=data.classes||[];
+      adminClassTeachers=data.teachers||[];
+      renderAdminClassMetrics(data.totals||{});
+      $("adminClassTeacher").innerHTML=adminClassTeachers.filter(function(t){return t.account_status==="active";})
+        .map(function(t){return '<option value="'+t.id+'">'+escapeHtml((t.full_name||"未命名")+" · "+roleName(t.role)+(t.student_no?" · "+t.student_no:""))+'</option>';}).join("");
+      if(adminClassEditingId&&$("adminClassTeacher").dataset.selected)$("adminClassTeacher").value=$("adminClassTeacher").dataset.selected;
+      if(!adminClassEditingId&&adminClassTeachers.length){
+        $("adminClassTeacher").value=adminClassTeachers.find(function(t){return t.role==="teacher"&&t.account_status==="active";})?.id||adminClassTeachers[0].id;
+      }
+      renderAdminClasses();
+      $("adminClassRefreshStatus").textContent="已从 Supabase 主数据库读取 "+adminClassCache.length+" 个班级；计数为实时查询结果。";
+    }catch(error){
+      if(host)host.innerHTML='<tr><td colspan="9" class="center">'+escapeHtml(error?.message||String(error))+'</td></tr>';
+      $("adminClassRefreshStatus").textContent="班级目录读取失败："+(error?.message||String(error));
+      toast("管理员班级目录读取失败："+(error?.message||String(error)),true);
+    }
+  }
+  function clearAdminClassForm(){
+    adminClassEditingId=null;
+    ["adminClassName","adminClassCode","adminClassDescription"].forEach(function(id){$(id).value="";});
+    const teacher=adminClassTeachers.find(function(x){return x.role==="teacher"&&x.account_status==="active";})||adminClassTeachers[0];
+    if(teacher)$("adminClassTeacher").value=teacher.id;
+    $("adminClassTeacher").dataset.selected="";
+    $("saveAdminClass").textContent="新增班级";
+    $("adminClassFormStatus").textContent="新增班级会写入正式班级目录；管理员可指定负责教师。";
+  }
+  function editAdminClass(id){
+    const cls=adminClassCache.find(function(x){return x.id===id;});if(!cls)return;
+    adminClassEditingId=id;
+    $("adminClassName").value=cls.name||"";
+    $("adminClassCode").value=cls.course_code||"";
+    $("adminClassDescription").value=cls.description||"";
+    $("adminClassTeacher").value=cls.teacher_id;
+    $("adminClassTeacher").dataset.selected=cls.teacher_id;
+    $("saveAdminClass").textContent="保存班级修改";
+    $("adminClassFormStatus").textContent="正在编辑："+cls.name+"。保存后立即更新全平台班级目录。";
+    $("adminClassName").scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  async function saveAdminClass(){
+    const button=$("saveAdminClass"),editingId=adminClassEditingId;
+    const name=$("adminClassName").value.trim();
+    if(!name){toast("请填写班级名称。",true);$("adminClassName").focus();return;}
+    if(!$("adminClassTeacher").value){toast("请为班级选择一名有效的负责教师。",true);return;}
+    button.disabled=true;button.textContent=editingId?"正在保存…":"正在新增…";
+    $("adminClassFormStatus").textContent="正在提交管理员班级变更…";
+    try{
+      const body=editingId
+        ?{action:"admin_update_class",class_id:editingId,name:name,course_code:$("adminClassCode").value.trim(),description:$("adminClassDescription").value.trim(),teacher_id:$("adminClassTeacher").value}
+        :{action:"create_class",name:name,course_code:$("adminClassCode").value.trim(),description:$("adminClassDescription").value.trim(),teacher_id:$("adminClassTeacher").value};
+      const data=await invokeClassroomAdminDirect(body);
+      if(!data.ok)throw new Error(data.error||"服务器未确认班级保存。");
+      toast(editingId?"班级信息已修改。":"新班级已创建。");
+      $("adminClassFormStatus").textContent=editingId?"班级已更新。":"班级已新增。";
+      adminClassEditingId=null;
+      clearAdminClassForm();
+      await loadAdminClasses();
+    }catch(error){
+      const raw=error?.rawMessage||error?.message||String(error);
+      const message="班级保存失败："+raw+(error?.status?"（HTTP "+error.status+"）":"")+(error?.code?"（代码 "+error.code+"）":"")+(error?.details?"；"+error.details:"");
+      $("adminClassFormStatus").textContent=message;toast(message,true);
+    }finally{button.disabled=false;button.textContent=adminClassEditingId?"保存班级修改":"新增班级";}
+  }
+  async function toggleAdminClass(id){
+    const cls=adminClassCache.find(function(x){return x.id===id;});if(!cls)return;
+    const next=!cls.is_active;
+    if(!confirm(next?"重新启用班级“"+cls.name+"”？":"归档班级“"+cls.name+"”？归档不会删除成员、任务、报告或文件。"))return;
+    try{
+      await invokeClassroomAdminDirect({action:"admin_update_class",class_id:id,is_active:next});
+      toast(next?"班级已重新启用。":"班级已归档，关联数据保留。");
+      await loadAdminClasses();
+    }catch(error){toast("班级状态更新失败："+(error?.message||String(error)),true);}
+  }
+  async function runAdminClassSync(classId=""){
+    adminClassSyncSelectValue=classId||$("adminClassSyncSelect").value||"";
+    if(adminClassSyncSelectValue)$("adminClassSyncSelect").value=adminClassSyncSelectValue;
+    const button=$("adminClassSyncRun");
+    if(button){button.disabled=true;button.textContent="正在核验…";}
+    $("adminClassSyncStatus").textContent="正在从 Supabase 主数据库重新读取班级、成员、任务、报告和参考数据计数……";
+    try{
+      const body={action:"admin_class_data_sync"};
+      if(adminClassSyncSelectValue)body.class_id=adminClassSyncSelectValue;
+      const data=await invokeClassroomAdminDirect(body);
+      const checks=data.checks||[];
+      $("adminClassSyncStatus").textContent=data.message||"数据核验完成。";
+      $("adminClassSyncResult").innerHTML=checks.map(function(row){
+        return row.ok
+          ?'<div class="admin-sync-row"><strong>'+escapeHtml(row.class_name)+'</strong><span>学生 '+row.counts.member_count+'</span><span>任务 '+row.counts.assignment_count+'</span><span>报告 '+row.counts.report_count+'</span><span>参考数据 '+row.counts.reference_set_count+'</span><small>'+new Date(row.checked_at).toLocaleString("zh-CN")+'</small></div>'
+          :'<div class="admin-sync-row error"><strong>'+escapeHtml(row.class_name)+'</strong><span>'+escapeHtml(row.error||"核验失败")+'</span></div>';
+      }).join("")||'<p class="muted">当前没有班级可执行同步核验。</p>';
+      const failed=checks.filter(function(x){return !x.ok;}).length;
+      toast(checks.length?("数据同步核验完成："+(checks.length-failed)+"/"+checks.length+" 个班级通过。"):"当前没有班级数据需要核验。",failed>0);
+      await loadAdminClasses();
+      if(adminClassSyncSelectValue)$("adminClassSyncSelect").value=adminClassSyncSelectValue;
+    }catch(error){
+      $("adminClassSyncStatus").textContent="同步核验失败："+(error?.message||String(error));
+      toast("班级数据同步核验失败："+(error?.message||String(error)),true);
+    }finally{if(button){button.disabled=false;button.textContent="执行同步核验";}}
+  }
+  function openAdminClassWorkspace(id){activeClassId=id;go("classes");}
+  async function prepareAdminClassBackupDelete(id){
+    const cls=adminClassCache.find(function(x){return x.id===id;});if(!cls)return;
+    if(!confirm("将先生成“"+cls.name+"”的完整 ZIP 备份，确认下载后才允许删除。请确认该班级确实需要永久删除。继续？"))return;
+    const host=$("adminClassBackupResult");
+    host.classList.remove("hidden");host.textContent="正在读取班级、成员、实验任务、报告、历史版本、数据记录与参考数据……";
+    try{
+      if(!window.JSZip)await ensureExternalLibrary("JSZip",["https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js","https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"]);
+      const data=await invokeClassroomAdminDirect({action:"export_class_backup",class_id:id});
+      if(!data.ok||!data.backup_id)throw new Error(data.error||"服务端未生成班级备份凭证。");
+      const zip=new JSZip(),root="TJUCPE_"+safeFileName(cls.name)+"_完整备份";
+      ["class","assignments","members","profiles","reports","revisions","experiment_records","reference_sets","counts"].forEach(function(key){
+        zip.file(root+"/数据/"+key+".json",JSON.stringify(data[key]??null,null,2));
+      });
+      zip.file(root+"/README.txt","TJUCPE v2.5.0 班级完整备份。此 ZIP 包含班级业务数据 JSON 与可访问的报告、工作簿和历史文件。");
+      let total=0;
+      for(let i=0;i<(data.files||[]).length;i++){
+        const item=data.files[i];
+        if(!item.signed_url)throw new Error("缺少备份文件下载链接："+(item.archive_name||item.path));
+        const response=await fetch(item.signed_url);
+        if(!response.ok)throw new Error("备份文件下载失败："+(item.archive_name||item.path)+"（HTTP "+response.status+"）");
+        const blob=await response.blob();total+=blob.size;
+        if(total>500*1024*1024)throw new Error("班级文件超过 500 MB 浏览器打包保护阈值；班级未删除。");
+        const archiveName=String(item.archive_name||("文件_"+i)).split("..").join("_").replace(/^\/+/, "");
+        zip.file(root+"/"+archiveName,blob);
+      }
+      const archive=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:4}});
+      if(!archive.size)throw new Error("生成的完整备份 ZIP 为空。");
+      presentPreparedDownload(archive,data.backup_file_name||("TJUCPE_"+safeFileName(cls.name)+"_完整备份.zip"),"adminClassBackupResult");
+      $("adminClassBackupResult").insertAdjacentHTML("beforeend",'<p class="tiny muted">请先点击“点击下载 ZIP”并确认本地文件已保存。下载确认只关联本次备份凭证。</p><button id="confirmAdminClassBackupDelete" class="btn btn-danger btn-sm">我已保存完整备份，确认永久删除该班级</button>');
+      pendingAdminClassDelete={classId:id,backupId:data.backup_id,fileName:data.backup_file_name};
+      $("confirmAdminClassBackupDelete").addEventListener("click",finalizeAdminClassDelete);
+      toast("班级备份已生成；完成下载确认后才允许删除。");
+    }catch(error){
+      pendingAdminClassDelete=null;host.textContent="备份失败，班级未删除："+(error?.message||String(error));
+      toast("班级完整备份失败，班级未删除："+(error?.message||String(error)),true);
+    }
+  }
+  async function finalizeAdminClassDelete(){
+    if(!pendingAdminClassDelete)return;
+    if(!confirm("请确认已保存完整 ZIP。永久删除后，该班级成员关系、任务、报告记录及关联历史数据将按备份流程一并删除。继续？"))return;
+    const pending=pendingAdminClassDelete;
+    try{
+      const ack=await invokeClassroomAdminDirect({action:"ack_class_backup_downloaded",class_id:pending.classId,backup_id:pending.backupId,backup_file_name:pending.fileName});
+      if(!ack.ok)throw new Error(ack.error||"备份下载确认失败。");
+      const deleted=await invokeClassroomAdminDirect({action:"delete_class",class_id:pending.classId,backup_id:pending.backupId});
+      if(!deleted.ok)throw new Error(deleted.error||"服务器没有确认班级删除。");
+      pendingAdminClassDelete=null;
+      if(activeClassId===pending.classId)activeClassId=null;
+      $("adminClassBackupResult").textContent="班级已完成备份并删除。报告 "+(deleted.report_count??0)+" 份；分析记录 "+(deleted.analysis_record_count??0)+" 条；已清理文件 "+(deleted.removed_files??0)+" 个。";
+      toast("班级已完成完整备份、下载确认与删除。");
+      await loadAdminClasses();
+    }catch(error){toast("班级删除未完成："+(error?.message||String(error))+"；请保留备份并刷新状态核对。",true);}
+  }
   async function loadSystemAdmin(){
     const {data,error}=await db.from("audit_logs").select("action,details,created_at").order("created_at",{ascending:false}).limit(100);
     $("auditLogBody").innerHTML=error?escapeHtml(friendlyError(error)):(data||[]).map(x=>`<tr><td>${new Date(x.created_at).toLocaleString("zh-CN")}</td><td>${escapeHtml(x.action)}</td><td>${escapeHtml(JSON.stringify(x.details||{}))}</td></tr>`).join("")||'<tr><td colspan="3">暂无审计记录</td></tr>';
@@ -2554,6 +2743,18 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("closeReportViewer").addEventListener("click",()=>$("reportViewerDialog").close());
     $("closeFeedback").addEventListener("click",()=>$("feedbackDialog").close());
     $("profileButton").addEventListener("click",()=>toast((profile?.full_name||user?.email||"账户")+" · "+roleName(profile?.role)));
+    $("saveAdminClass")?.addEventListener("click",saveAdminClass);
+    $("clearAdminClassForm")?.addEventListener("click",clearAdminClassForm);
+    $("refreshAdminClasses")?.addEventListener("click",loadAdminClasses);
+    $("adminClassSyncRun")?.addEventListener("click",()=>runAdminClassSync());
+    $("adminClassSyncSelect")?.addEventListener("change",e=>{adminClassSyncSelectValue=e.target.value||"";});
+    $("adminClassBody")?.addEventListener("click",e=>{
+      const edit=e.target.closest("[data-admin-class-edit]");if(edit){editAdminClass(edit.dataset.adminClassEdit);return;}
+      const open=e.target.closest("[data-admin-class-open]");if(open){openAdminClassWorkspace(open.dataset.adminClassOpen);return;}
+      const toggle=e.target.closest("[data-admin-class-toggle]");if(toggle){toggleAdminClass(toggle.dataset.adminClassToggle);return;}
+      const sync=e.target.closest("[data-admin-class-sync]");if(sync){runAdminClassSync(sync.dataset.adminClassSync);return;}
+      const del=e.target.closest("[data-admin-class-delete]");if(del)prepareAdminClassBackupDelete(del.dataset.adminClassDelete);
+    });
   }
   window.TJUCPEActions=Object.freeze({
     createClass:()=>createClass("独立按钮入口")
