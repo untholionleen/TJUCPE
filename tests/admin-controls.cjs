@@ -4,7 +4,7 @@ const html = fs.readFileSync("index.html", "utf8");
 const app = fs.readFileSync("app.js", "utf8");
 const edge = fs.readFileSync("supabase/functions/classroom-admin/index.ts", "utf8");
 
-assert.match(html, /data-page="users"[^>]*admin-only/, "user control panel must be administrator-only");
+assert.match(html, /class="nav-item admin-only hidden"[^>]*data-page="users"/, "user control panel must be administrator-only");
 assert.match(html, /id="usersPage"/, "global user management page must exist");
 assert.match(html, /id="adminInviteRole"[\s\S]*value="student"[\s\S]*value="teacher"/, "admin must invite students and teachers");
 assert.match(app, /action:"list_users"/, "global user list must use the privileged endpoint");
