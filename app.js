@@ -1457,8 +1457,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       initialJoinCodeApplied=true;
       toast("已识别班级二维码，请核对班级加入码后点击“加入班级”。");
     }
+    // Teachers see only classes they are currently responsible for. RLS also
+    // allows ordinary members to read their enrolled class, but that must never
+    // make another teacher's class appear as a management target.
+    const teacherOwnedClasses=profile.role==="teacher"
+      ?classesCache.filter(c=>c.teacher_id===user.id)
+      :classesCache;
     if($("referenceClass")){
-      const activeClasses=classesCache.filter(c=>c.is_active);
+      const activeClasses=teacherOwnedClasses.filter(c=>c.is_active);
       $("referenceClass").innerHTML=activeClasses.map(c=>'<option value="'+c.id+'">'+escapeHtml(c.name)+'</option>').join("");
       if(activeClassId&&activeClasses.some(c=>c.id===activeClassId))$("referenceClass").value=activeClassId;
     }
@@ -1469,7 +1475,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       if(!classEditingId)$("newClassTeacher").value=user.id;
       teacherLabel?.classList.remove("hidden");
     }else teacherLabel?.classList.add("hidden");
-    let visible=classesCache;
+    let visible=teacherOwnedClasses;
     if(profile.role==="student"){
       if(auxiliary.error){$("classList").textContent=friendlyError(auxiliary.error);return;}
       const ids=new Set((auxiliary.data||[]).map(x=>x.class_id));

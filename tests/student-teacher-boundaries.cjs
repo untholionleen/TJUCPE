@@ -56,6 +56,7 @@ assert.match(app, /createClassForm[^\n]*addEventListener\("submit"/, "class crea
 assert.match(app, /action:"create_class"/, "class creation must use the authenticated server endpoint");
 assert.match(app, /INITIAL_CLASS_JOIN_CODE/, "QR query parameter must be captured");
 assert.match(app, /data-class-qr/, "teacher class card must expose QR action");
+assert.match(app, /classesCache\.filter\(c=>c\.teacher_id===user\.id\)/, "teacher classroom view must filter to its own responsible classes");
 assert.match(app, /data-admin-class-qr/, "administrator class directory must expose QR action");
 assert.match(app, /new QRCodeLib\(render/, "QR generation must use the QRCode.js browser API");
 assert.match(app, /action:"join_class",join_code:code/, "QR enrollment must reuse authenticated join endpoint");
