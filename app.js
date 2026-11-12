@@ -2026,17 +2026,34 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(error){toast("项目状态更新失败："+error.message,true);return;}
     toast(isActive?"实验项目已停用，历史任务保留。":"实验项目已重新启用。");await renderCatalog();
   }
+  let classCreateRunning=false;
   async function createClass(){
-    const name=$("newClassName").value.trim();if(!name){toast("请填写班级名称。",true);return;}
+    if(classCreateRunning)return;
+    const name=$("newClassName").value.trim();
+    if(!name){toast("请填写班级名称。",true);$("newClassName").focus();return;}
     const wasEditing=!!classEditingId;
     const teacherId=profile.role==="admin"?($("newClassTeacher").value||user.id):user.id;
-    const payload={name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim(),teacher_id:teacherId};
-    const result=wasEditing
-      ?await db.from("classes").update(payload).eq("id",classEditingId)
-      :await db.from("classes").insert(payload).select("id,name,join_code").single();
-    if(result.error){toast(friendlyError(result.error),true);return;}
-    toast(wasEditing?"班级信息已更新。":"班级创建成功。");clearClassForm();await loadClasses();
-    if(!wasEditing&&result.data?.id)showClassQr(result.data.id);
+    const payload={name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim()};
+    const button=$("createClass"),originalText=button.textContent;
+    classCreateRunning=true;button.disabled=true;button.textContent=wasEditing?"正在保存…":"正在创建班级…";
+    try{
+      let createdClass=null;
+      if(wasEditing){
+        const result=await db.from("classes").update({...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})}).eq("id",classEditingId);
+        if(result.error)throw result.error;
+        createdClass=classesCache.find(item=>item.id===classEditingId)||null;
+      }else{
+        const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"create_class",...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})}});
+        if(error||!data?.ok||!data?.class?.id)throw error||new Error(data?.error||"服务端未返回新班级编号。");
+        createdClass=data.class;
+      }
+      toast(wasEditing?"班级信息已更新。":"班级创建成功。");
+      clearClassForm();await loadClasses();
+      if(!wasEditing&&createdClass?.id){activeClassId=createdClass.id;if($("classTaskSelect"))$("classTaskSelect").value=createdClass.id;showClassQr(createdClass.id);}
+    }catch(err){
+      const message=err?.details?String(err.message||"")+" · "+String(err.details):err;
+      toast("班级"+(wasEditing?"修改":"创建")+"失败："+friendlyError(message),true);
+    }finally{classCreateRunning=false;button.disabled=false;button.textContent=originalText;}
   }
   async function publishAssignment(){
     const slug=$("taskExperiment").value,cls=$("classTaskSelect").value,exp=experiments.find(x=>x.slug===slug);
@@ -2369,7 +2386,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("classList").addEventListener("click",e=>{const qr=e.target.closest("[data-class-qr]");if(qr)showClassQr(qr.dataset.classQr);});
     $("copyClassQrLink")?.addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("classQrLink").value);toast("班级加入链接已复制。");}catch{ $("classQrLink").select();document.execCommand("copy");toast("班级加入链接已复制。");}});
     $("closeClassQr")?.addEventListener("click",()=>$("classQrDialog").close());
-    $("createClass").addEventListener("click",createClass);
+    $("createClassForm").addEventListener("submit",e=>{e.preventDefault();createClass();});
     $("clearClassForm").addEventListener("click",clearClassForm);
     $("publishAssignment").addEventListener("click",publishAssignment);
     $("joinClass").addEventListener("click",joinClass);

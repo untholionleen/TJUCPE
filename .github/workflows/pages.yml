@@ -39,6 +39,8 @@ jobs:
         run: node tests/review-save-smoke.cjs
       - name: Test student and teacher workflow boundaries
         run: node tests/student-teacher-boundaries.cjs
+      - name: Test administrator control plane and classroom creation
+        run: node tests/admin-controls.cjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Assemble public application files

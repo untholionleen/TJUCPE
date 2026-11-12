@@ -1,0 +1,24 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const html = fs.readFileSync("index.html", "utf8");
+const app = fs.readFileSync("app.js", "utf8");
+const edge = fs.readFileSync("supabase/functions/classroom-admin/index.ts", "utf8");
+
+assert.match(html, /data-page="users"[^>]*admin-only/, "user control panel must be administrator-only");
+assert.match(html, /id="usersPage"/, "global user management page must exist");
+assert.match(html, /id="adminInviteRole"[\s\S]*value="student"[\s\S]*value="teacher"/, "admin must invite students and teachers");
+assert.match(app, /action:"list_users"/, "global user list must use the privileged endpoint");
+assert.match(app, /action:"set_user_role"/, "admin must manage user roles");
+assert.match(app, /action:"set_account_status"/, "admin must enable and disable accounts");
+assert.match(app, /action:"admin_invite_account"/, "admin must invite teachers and students");
+assert.match(edge, /if \(action === "list_users"\)[\s\S]*if \(!isAdmin\)/, "global user list must be administrator-only");
+assert.match(edge, /if \(action === "set_user_role"\)[\s\S]*if \(!isAdmin\)/, "role changes must be administrator-only");
+assert.match(edge, /if \(action === "set_account_status"\)[\s\S]*if \(!isAdmin\)/, "account lifecycle controls must be administrator-only");
+assert.match(edge, /if \(action === "admin_invite_account"\)[\s\S]*if \(!isAdmin\)/, "invitations must be administrator-only");
+assert.match(edge, /if \(action === "create_class"\)[\s\S]*\["teacher", "admin"\]/, "only teachers/admins may create classes");
+assert.match(edge, /const teacherId = isAdmin && requestedTeacherId \? requestedTeacherId : actorId/, "teachers cannot assign ownership to another account");
+assert.match(edge, /class\.created/, "class creation must be audited");
+assert.match(edge, /account_status === "disabled"/, "disabled accounts must not access privileged actions");
+assert.match(edge, /targetProfile\.role === "admin"/, "last admin protections must remain in place");
+assert.match(edge, /Only student accounts can be deleted in this operation/, "teacher deletion must not use the student deletion path");
+console.log("TJUCPE administrator control and server-authorized classroom creation tests passed.");

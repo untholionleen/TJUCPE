@@ -528,6 +528,26 @@ export default {
         });
       }
 
+      if (action === "create_class") {
+        if (!["teacher", "admin"].includes(actor.role)) return json({ error: "Teacher or administrator required" }, 403);
+        const name = String(body.name ?? "").trim();
+        const courseCode = String(body.course_code ?? "").trim();
+        const description = String(body.description ?? "").trim();
+        if (!name) return json({ error: "Class name is required" }, 400);
+        if (name.length > 120 || courseCode.length > 40 || description.length > 2000) return json({ error: "Class name, course code or description exceeds the allowed length" }, 400);
+        const requestedTeacherId = String(body.teacher_id ?? "").trim();
+        const teacherId = isAdmin && requestedTeacherId ? requestedTeacherId : actorId;
+        if (!isAdmin && teacherId !== actorId) return json({ error: "Teachers can only create classes for themselves" }, 403);
+        const { data: owner, error: ownerError } = await supabaseAdmin.from("profiles").select("id,role,account_status").eq("id", teacherId).single();
+        if (ownerError || !owner || !["teacher", "admin"].includes(owner.role) || owner.account_status === "disabled") return json({ error: "The selected class owner must be an active teacher or administrator" }, 400);
+        const { data: created, error: createError } = await supabaseAdmin.from("classes")
+          .insert({ name, course_code: courseCode, description, teacher_id: teacherId })
+          .select("id,name,course_code,description,teacher_id,join_code,is_active,created_at").single();
+        if (createError || !created) return json({ error: createError?.message ?? "Class could not be created", code: createError?.code ?? null, details: createError?.details ?? null }, 400);
+        await audit(null, "class.created", { class_id: created.id, class_name: created.name, teacher_id: teacherId, scope: isAdmin ? "administrator_global" : "teacher_own_class" });
+        return json({ ok: true, class: created });
+      }
+
       if (action === "join_class") {
         if (actor.role !== "student") return json({ error: "Only student accounts can join a class" }, 403);
         const joinCode = String(body.join_code ?? "").trim().toUpperCase();
