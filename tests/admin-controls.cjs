@@ -41,3 +41,25 @@ assert.match(app, /任务发布失败：/, "assignment publishing errors must be
 assert.match(edge, /role_metadata_sync_warnings/, "admin list endpoint must expose role metadata sync warnings");
 assert.match(edge, /profile role rollback/, "role changes must roll profiles back if Auth metadata fails");
 assert.match(edge, /profile rollback/, "account status changes must roll profiles back if Auth ban fails");
+
+const migration = fs.readFileSync("supabase/migrations/20261112042500_tjucpe_include_reference_files_in_class_delete.sql", "utf8");
+assert.match(html, /data-page="admin-classes"/, "global class/data management must be an administrator navigation item");
+assert.match(html, /id="admin-classesPage"/, "administrator class/data page must exist");
+assert.match(html, /id="adminClassName"/, "administrator can create and edit global classes");
+assert.match(html, /id="adminClassBody"/, "administrator class directory must render all managed classes");
+assert.match(html, /id="adminClassSyncRun"/, "administrator must have an explicit data reconciliation action");
+assert.match(app, /invokeClassroomAdminDirect/, "class creation and admin management must read raw Edge HTTP response details");
+assert.match(app, /createClassGuarded/, "class create click/submit entry points must catch pre-request failures");
+assert.match(app, /admin_list_classes/, "admin class console must load global class data");
+assert.match(app, /admin_update_class/, "admin class console must update owner and class properties");
+assert.match(app, /admin_class_data_sync/, "admin class console must run live data reconciliation");
+assert.match(app, /assignment_templates/, "class backup must include online Excel template snapshots");
+assert.match(edge, /if \(action === "admin_list_classes"\)[\s\S]*if \(!isAdmin\)/, "global class directory endpoint must be admin-only");
+assert.match(edge, /if \(action === "admin_update_class"\)[\s\S]*if \(!isAdmin\)/, "global class changes must be admin-only");
+assert.match(edge, /if \(action === "admin_class_data_sync"\)[\s\S]*if \(!isAdmin\)/, "class data reconciliation must be admin-only");
+assert.match(edge, /references\.map\(\(row: Record<string, any>\) => row\.storage_path\)/, "reference workbook objects must be included in signed backup paths");
+assert.match(edge, /addFile\(reference\.storage_path, "教师参考数据\//, "reference workbook files must be included in class archive payload");
+assert.match(migration, /SELECT rs\.storage_path AS p[\s\S]*FROM public\.experiment_reference_sets rs/, "class deletion transaction must include reference workbook storage paths");
+assert.match(migration, /DELETE FROM public\.experiment_reference_sets WHERE class_id = p_class_id/, "reference set metadata remains covered by class deletion");
+assert.match(migration, /SECURITY DEFINER[\s\S]*SET search_path TO ''/, "class deletion function security boundary must be preserved");
+console.log("TJUCPE v2.5 administrator class management, sync reconciliation, and backup integrity tests passed.");
