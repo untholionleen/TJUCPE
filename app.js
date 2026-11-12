@@ -1324,12 +1324,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     if(error||!data?.users){$("usersBody").innerHTML='<tr><td colspan="8" class="center">'+escapeHtml(friendlyError(error||data?.error||"用户列表读取失败"))+'</td></tr>';return;}
     adminUsersCache=data.users;
     renderAdminUsers();
+    const warnings=data.role_metadata_sync_warnings||[];
+    if(warnings.length)toast("有 "+warnings.length+" 个账号的 Auth 角色字段同步失败；数据库角色仍然有效，可刷新重试。",true);
   }
   function renderAdminUsers(){
     const q=String($("userSearch")?.value||"").trim().toLowerCase();
     const rows=adminUsersCache.filter(p=>!q||[p.email,p.full_name,p.student_no,p.role].some(v=>String(v||"").toLowerCase().includes(q)));
     $("usersBody").innerHTML=rows.map(p=>`<tr>
-      <td>${["student","teacher"].includes(p.role)?`<input class="user-check" data-user-role="${p.role}" value="${p.id}">`:"—"}</td>
+      <td>${["student","teacher"].includes(p.role)?`<input type="checkbox" class="user-check" data-user-role="${p.role}" value="${p.id}" aria-label="选择${roleName(p.role)} ${escapeHtml(p.full_name||p.email||p.id)}">`:"—"}</td>
       <td>${escapeHtml(p.full_name||"未填写")}</td><td>${escapeHtml(p.email||"—")}</td><td>${escapeHtml(p.student_no||"—")}</td>
       <td><span class="status-pill">${roleName(p.role)}</span></td>
       <td>${p.email_confirmed?"已验证":"待验证"} · ${new Date(p.created_at).toLocaleDateString("zh-CN")}</td>
@@ -2034,8 +2036,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     const wasEditing=!!classEditingId;
     const teacherId=profile.role==="admin"?($("newClassTeacher").value||user.id):user.id;
     const payload={name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim()};
-    const button=$("createClass"),originalText=button.textContent;
+    const button=$("createClass"),originalText=button.textContent,status=$("createClassStatus");
+    const setStatus=(message,isError=false)=>{if(status){status.textContent=message;status.classList.toggle("error",isError);status.classList.toggle("success",!isError&&!!message);}};
     classCreateRunning=true;button.disabled=true;button.textContent=wasEditing?"正在保存…":"正在创建班级…";
+    setStatus(wasEditing?"正在保存班级信息…":"正在校验权限并创建班级…");
     try{
       let createdClass=null;
       if(wasEditing){
@@ -2047,12 +2051,15 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         if(error||!data?.ok||!data?.class?.id)throw error||new Error(data?.error||"服务端未返回新班级编号。");
         createdClass=data.class;
       }
+      setStatus(wasEditing?"班级信息已更新。":"班级创建成功，班级码已生成。");
       toast(wasEditing?"班级信息已更新。":"班级创建成功。");
       clearClassForm();await loadClasses();
       if(!wasEditing&&createdClass?.id){activeClassId=createdClass.id;if($("classTaskSelect"))$("classTaskSelect").value=createdClass.id;showClassQr(createdClass.id);}
     }catch(err){
       const message=err?.details?String(err.message||"")+" · "+String(err.details):err;
-      toast("班级"+(wasEditing?"修改":"创建")+"失败："+friendlyError(message),true);
+      const friendly=friendlyError(message);
+      setStatus("班级"+(wasEditing?"修改":"创建")+"失败："+friendly,true);
+      toast("班级"+(wasEditing?"修改":"创建")+"失败："+friendly,true);
     }finally{classCreateRunning=false;button.disabled=false;button.textContent=originalText;}
   }
   async function publishAssignment(){
@@ -2386,6 +2393,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("classList").addEventListener("click",e=>{const qr=e.target.closest("[data-class-qr]");if(qr)showClassQr(qr.dataset.classQr);});
     $("copyClassQrLink")?.addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("classQrLink").value);toast("班级加入链接已复制。");}catch{ $("classQrLink").select();document.execCommand("copy");toast("班级加入链接已复制。");}});
     $("closeClassQr")?.addEventListener("click",()=>$("classQrDialog").close());
+    $("createClass").addEventListener("click",e=>{e.preventDefault();createClass();});
     $("createClassForm").addEventListener("submit",e=>{e.preventDefault();createClass();});
     $("clearClassForm").addEventListener("click",clearClassForm);
     $("publishAssignment").addEventListener("click",publishAssignment);

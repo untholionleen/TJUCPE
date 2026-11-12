@@ -23,3 +23,12 @@ assert.ok(edge.includes('targetProfile.role==="admin"') && edge.includes("不能
 assert.ok(edge.includes('targetProfile.role==="admin"') && edge.includes("不能降级最后一个有效管理员"), "last admin role cannot be demoted");
 assert.match(edge, /Only student accounts can be deleted in this operation/, "teacher deletion must not use the student deletion path");
 console.log("TJUCPE administrator control and server-authorized classroom creation tests passed.");
+
+assert.match(app, /<input type="checkbox" class="user-check"/, "administrator bulk account controls require checkbox inputs");
+assert.match(app, /\$\("createClass"\)\.addEventListener\("click"/, "class creation needs a direct button click handler");
+assert.match(app, /\$\("createClassForm"\)\.addEventListener\("submit"/, "class creation must retain keyboard form submission");
+assert.match(app, /classCreateRunning/, "class create double-submit guard must be present");
+assert.match(html, /id="createClassStatus"/, "class create progress/error feedback must be visible");
+assert.match(edge, /role_metadata_sync_warnings/, "admin list endpoint must expose role metadata sync warnings");
+assert.match(edge, /profile role rollback/, "role changes must roll profiles back if Auth metadata fails");
+assert.match(edge, /profile rollback/, "account status changes must roll profiles back if Auth ban fails");

@@ -86,6 +86,23 @@ export default {
           : { data: [], error: null };
         if (profileError) return json({ error: profileError.message }, 500);
         const profileMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [String(p.id), p]));
+
+        // profiles.role is the canonical role source for this platform. Keep Auth app_metadata
+        // aligned as well, so new JWTs and any other server integrations receive the same role.
+        // A metadata sync failure is reported but never hides the account list or changes profiles.
+        const roleMetadataSyncWarnings: { user_id: string; error: string }[] = [];
+        for (const authUser of authUsers) {
+          const profile = profileMap.get(String(authUser.id)) as Record<string, unknown> | undefined;
+          if (!profile || !["student", "teacher", "admin"].includes(String(profile.role ?? ""))) continue;
+          const role = String(profile.role);
+          if (String(authUser.app_metadata?.role ?? "") === role) continue;
+          const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
+            app_metadata: { ...(authUser.app_metadata ?? {}), role }
+          });
+          if (metadataError) roleMetadataSyncWarnings.push({ user_id: authUser.id, error: metadataError.message });
+          else authUser.app_metadata = { ...(authUser.app_metadata ?? {}), role };
+        }
+
         return json({
           users: authUsers.map((u: Record<string, any>) => {
             const p = profileMap.get(String(u.id)) ?? {};
@@ -95,11 +112,14 @@ export default {
               role: p.role ?? "student", created_at: p.created_at ?? u.created_at,
               account_status: p.account_status ?? "active",
               must_change_password: !!p.must_change_password,
-              email_confirmed: !!u.email_confirmed_at
+              email_confirmed: !!u.email_confirmed_at,
+              app_metadata_role: u.app_metadata?.role ?? null
             };
-          })
+          }),
+          role_metadata_sync_warnings: roleMetadataSyncWarnings
         });
       }
+
 
       if (action === "set_account_status") {
         if (!isAdmin) return json({ error: "Administrator required" }, 403);
@@ -120,16 +140,26 @@ export default {
           if(adminCountError)return json({error:adminCountError.message},500);
           if((count??0)<=1)return json({error:"不能停用最后一个有效管理员账号。请先任命另一名管理员。"},409);
         }
-        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(targetId, {
-          ban_duration: status === "disabled" ? "876000h" : "none"
-        });
-        if (authUpdateError) return json({ error: authUpdateError.message }, 500);
+
+        // Keep the canonical profile status and Supabase Auth ban state consistent.
+        // If Auth rejects the ban/unban call, roll back the database status.
         const { error: profileError } = await supabaseAdmin.from("profiles")
           .update({ account_status: status }).eq("id", targetId);
         if (profileError) return json({ error: profileError.message }, 500);
+        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(targetId, {
+          ban_duration: status === "disabled" ? "876000h" : "none"
+        });
+        if (authUpdateError) {
+          const { error: rollbackError } = await supabaseAdmin.from("profiles")
+            .update({ account_status: targetProfile.account_status }).eq("id", targetId);
+          return json({
+            error: "Auth account status update failed; profile rollback " + (rollbackError ? "also failed: " + rollbackError.message : "succeeded") + ": " + authUpdateError.message
+          }, 500);
+        }
         await audit(targetId, status === "disabled" ? "account.disabled" : "account.enabled");
         return json({ ok: true, user_id: targetId, account_status: status });
       }
+
 
       if (action === "set_user_role") {
         if (!isAdmin) return json({ error: "Administrator required" }, 403);
@@ -152,14 +182,23 @@ export default {
           if(adminCountError)return json({error:adminCountError.message},500);
           if((count??0)<=1)return json({error:"不能降级最后一个有效管理员。请先任命另一名管理员。"},409);
         }
+
+        // Change the canonical database role first. If Auth metadata cannot be updated,
+        // roll the profile back so the two role sources cannot silently diverge.
+        const { error: profileUpdateError } = await supabaseAdmin.from("profiles").update({ role }).eq("id", targetId);
+        if (profileUpdateError) return json({ error: profileUpdateError.message }, 500);
         const nextMetadata = { ...(authTarget.user.app_metadata ?? {}), role };
         const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(targetId, { app_metadata: nextMetadata });
-        if (authUpdateError) return json({ error: authUpdateError.message }, 500);
-        const { error: profileUpdateError } = await supabaseAdmin.from("profiles").update({ role }).eq("id", targetId);
-        if (profileUpdateError) return json({ error: "Auth role updated but profile role failed: " + profileUpdateError.message }, 500);
-        await audit(targetId, "account.role_changed", { role });
+        if (authUpdateError) {
+          const { error: rollbackError } = await supabaseAdmin.from("profiles").update({ role: targetProfile.role }).eq("id", targetId);
+          return json({
+            error: "Auth role update failed; profile role rollback " + (rollbackError ? "also failed: " + rollbackError.message : "succeeded") + ": " + authUpdateError.message
+          }, 500);
+        }
+        await audit(targetId, "account.role_changed", { previous_role: targetProfile.role, role });
         return json({ ok: true, user_id: targetId, role });
       }
+
 
       if (action === "admin_invite_account") {
         if (!isAdmin) return json({ error: "Administrator required" }, 403);
@@ -543,7 +582,10 @@ export default {
         const { data: created, error: createError } = await supabaseAdmin.from("classes")
           .insert({ name, course_code: courseCode, description, teacher_id: teacherId })
           .select("id,name,course_code,description,teacher_id,join_code,is_active,created_at").single();
-        if (createError || !created) return json({ error: createError?.message ?? "Class could not be created", code: createError?.code ?? null, details: createError?.details ?? null }, 400);
+        if (createError || !created) {
+          await audit(null, "class.create_failed", { class_name: name, teacher_id: teacherId, error_code: createError?.code ?? null, error: createError?.message ?? "Class could not be created" });
+          return json({ error: createError?.message ?? "Class could not be created", code: createError?.code ?? null, details: createError?.details ?? null }, 400);
+        }
         await audit(null, "class.created", { class_id: created.id, class_name: created.name, teacher_id: teacherId, scope: isAdmin ? "administrator_global" : "teacher_own_class" });
         return json({ ok: true, class: created });
       }
