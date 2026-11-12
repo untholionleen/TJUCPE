@@ -34,8 +34,8 @@ assert.match(app, /window\.addEventListener\("unhandledrejection"/, "unhandled a
 assert.match(app, /\$\("createClassForm"\)\.addEventListener\("submit"/, "class creation must retain keyboard form submission");
 assert.match(app, /classCreateRunning/, "class create double-submit guard must be present");
 assert.match(html, /id="createClassStatus"/, "class create progress/error feedback must be visible");
-assert.match(html, /app\.js\?v=20261112-tjucpe-v2\.4\.1/, "browser cache must refresh to the repaired app version");
-assert.match(html, /TJUCPE · v2\.4\.1/, "visible app version must match the loaded asset version");
+assert.match(html, /app\.js\?v=20261112-tjucpe-v2\.5\.0/, "browser cache must refresh to the repaired app version");
+assert.match(html, /TJUCPE · v2\.5\.0/, "visible app version must match the loaded asset version");
 assert.match(app, /管理员账号登录/, "teacher attempts to open administrator panels must receive an explanation");
 assert.match(app, /任务发布失败：/, "assignment publishing errors must be surfaced instead of becoming silent rejections");
 assert.match(edge, /role_metadata_sync_warnings/, "admin list endpoint must expose role metadata sync warnings");
@@ -54,6 +54,10 @@ assert.match(app, /admin_list_classes/, "admin class console must load global cl
 assert.match(app, /admin_update_class/, "admin class console must update owner and class properties");
 assert.match(app, /admin_class_data_sync/, "admin class console must run live data reconciliation");
 assert.match(app, /assignment_templates/, "class backup must include online Excel template snapshots");
+assert.match(app, /counts\.template_count/, "administrator class directory must display Excel template counts");
+assert.match(edge, /template_count: templates\.count/, "server reconciliation must count template snapshots");
+assert.match(edge, /analysis_record_count: records\.count/, "server reconciliation must count experiment analysis records");
+assert.match(edge, /revision_count: revisions\.count/, "server reconciliation must count report revision history");
 assert.match(edge, /if \(action === "admin_list_classes"\)[\s\S]*if \(!isAdmin\)/, "global class directory endpoint must be admin-only");
 assert.match(edge, /if \(action === "admin_update_class"\)[\s\S]*if \(!isAdmin\)/, "global class changes must be admin-only");
 assert.match(edge, /if \(action === "admin_class_data_sync"\)[\s\S]*if \(!isAdmin\)/, "class data reconciliation must be admin-only");
