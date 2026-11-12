@@ -52,4 +52,4 @@ assert.match(app, /action:"create_class"/, "class creation must use the authenti
 assert.match(app, /INITIAL_CLASS_JOIN_CODE/, "QR query parameter must be captured");
 assert.match(app, /data-class-qr/, "teacher class card must expose QR action");
 assert.match(app, /action:"join_class",join_code:code/, "QR enrollment must reuse authenticated join endpoint");
-assert.match(app, /showClassQr\(result\.data\.id\)/, "new class creation must show its QR code");
+assert.match(app, /showClassQr\(createdClass\.id\)/, "new class creation must show its QR code");
