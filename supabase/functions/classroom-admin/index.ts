@@ -360,6 +360,162 @@ export default {
         });
       }
 
+      const getClassCounts = async (targetClassId: string) => {
+        const [members, assignments, reports, references] = await Promise.all([
+          supabaseAdmin.from("class_members").select("student_id", { count: "exact", head: true }).eq("class_id", targetClassId),
+          supabaseAdmin.from("experiment_assignments").select("id", { count: "exact", head: true }).eq("class_id", targetClassId),
+          supabaseAdmin.from("report_submissions").select("id", { count: "exact", head: true }).eq("class_id", targetClassId),
+          supabaseAdmin.from("experiment_reference_sets").select("id", { count: "exact", head: true }).eq("class_id", targetClassId)
+        ]);
+        const failure = [members, assignments, reports, references].find((item: any) => item.error);
+        if (failure?.error) throw new Error("班级数据计数读取失败：" + failure.error.message);
+        return {
+          member_count: members.count ?? 0,
+          assignment_count: assignments.count ?? 0,
+          report_count: reports.count ?? 0,
+          reference_set_count: references.count ?? 0
+        };
+      };
+
+      if (action === "admin_list_classes") {
+        if (!isAdmin) return json({ error: "Administrator required" }, 403);
+        const [classResult, teacherResult, syncResult] = await Promise.all([
+          supabaseAdmin.from("classes")
+            .select("id,name,course_code,description,teacher_id,join_code,is_active,created_at,updated_at")
+            .order("created_at", { ascending: false }).limit(500),
+          supabaseAdmin.from("profiles")
+            .select("id,full_name,student_no,role,account_status")
+            .in("role", ["teacher", "admin"]).order("full_name").limit(500),
+          supabaseAdmin.from("audit_logs")
+            .select("details,created_at").eq("action", "admin.class_data_sync_checked")
+            .order("created_at", { ascending: false }).limit(1000)
+        ]);
+        if (classResult.error) return json({ error: "班级目录读取失败：" + classResult.error.message }, 500);
+        if (teacherResult.error) return json({ error: "班级负责人目录读取失败：" + teacherResult.error.message }, 500);
+        if (syncResult.error) return json({ error: "同步记录读取失败：" + syncResult.error.message }, 500);
+        const syncMap = new Map<string, string>();
+        for (const row of syncResult.data ?? []) {
+          const targetId = String((row.details as Record<string, unknown> | null)?.class_id ?? "");
+          if (targetId && !syncMap.has(targetId)) syncMap.set(targetId, row.created_at);
+        }
+        const classes = await Promise.all((classResult.data ?? []).map(async (cls: Record<string, any>) => {
+          const teacher = (teacherResult.data ?? []).find((p: Record<string, any>) => p.id === cls.teacher_id);
+          return {
+            ...cls,
+            teacher_name: teacher?.full_name ?? "未设置",
+            teacher_role: teacher?.role ?? "",
+            counts: await getClassCounts(String(cls.id)),
+            last_sync_at: syncMap.get(String(cls.id)) ?? null
+          };
+        }));
+        const totals = classes.reduce((acc: Record<string, number>, cls: Record<string, any>) => {
+          acc.class_count += 1;
+          acc.active_class_count += cls.is_active ? 1 : 0;
+          acc.member_count += cls.counts.member_count;
+          acc.assignment_count += cls.counts.assignment_count;
+          acc.report_count += cls.counts.report_count;
+          acc.reference_set_count += cls.counts.reference_set_count;
+          return acc;
+        }, { class_count: 0, active_class_count: 0, member_count: 0, assignment_count: 0, report_count: 0, reference_set_count: 0 });
+        return json({ ok: true, classes, teachers: teacherResult.data ?? [], totals });
+      }
+
+      if (action === "admin_class_data_sync") {
+        if (!isAdmin) return json({ error: "Administrator required" }, 403);
+        const requestedClassId = String(body.class_id ?? "").trim();
+        const classQuery = supabaseAdmin.from("classes")
+          .select("id,name,course_code,teacher_id,is_active")
+          .order("created_at", { ascending: false }).limit(500);
+        const { data: classRows, error: classesError } = requestedClassId
+          ? await classQuery.eq("id", requestedClassId)
+          : await classQuery;
+        if (classesError) return json({ error: "同步核验读取班级失败：" + classesError.message }, 500);
+        if (requestedClassId && !(classRows ?? []).length) return json({ error: "Class not found" }, 404);
+        const checks = [];
+        for (const cls of classRows ?? []) {
+          try {
+            const counts = await getClassCounts(String(cls.id));
+            const checkedAt = new Date().toISOString();
+            const { error: auditError } = await supabaseAdmin.from("audit_logs").insert({
+              actor_id: actorId,
+              target_user_id: null,
+              action: "admin.class_data_sync_checked",
+              details: {
+                class_id: cls.id, class_name: cls.name, counts,
+                source: "supabase_primary_database",
+                check_type: "live_count_reconciliation",
+                checked_at: checkedAt
+              }
+            });
+            if (auditError) throw new Error("同步检查记录保存失败：" + auditError.message);
+            checks.push({ class_id: cls.id, class_name: cls.name, counts, checked_at: checkedAt, ok: true });
+          } catch (error) {
+            checks.push({
+              class_id: cls.id, class_name: cls.name, ok: false,
+              error: error instanceof Error ? error.message : "同步检查失败"
+            });
+          }
+        }
+        const failed = checks.filter((row: Record<string, unknown>) => !row.ok).length;
+        await audit(null, "admin.class_data_sync_batch_completed", {
+          class_count: checks.length, failed_count: failed, requested_class_id: requestedClassId || null
+        });
+        return json({
+          ok: true,
+          checks,
+          checked_at: new Date().toISOString(),
+          message: "已从 Supabase 主数据库重新读取班级、名单、任务、报告和参考数据计数；未覆盖或改写教学数据。"
+        });
+      }
+
+      if (action === "admin_update_class") {
+        if (!isAdmin) return json({ error: "Administrator required" }, 403);
+        const targetClassId = String(body.class_id ?? "").trim();
+        if (!targetClassId) return json({ error: "class_id required" }, 400);
+        const { data: currentClass, error: lookupError } = await supabaseAdmin.from("classes")
+          .select("id,name,course_code,description,teacher_id,is_active")
+          .eq("id", targetClassId).maybeSingle();
+        if (lookupError || !currentClass) return json({ error: lookupError?.message ?? "Class not found" }, 404);
+        const update: Record<string, unknown> = {};
+        if (body.name !== undefined) {
+          const value = String(body.name ?? "").trim();
+          if (!value || value.length > 120) return json({ error: "班级名称不能为空且不得超过 120 个字符。" }, 400);
+          update.name = value;
+        }
+        if (body.course_code !== undefined) {
+          const value = String(body.course_code ?? "").trim();
+          if (value.length > 40) return json({ error: "课程代码不得超过 40 个字符。" }, 400);
+          update.course_code = value;
+        }
+        if (body.description !== undefined) {
+          const value = String(body.description ?? "").trim();
+          if (value.length > 2000) return json({ error: "班级说明不得超过 2000 个字符。" }, 400);
+          update.description = value;
+        }
+        if (body.teacher_id !== undefined) {
+          const teacherId = String(body.teacher_id ?? "").trim();
+          const { data: owner, error: ownerError } = await supabaseAdmin.from("profiles")
+            .select("id,role,account_status").eq("id", teacherId).maybeSingle();
+          if (ownerError || !owner || !["teacher", "admin"].includes(owner.role) || owner.account_status === "disabled") {
+            return json({ error: "班级负责人必须是有效的教师或管理员账号。" }, 400);
+          }
+          update.teacher_id = teacherId;
+        }
+        if (body.is_active !== undefined) {
+          if (typeof body.is_active !== "boolean") return json({ error: "is_active must be a boolean" }, 400);
+          update.is_active = body.is_active;
+        }
+        if (!Object.keys(update).length) return json({ error: "No class changes supplied" }, 400);
+        const { data: updatedClass, error: updateError } = await supabaseAdmin.from("classes")
+          .update(update).eq("id", targetClassId)
+          .select("id,name,course_code,description,teacher_id,join_code,is_active,created_at,updated_at").single();
+        if (updateError || !updatedClass) return json({ error: "班级信息保存失败：" + (updateError?.message ?? "未返回更新记录") }, 400);
+        await audit(null, "admin.class_updated", {
+          class_id: targetClassId, previous: currentClass, changes: update
+        });
+        return json({ ok: true, class: updatedClass });
+      }
+
       if (action === "export_class_backup") {
         if (actor.role !== "teacher" && !isAdmin) return json({ error: "Teacher or administrator required" }, 403);
         if (!await canManageClass()) return json({ error: "You do not manage this class" }, 403);
