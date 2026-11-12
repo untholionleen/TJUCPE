@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#102a43">
   <meta name="description" content="物理化学实验教学与电子报告管理平台">
-  <title>TJUCPE · 物理化学实验教学平台 v2.4.1</title>
+  <title>TJUCPE · 物理化学实验教学平台 v2.5.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.css" integrity="sha384-WwGtaC6ywCHxA5cstpj/3+xIZTez8dq2IcBQaXRkenHZ7FVVq1ZROtURwfbtTlG" crossorigin="anonymous">
-  <link rel="stylesheet" href="styles.css?v=20261112-tjucpe-v2.4.1">
+  <link rel="stylesheet" href="styles.css?v=20261112-tjucpe-v2.5.0">
   <script src="config.js?v=20261107-publishable-key-2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2.119.0'"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js" integrity="sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE" crossorigin="anonymous"></script>
   
   <script defer src="teacher-workbook.js?v=20261111-tjucpe-v2.2"></script>
-  <script defer src="app.js?v=20261112-tjucpe-v2.4.1"></script>
+  <script defer src="app.js?v=20261112-tjucpe-v2.5.0"></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status"></div>
@@ -76,12 +76,13 @@
         <button class="nav-item" data-page="classes"><span class="nav-icon">▦</span> 班级与任务</button>
         <button class="nav-item staff-only hidden" data-page="review"><span class="nav-icon">☷</span> 报告批阅</button>
         <button class="nav-item admin-only hidden" data-page="users"><span class="nav-icon">♙</span> 用户与权限</button>
+        <button class="nav-item admin-only hidden" data-page="admin-classes"><span class="nav-icon">▤</span> 班级与数据管理</button>
         <button class="nav-item admin-only hidden" data-page="system"><span class="nav-icon">⚙</span> 系统管理</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="sidebar-help"><span class="help-mark">?</span><div><strong>需要帮助？</strong><small>查看平台使用说明</small></div></div>
         <button id="signOut" class="nav-item signout"><span class="nav-icon">↪</span> 退出登录</button>
-        <div class="sidebar-foot">TJUCPE · v2.4.1</div>
+        <div class="sidebar-foot">TJUCPE · v2.5.0</div>
       </div>
     </aside>
 
@@ -247,6 +248,44 @@
           </section>
         </div>
       </section>
+      <section id="admin-classesPage" class="page hidden admin-only">
+        <div class="page-heading">
+          <div><div class="eyebrow">ADMIN CLASS CONTROL</div><h1>班级与数据管理</h1><p class="muted">管理员全局管理教学班、负责人、状态及班级关联数据；删除前必须生成并保存完整备份。</p></div>
+          <button id="refreshAdminClasses" class="btn btn-outline">刷新全平台班级</button>
+        </div>
+        <div class="metric-grid admin-class-metrics">
+          <article class="metric-card"><div class="metric-label">教学班总数</div><div class="metric-number" id="adminClassMetricTotal">0</div><div class="metric-foot">包含已归档班级</div></article>
+          <article class="metric-card"><div class="metric-label">正在启用</div><div class="metric-number" id="adminClassMetricActive">0</div><div class="metric-foot">当前可加入与布置任务</div></article>
+          <article class="metric-card"><div class="metric-label">班级成员关系</div><div class="metric-number" id="adminClassMetricMembers">0</div><div class="metric-foot">按班级汇总成员记录</div></article>
+          <article class="metric-card"><div class="metric-label">实验报告记录</div><div class="metric-number" id="adminClassMetricReports">0</div><div class="metric-foot">包含已提交与历史状态</div></article>
+        </div>
+        <section class="panel admin-class-form">
+          <div class="panel-heading"><div><h3>新增 / 修改教学班</h3><p>管理员可统一指定负责教师；修改负责人不会更改既有报告、任务或学生归属。</p></div></div>
+          <div class="field-grid">
+            <label>班级名称<input id="adminClassName" maxlength="120" autocomplete="off" placeholder="例如：物理化学实验 2026 秋季 1 班"></label>
+            <label>课程代码<input id="adminClassCode" maxlength="40" placeholder="例如：PC-2026-A"></label>
+            <label>负责教师<select id="adminClassTeacher"></select></label>
+            <label>说明<input id="adminClassDescription" maxlength="2000" placeholder="班级或教学安排说明"></label>
+          </div>
+          <div class="form-actions"><button id="saveAdminClass" class="btn btn-primary">新增班级</button><button id="clearAdminClassForm" class="btn btn-outline">清空表单</button></div>
+          <p id="adminClassFormStatus" class="create-class-status">新增班级会写入正式班级目录；管理员可指定负责教师。</p>
+        </section>
+        <section class="panel">
+          <div class="panel-heading"><div><h3>全平台班级目录</h3><p>可编辑名称、课程代码、说明和负责人；归档不会删除教学数据。永久删除必须先完成 ZIP 备份并确认下载。</p></div><small id="adminClassRefreshStatus" class="muted">尚未刷新</small></div>
+          <div class="table-scroll"><table class="data-table admin-class-table">
+            <thead><tr><th>班级</th><th>课程代码</th><th>负责教师</th><th>成员</th><th>任务</th><th>报告</th><th>参考数据</th><th>状态 / 数据核验</th><th>管理员操作</th></tr></thead>
+            <tbody id="adminClassBody"><tr><td colspan="9" class="muted center">尚未读取班级目录。</td></tr></tbody>
+          </table></div>
+          <div id="adminClassBackupResult" class="assignment-export-result hidden"></div>
+        </section>
+        <section class="panel admin-class-sync-panel">
+          <div class="panel-heading"><div><h3>班级数据同步与一致性核验</h3><p>从 Supabase 主数据库重新读取班级、成员、实验任务、报告及教师参考数据计数，并保存管理员核验记录；本操作不会覆盖或改写教学数据。</p></div></div>
+          <div class="inline-form"><select id="adminClassSyncSelect"><option value="">全部班级</option></select><button id="adminClassSyncRun" class="btn btn-primary">执行同步核验</button></div>
+          <p id="adminClassSyncStatus" class="connection-diagnostic">尚未执行同步核验。</p>
+          <div id="adminClassSyncResult" class="admin-class-sync-result"></div>
+        </section>
+      </section>
+
       <section id="systemPage" class="page hidden admin-only">
         <div class="page-heading"><div><div class="eyebrow">ADMIN ONLY</div><h1>系统管理与审计</h1><p class="muted">管理员专属诊断、审计记录与技术资料入口。</p></div></div>
         <section class="panel"><h3>Supabase 连接检测</h3><button id="adminTestConnection" class="btn btn-outline">检测 Auth 网关</button><p id="adminConnectionDiagnostic" class="connection-diagnostic">尚未检测</p></section>
