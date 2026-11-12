@@ -363,17 +363,35 @@ export default {
       const getClassCounts = async (targetClassId: string) => {
         const [members, assignments, reports, references] = await Promise.all([
           supabaseAdmin.from("class_members").select("student_id", { count: "exact", head: true }).eq("class_id", targetClassId),
-          supabaseAdmin.from("experiment_assignments").select("id", { count: "exact", head: true }).eq("class_id", targetClassId),
-          supabaseAdmin.from("report_submissions").select("id", { count: "exact", head: true }).eq("class_id", targetClassId),
+          supabaseAdmin.from("experiment_assignments").select("id", { count: "exact" }).eq("class_id", targetClassId).limit(5000),
+          supabaseAdmin.from("report_submissions").select("id", { count: "exact" }).eq("class_id", targetClassId).limit(5000),
           supabaseAdmin.from("experiment_reference_sets").select("id", { count: "exact", head: true }).eq("class_id", targetClassId)
         ]);
-        const failure = [members, assignments, reports, references].find((item: any) => item.error);
-        if (failure?.error) throw new Error("班级数据计数读取失败：" + failure.error.message);
+        const baseFailure = [members, assignments, reports, references].find((item: any) => item.error);
+        if (baseFailure?.error) throw new Error("班级数据计数读取失败：" + baseFailure.error.message);
+        const assignmentIds = (assignments.data ?? []).map((row: Record<string, any>) => String(row.id));
+        const reportIds = (reports.data ?? []).map((row: Record<string, any>) => String(row.id));
+        const [templates, records, revisions] = await Promise.all([
+          assignmentIds.length
+            ? supabaseAdmin.from("assignment_templates").select("assignment_id", { count: "exact", head: true }).in("assignment_id", assignmentIds)
+            : Promise.resolve({ count: 0, error: null }),
+          assignmentIds.length
+            ? supabaseAdmin.from("experiment_records").select("id", { count: "exact", head: true }).in("assignment_id", assignmentIds)
+            : Promise.resolve({ count: 0, error: null }),
+          reportIds.length
+            ? supabaseAdmin.from("report_revisions").select("id", { count: "exact", head: true }).in("report_id", reportIds)
+            : Promise.resolve({ count: 0, error: null })
+        ]);
+        const relatedFailure = [templates, records, revisions].find((item: any) => item.error);
+        if (relatedFailure?.error) throw new Error("模板或历史记录计数读取失败：" + relatedFailure.error.message);
         return {
           member_count: members.count ?? 0,
           assignment_count: assignments.count ?? 0,
           report_count: reports.count ?? 0,
-          reference_set_count: references.count ?? 0
+          reference_set_count: references.count ?? 0,
+          template_count: templates.count ?? 0,
+          analysis_record_count: records.count ?? 0,
+          revision_count: revisions.count ?? 0
         };
       };
 
@@ -415,8 +433,11 @@ export default {
           acc.assignment_count += cls.counts.assignment_count;
           acc.report_count += cls.counts.report_count;
           acc.reference_set_count += cls.counts.reference_set_count;
+          acc.template_count += cls.counts.template_count;
+          acc.analysis_record_count += cls.counts.analysis_record_count;
+          acc.revision_count += cls.counts.revision_count;
           return acc;
-        }, { class_count: 0, active_class_count: 0, member_count: 0, assignment_count: 0, report_count: 0, reference_set_count: 0 });
+        }, { class_count: 0, active_class_count: 0, member_count: 0, assignment_count: 0, report_count: 0, reference_set_count: 0, template_count: 0, analysis_record_count: 0, revision_count: 0 });
         return json({ ok: true, classes, teachers: teacherResult.data ?? [], totals });
       }
 
