@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#102a43">
   <meta name="description" content="物理化学实验教学与电子报告管理平台">
-  <title>TJUCPE · 物理化学实验教学平台 v2.3.0</title>
+  <title>TJUCPE · 物理化学实验教学平台 v2.4.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.css" integrity="sha384-WwGtaC6ywCHxA5cstpj/3+xIZTez8dq2IcBQaXRkenHZ7FVVq1ZROtURwfbtTlG" crossorigin="anonymous">
-  <link rel="stylesheet" href="styles.css?v=20261111-tjucpe-v2.2">
+  <link rel="stylesheet" href="styles.css?v=20261112-tjucpe-v2.4.1">
   <script src="config.js?v=20261107-publishable-key-2"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2.119.0'"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js" integrity="sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE" crossorigin="anonymous"></script>
   
   <script defer src="teacher-workbook.js?v=20261111-tjucpe-v2.2"></script>
-  <script defer src="app.js?v=20261112-tjucpe-v2.4"></script>
+  <script defer src="app.js?v=20261112-tjucpe-v2.4.1"></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status"></div>
@@ -81,7 +81,7 @@
       <div class="sidebar-bottom">
         <div class="sidebar-help"><span class="help-mark">?</span><div><strong>需要帮助？</strong><small>查看平台使用说明</small></div></div>
         <button id="signOut" class="nav-item signout"><span class="nav-icon">↪</span> 退出登录</button>
-        <div class="sidebar-foot">TJUCPE · v2.4.0</div>
+        <div class="sidebar-foot">TJUCPE · v2.4.1</div>
       </div>
     </aside>
 
@@ -227,7 +227,7 @@
         <div class="page-heading"><div><div class="eyebrow">CLASSROOM MANAGEMENT</div><h1>班级与实验任务</h1><p class="muted">教师创建班级、发布实验任务；学生加入班级后按任务提交。</p></div></div>
         <section class="panel"><div class="panel-heading"><div><h3>班级列表</h3><p>学生仅能查看已加入的班级。</p></div></div><div id="classList" class="class-grid">加载中…</div><div id="classBackupDownloadResult" class="assignment-export-result hidden"></div><div class="inline-form"><input id="joinClassCode" placeholder="学生输入教师提供的班级加入码"><button id="joinClass" class="btn btn-primary">加入班级</button></div></section>
         <div id="classManagerTools" class="hidden">
-          <form id="createClassForm" class="panel" novalidate><h3>创建班级</h3><div class="field-grid"><label>班级名称<input id="newClassName" maxlength="120" autocomplete="off"></label><label>课程代码<input id="newClassCode" maxlength="40" autocomplete="off"></label><label>说明<input id="newClassDesc" maxlength="2000"></label><label id="newClassTeacherLabel" class="hidden">负责教师<select id="newClassTeacher"></select></label></div><div class="form-actions"><button id="createClass" type="submit" class="btn btn-primary">创建班级</button><button id="clearClassForm" type="button" class="btn btn-outline">清空表单</button></div><p id="createClassStatus" class="create-class-status" role="status" aria-live="polite">填写班级名称后点击创建；系统将验证教师/管理员身份并返回班级加入码。</p><p class="muted tiny">创建请求由服务端验证教师 / 管理员身份后写入班级表；管理员可指定负责教师，教师只能为本人创建班级。</p></form>
+          <form id="createClassForm" class="panel" novalidate><h3>创建班级</h3><div class="field-grid"><label>班级名称<input id="newClassName" maxlength="120" autocomplete="off"></label><label>课程代码<input id="newClassCode" maxlength="40" autocomplete="off"></label><label>说明<input id="newClassDesc" maxlength="2000"></label><label id="newClassTeacherLabel" class="hidden">负责教师<select id="newClassTeacher"></select></label></div><div class="form-actions"><button id="createClass" type="submit" class="btn btn-primary" onclick="event.preventDefault();window.TJUCPEActions?.createClass?.()">创建班级</button><button id="clearClassForm" type="button" class="btn btn-outline">清空表单</button></div><p id="createClassStatus" class="create-class-status" role="status" aria-live="polite">填写班级名称后点击创建；系统将验证教师/管理员身份并返回班级加入码。</p><p class="muted tiny">创建请求由服务端验证教师 / 管理员身份后写入班级表；管理员可指定负责教师，教师只能为本人创建班级。</p></form>
           <section class="panel"><h3>批量导入学生名单</h3><p class="muted tiny">CSV / XLSX 三列：邮箱、姓名、学号（学号可空）。系统通过 Supabase Auth 发送邀请邮件。</p><label>名单文件<input id="rosterFile" type="file" accept=".csv,.xlsx,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"></label><button id="importRoster" class="btn btn-outline">批量邀请学生</button></section>
           <section class="panel"><h3>发布实验任务</h3><div class="field-grid"><label>管理班级<select id="classTaskSelect"></select></label><label>实验项目<select id="taskExperiment"></select></label><label>任务名称<input id="taskTitle"></label><label>截止时间<input id="taskDue" type="datetime-local"></label></div><label>任务要求<textarea id="taskInstructions" rows="3"></textarea></label><button id="publishAssignment" class="btn btn-primary">发布任务</button><div id="classAssignments" class="assignment-list"></div><div id="assignmentExportResult" class="assignment-export-result hidden"></div><section class="panel roster-panel"><div class="panel-heading"><div><h3>班级学生名单</h3><p class="muted">教师仅能管理自己所负责班级的学生；管理员可管理全部班级。</p></div><div><button id="classBulkReset" class="btn btn-outline btn-sm">批量重置密码</button> <button id="classBulkDelete" class="btn btn-outline btn-sm">批量删除账号</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>选择</th><th>姓名</th><th>学号</th><th>状态</th><th>加入时间</th></tr></thead><tbody id="classRosterBody"><tr><td colspan="5">请选择班级。</td></tr></tbody></table></div></section><div id="accountActionResult" class="tiny muted"></div></section>
           <section class="panel teacher-template-panel">

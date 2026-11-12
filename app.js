@@ -182,13 +182,27 @@
     normalized.code=payload?.code||result.error.code||"";
     normalized.status=result.error.context?.status||result.error.status||"";
     normalized.details=payload?.details||result.error.details||"";
+    normalized.rawMessage=String(detail||"");
     normalized.originalError=result.error;
     return {data:result.data||payload,error:normalized};
   }
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=friendlyError(message); el.classList.toggle("error",error); el.classList.add("show");
-    clearTimeout(toast._timer); toast._timer=setTimeout(()=>el.classList.remove("show"),4200);
+    clearTimeout(toast._timer); toast._timer=setTimeout(()=>el.classList.remove("show"),6200);
   };
+  window.addEventListener("error",event=>{
+    const message=event?.error?.message||event?.message||"页面脚本运行异常";
+    const status=$("createClassStatus");
+    if(status){status.textContent="页面运行异常："+friendlyError(message);status.classList.add("error");status.classList.remove("success");}
+    toast("页面运行异常："+friendlyError(message),true);
+  });
+  window.addEventListener("unhandledrejection",event=>{
+    const reason=event?.reason;
+    const message=reason?.message||String(reason||"异步操作异常");
+    const status=$("createClassStatus");
+    if(status){status.textContent="操作未完成："+friendlyError(message);status.classList.add("error");status.classList.remove("success");}
+    toast("操作未完成："+friendlyError(message),true);
+  });
   const showAuth = () => { $("authView").classList.remove("hidden"); $("appView").classList.add("hidden"); };
   const showApp = () => { $("authView").classList.add("hidden"); $("appView").classList.remove("hidden"); };
   function setAuthMode(mode) {
@@ -252,8 +266,14 @@
     if((page==="experiments"||page==="analysis")&&![ "teacher","admin" ].includes(profile?.role)) page="overview";
     if(page==="reports"&&["teacher","admin"].includes(profile?.role)) page="overview";
     if(page==="review"&&!["teacher","admin"].includes(profile?.role)) page="overview";
-    if(page==="users"&&profile?.role!=="admin") page="overview";
-    if(page==="system"&&profile?.role!=="admin") page="overview";
+    if(page==="users"&&profile?.role!=="admin"){
+      toast("当前登录身份为"+roleName(profile?.role)+"。用户与权限管理仅对管理员账号开放，请退出后使用管理员账号登录。",true);
+      page="overview";
+    }
+    if(page==="system"&&profile?.role!=="admin"){
+      toast("当前登录身份为"+roleName(profile?.role)+"。系统管理仅对管理员账号开放，请退出后使用管理员账号登录。",true);
+      page="overview";
+    }
     document.querySelectorAll(".page").forEach(el=>el.classList.add("hidden"));
     const target=$(page+"Page"); if(target) target.classList.remove("hidden");
     document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.classList.toggle("active",el.dataset.page===page||(page==="analysis"&&el.dataset.page==="experiments")));
@@ -2029,46 +2049,105 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     toast(isActive?"实验项目已停用，历史任务保留。":"实验项目已重新启用。");await renderCatalog();
   }
   let classCreateRunning=false;
-  async function createClass(){
-    if(classCreateRunning)return;
+  async function createClass(source="button"){
+    const button=$("createClass"),status=$("createClassStatus");
+    const setStatus=(message,isError=false)=>{
+      if(!status)return;
+      status.textContent=message;
+      status.classList.toggle("error",isError);
+      status.classList.toggle("success",!isError&&!!message);
+    };
+    if(classCreateRunning){setStatus("班级创建请求已提交，正在等待服务器响应。");return;}
+    if(!db||!user||!profile){
+      const message="登录状态尚未就绪，请刷新页面并重新登录后再创建班级。";
+      setStatus(message,true);toast(message,true);return;
+    }
+    if(!["teacher","admin"].includes(profile.role)){
+      const message="当前账号为"+roleName(profile.role)+"身份，只有教师或管理员可以创建班级。";
+      setStatus(message,true);toast(message,true);return;
+    }
     const name=$("newClassName").value.trim();
-    if(!name){toast("请填写班级名称。",true);$("newClassName").focus();return;}
+    if(!name){
+      const message="请先填写班级名称，再点击创建班级。";
+      setStatus(message,true);toast(message,true);$("newClassName").focus();return;
+    }
     const wasEditing=!!classEditingId;
-    const teacherId=profile.role==="admin"?($("newClassTeacher").value||user.id):user.id;
+    const teacherId=profile.role==="admin"?($("newClassTeacher")?.value||user.id):user.id;
     const payload={name,course_code:$("newClassCode").value.trim(),description:$("newClassDesc").value.trim()};
-    const button=$("createClass"),originalText=button.textContent,status=$("createClassStatus");
-    const setStatus=(message,isError=false)=>{if(status){status.textContent=message;status.classList.toggle("error",isError);status.classList.toggle("success",!isError&&!!message);}};
-    classCreateRunning=true;button.disabled=true;button.textContent=wasEditing?"正在保存…":"正在创建班级…";
-    setStatus(wasEditing?"正在保存班级信息…":"正在校验权限并创建班级…");
+    const originalText=button.textContent;
+    classCreateRunning=true;
+    button.disabled=true;
+    button.textContent=wasEditing?"正在保存…":"正在创建班级…";
+    setStatus("已接收创建操作（"+source+"），正在验证账号权限并提交班级信息…");
     try{
       let createdClass=null;
       if(wasEditing){
-        const result=await db.from("classes").update({...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})}).eq("id",classEditingId);
+        const result=await db.from("classes")
+          .update({...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})})
+          .eq("id",classEditingId)
+          .select("id,name,course_code,description,teacher_id,join_code,is_active,created_at")
+          .single();
         if(result.error)throw result.error;
-        createdClass=classesCache.find(item=>item.id===classEditingId)||null;
+        createdClass=result.data;
       }else{
-        const {data,error}=await invokePlatformFunction("classroom-admin",{body:{action:"create_class",...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})}});
+        const {data,error}=await invokePlatformFunction("classroom-admin",{
+          body:{action:"create_class",...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})}
+        });
         if(error||!data?.ok||!data?.class?.id)throw error||new Error(data?.error||"服务端未返回新班级编号。");
         createdClass=data.class;
       }
-      setStatus(wasEditing?"班级信息已更新。":"班级创建成功，班级码已生成。");
-      toast(wasEditing?"班级信息已更新。":"班级创建成功。");
-      clearClassForm();await loadClasses();
-      if(!wasEditing&&createdClass?.id){activeClassId=createdClass.id;if($("classTaskSelect"))$("classTaskSelect").value=createdClass.id;showClassQr(createdClass.id);}
+      setStatus(wasEditing?"班级信息已保存，正在刷新班级列表…":"班级创建成功，正在刷新班级列表…");
+      toast(wasEditing?"班级信息已更新。":"班级创建成功，已生成班级加入码。");
+      clearClassForm();
+      try{
+        await loadClasses();
+        if(!wasEditing&&createdClass?.id){
+          activeClassId=createdClass.id;
+          if($("classTaskSelect"))$("classTaskSelect").value=createdClass.id;
+          showClassQr(createdClass.id);
+        }
+        setStatus(wasEditing?"班级信息已更新。":"班级创建成功。可以继续导入学生名单或发布实验任务。");
+      }catch(refreshError){
+        setStatus("班级已写入数据库，但列表刷新失败："+friendlyError(refreshError),true);
+        toast("班级已经创建；列表刷新失败，请点击班级页重新加载。"+friendlyError(refreshError),true);
+      }
     }catch(err){
-      const message=err?.details?String(err.message||"")+" · "+String(err.details):err;
-      const friendly=friendlyError(message);
-      setStatus("班级"+(wasEditing?"修改":"创建")+"失败："+friendly,true);
-      toast("班级"+(wasEditing?"修改":"创建")+"失败："+friendly,true);
-    }finally{classCreateRunning=false;button.disabled=false;button.textContent=originalText;}
+      const raw=err?.rawMessage||err?.message||String(err||"未知异常");
+      const code=err?.code?("（代码 "+err.code+"）"):"";
+      const friendly=friendlyError(raw);
+      const diagnostic=friendly===raw?"":"；接口原始信息："+raw;
+      const message="班级"+(wasEditing?"修改":"创建")+"失败："+friendly+code+diagnostic;
+      setStatus(message,true);
+      toast(message,true);
+    }finally{
+      classCreateRunning=false;
+      button.disabled=false;
+      button.textContent=originalText;
+    }
   }
+  let assignmentPublishRunning=false;
   async function publishAssignment(){
+    const button=$("publishAssignment");
+    if(assignmentPublishRunning)return;
     const slug=$("taskExperiment").value,cls=$("classTaskSelect").value,exp=experiments.find(x=>x.slug===slug);
-    if(!slug||!cls||!exp){toast("请先选择班级和实验项目。",true);return;}
-    const {data:catalog,error:catalogError}=await db.from("experiment_catalog").select("id,is_active").eq("slug",slug).maybeSingle();
-    if(catalogError||!catalog?.is_active){toast("实验目录不存在或已停用，不能发布任务。",true);return;}
-    const {data:created,error}=await db.from("experiment_assignments").insert({class_id:cls,experiment_id:catalog.id,title:$("taskTitle").value.trim()||exp.name,instructions:$("taskInstructions").value.trim(),due_at:$("taskDue").value?new Date($("taskDue").value).toISOString():null,created_by:user.id,is_open:true,required:true}).select("id").single();
-    if(error){toast("任务发布失败："+error.message,true);return;}toast("任务已发布。请在下方在线 Excel 编辑器中设计并保存该任务模板。");await loadClassAssignments();if(created?.id&&$("templateAssignmentSelect"))$("templateAssignmentSelect").value=created.id;
+    if(!slug||!cls||!exp){toast("请先创建或选择一个有效班级，再选择实验项目。",true);return;}
+    assignmentPublishRunning=true;button.disabled=true;button.textContent="正在发布…";
+    try{
+      const {data:catalog,error:catalogError}=await db.from("experiment_catalog").select("id,is_active").eq("slug",slug).maybeSingle();
+      if(catalogError)throw catalogError;
+      if(!catalog?.is_active)throw new Error("实验目录不存在或已停用，不能发布任务。");
+      const {data:created,error}=await db.from("experiment_assignments")
+        .insert({class_id:cls,experiment_id:catalog.id,title:$("taskTitle").value.trim()||exp.name,instructions:$("taskInstructions").value.trim(),due_at:$("taskDue").value?new Date($("taskDue").value).toISOString():null,created_by:user.id,is_open:true,required:true})
+        .select("id").single();
+      if(error)throw error;
+      toast("任务已发布。接下来可在下方在线 Excel 编辑器中设计并保存该任务模板。");
+      await loadClassAssignments();
+      if(created?.id&&$("templateAssignmentSelect"))$("templateAssignmentSelect").value=created.id;
+    }catch(error){
+      toast("任务发布失败："+friendlyError(error?.message||error),true);
+    }finally{
+      assignmentPublishRunning=false;button.disabled=false;button.textContent="发布任务";
+    }
   }
   async function loadSystemAdmin(){
     const {data,error}=await db.from("audit_logs").select("action,details,created_at").order("created_at",{ascending:false}).limit(100);
@@ -2421,6 +2500,9 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("closeFeedback").addEventListener("click",()=>$("feedbackDialog").close());
     $("profileButton").addEventListener("click",()=>toast((profile?.full_name||user?.email||"账户")+" · "+roleName(profile?.role)));
   }
+  window.TJUCPEActions=Object.freeze({
+    createClass:()=>createClass("独立按钮入口")
+  });
   bindEvents();
-  start();
+  start().catch(error=>toast("平台初始化失败："+friendlyError(error),true));
 })();

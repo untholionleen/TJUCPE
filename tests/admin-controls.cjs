@@ -25,10 +25,19 @@ assert.match(edge, /Only student accounts can be deleted in this operation/, "te
 console.log("TJUCPE administrator control and server-authorized classroom creation tests passed.");
 
 assert.match(app, /<input type="checkbox" class="user-check"/, "administrator bulk account controls require checkbox inputs");
-assert.match(app, /\$\("createClass"\)\.addEventListener\("click"/, "class creation needs a direct button click handler");
+assert.match(app, /\$\("createClass"\)\.addEventListener\("click"/, "class creation keeps the native click handler as a fallback");
+assert.match(html, /onclick="event\.preventDefault\(\);window\.TJUCPEActions\?\.createClass\?\.\(\)"/, "class creation must have an independent inline click bridge");
+assert.match(app, /window\.TJUCPEActions=Object\.freeze/, "global class creation bridge must be initialized before event binding");
+assert.match(app, /已接收创建操作/, "class creation must show immediate progress feedback");
+assert.match(app, /rawMessage=String\(detail\|\|""\)/, "edge function errors must preserve their original response text");
+assert.match(app, /window\.addEventListener\("unhandledrejection"/, "unhandled asynchronous failures must be surfaced to the user");
 assert.match(app, /\$\("createClassForm"\)\.addEventListener\("submit"/, "class creation must retain keyboard form submission");
 assert.match(app, /classCreateRunning/, "class create double-submit guard must be present");
 assert.match(html, /id="createClassStatus"/, "class create progress/error feedback must be visible");
+assert.match(html, /app\.js\?v=20261112-tjucpe-v2\.4\.1/, "browser cache must refresh to the repaired app version");
+assert.match(html, /TJUCPE · v2\.4\.1/, "visible app version must match the loaded asset version");
+assert.match(app, /管理员账号登录/, "teacher attempts to open administrator panels must receive an explanation");
+assert.match(app, /任务发布失败：/, "assignment publishing errors must be surfaced instead of becoming silent rejections");
 assert.match(edge, /role_metadata_sync_warnings/, "admin list endpoint must expose role metadata sync warnings");
 assert.match(edge, /profile role rollback/, "role changes must roll profiles back if Auth metadata fails");
 assert.match(edge, /profile rollback/, "account status changes must roll profiles back if Auth ban fails");
