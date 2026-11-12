@@ -1512,7 +1512,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       const result=await invokePlatformFunction("classroom-admin",{body:{action:"export_class_backup",class_id:id}});
       if(result.error||!result.data?.ok)throw new Error(result.error?.message||result.data?.error||"备份清单读取失败。");
       const data=result.data,zip=new JSZip(),root="TJUCPE_"+safeFileName(row.name)+"_完整备份";
-      for(const key of ["class","assignments","members","profiles","reports","revisions","experiment_records","reference_sets","counts"]){
+      for(const key of ["class","assignments","assignment_templates","members","profiles","reports","revisions","experiment_records","reference_sets","counts"]){
         zip.file(root+"/数据/"+key+".json",JSON.stringify(data[key]??null,null,2));
       }
       zip.file(root+"/README.txt","TJUCPE 2.0 班级完整备份。请保留整个 ZIP 及目录结构。");
@@ -2233,7 +2233,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         '</div></td></tr>';
     }).join("")||'<tr><td colspan="9" class="muted center">目前没有教学班。可以在上方创建第一个班级。</td></tr>';
     const options=adminClassCache.map(function(c){return '<option value="'+c.id+'">'+escapeHtml(c.name)+(c.is_active?"":"（已归档）")+'</option>';}).join("");
-    $("adminClassSyncSelect").innerHTML=options||'<option value="">暂无班级</option>';
+    $("adminClassSyncSelect").innerHTML='<option value="">全部班级</option>'+(options||"");
     if(adminClassSyncSelectValue&&adminClassCache.some(function(c){return c.id===adminClassSyncSelectValue;}))$("adminClassSyncSelect").value=adminClassSyncSelectValue;
   }
   async function loadAdminClasses(){
