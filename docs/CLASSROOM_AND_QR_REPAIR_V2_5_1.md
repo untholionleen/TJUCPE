@@ -2,7 +2,8 @@
 
 ## 二维码修复
 - 原实现请求 qrcode@1.5.4/build/qrcode.min.js；该版本 npm 包没有发布 build 目录，两个旧 CDN 地址均不可用。
-- 改用 QRCode.js 1.0.0 真实浏览器包，支持 cdnjs 与 jsDelivr 两个固定版本地址。
+- 将 QRCode.js 浏览器构建文件固定到上游提交 04f46c6a0708418cb7b96fc563eacae0fbf77674，随 GitHub Pages 同站点发布；保留 cdnjs 与 jsDelivr 作为加载失败时的备用地址。
+- 同步保留 QRCode.js 的 MIT License。
 - 按 QRCode.js 构造器 API 生成 canvas/image，不再误调用 node-qrcode 的 toCanvas API。
 - 管理员全局班级目录也提供二维码操作；二维码查找同时支持教师缓存和管理员全局目录缓存。
 - 加入二维码加载超时、失败提示、复制链接和重新生成入口；归档班级明确提示不能加入。

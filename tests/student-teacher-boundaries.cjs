@@ -46,6 +46,7 @@ console.log("TJUCPE student/teacher workflow smoke tests passed.");
 // QR enrollment is a link-assisted version of the existing authenticated join flow.
 assert.match(html, /id="classQrDialog"/, "class QR dialog is required");
 assert.match(html, /id="classQrRender"/, "dynamic class QR rendering container is required");
+assert.match(html, /qrcodejs\.min\.js\?v=20261112-qr-1\.0\.0-04f46c6/, "QRCode.js must be self-hosted and cache-pinned");
 assert.match(html, /id="retryClassQr"/, "class QR dialog must expose a retry action");
 assert.match(html, /id="createClassForm"/, "class creation must use a real form");
 assert.match(app, /createClassForm[^\n]*addEventListener\("submit"/, "class creation must use form submit");

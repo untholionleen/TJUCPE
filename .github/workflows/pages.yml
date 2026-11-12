@@ -46,7 +46,7 @@ jobs:
       - name: Assemble public application files
         run: |
           mkdir -p _site
-          cp index.html styles.css app.js config.js experiment-engine.js teacher-workbook.js _site/
+          cp index.html styles.css app.js config.js experiment-engine.js teacher-workbook.js qrcodejs.min.js qrcodejs.LICENSE.txt _site/
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:

@@ -68,7 +68,8 @@ assert.match(migration, /DELETE FROM public\.experiment_reference_sets WHERE cla
 assert.match(migration, /SECURITY DEFINER[\s\S]*SET search_path TO ''/, "class deletion function security boundary must be preserved");
 console.log("TJUCPE v2.5 administrator class management, sync reconciliation, and backup integrity tests passed.");
 
-assert.ok(app.includes("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"), "QR generator must use the published qrcodejs browser bundle");
+assert.ok(html.includes("qrcodejs.min.js?v=20261112-qr-1.0.0-04f46c6"), "QR code generator must be loaded from the same-origin static bundle");
+assert.ok(app.includes("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"), "QR generator must retain a published CDN fallback");
 assert.ok(app.includes("https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"), "QR generator must have a second valid CDN fallback");
 assert.ok(app.includes('typeof window.QRCode==="function"&&window.QRCode.CorrectLevel'), "QR library loader must verify QRCode.js constructor API");
 assert.ok(app.includes("new QRCodeLib(render"), "QR renderer must call the QRCode.js constructor, not node-qrcode toCanvas");
