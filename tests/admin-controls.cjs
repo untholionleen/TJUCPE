@@ -67,3 +67,19 @@ assert.match(migration, /SELECT rs\.storage_path AS p[\s\S]*FROM public\.experim
 assert.match(migration, /DELETE FROM public\.experiment_reference_sets WHERE class_id = p_class_id/, "reference set metadata remains covered by class deletion");
 assert.match(migration, /SECURITY DEFINER[\s\S]*SET search_path TO ''/, "class deletion function security boundary must be preserved");
 console.log("TJUCPE v2.5 administrator class management, sync reconciliation, and backup integrity tests passed.");
+
+assert.match(app, /cdnjs\\.cloudflare\\.com\\/ajax\\/libs\\/qrcodejs\\/1\\.0\\.0\\/qrcode\\.min\\.js/, "QR generator must use the published qrcodejs browser bundle");
+assert.match(app, /cdn\\.jsdelivr\\.net\\/npm\\/qrcodejs@1\\.0\\.0\\/qrcode\\.min\\.js/, "QR generator must have a second valid CDN fallback");
+assert.match(app, /typeof window\\.QRCode==="function"&&window\\.QRCode\\.CorrectLevel/, "QR library loader must verify QRCode.js constructor API");
+assert.match(app, /new QRCodeLib\\(render/, "QR renderer must call the QRCode.js constructor, not node-qrcode toCanvas");
+assert.match(app, /classesCache\\.find\\(item=>item\\.id===classId\\)\\|\\|adminClassCache\\.find/, "QR dialog must resolve both teacher and administrator class caches");
+assert.match(app, /data-admin-class-qr/, "administrator global class list must provide the class QR action");
+assert.match(html, /id="classQrRender"/, "QR dialog must have a dynamic rendering container");
+assert.match(html, /id="retryClassQr"/, "QR dialog must offer a retry control");
+assert.match(html, /仅管理自己负责的班级/, "teacher classroom page must explain the class ownership boundary");
+const qrMigration = fs.readFileSync("supabase/migrations/20261112041700_tjucpe_restrict_personal_analysis_reads_to_owner_admin.sql", "utf8");
+assert.match(qrMigration, /drop policy if exists records_select_owner_or_staff/, "migration must remove the global staff-wide personal record read policy");
+assert.match(qrMigration, /owner_id = \\(select auth\\.uid\\(\\)\\)/, "personal analysis records must be visible to their owner");
+assert.match(qrMigration, /or private\\.is_admin\\(\\)/, "administrator must retain global oversight of personal analysis records");
+assert.match(edge, /const canManageClass = async \\(\\) =>[\\s\\S]*eq\\("teacher_id", actorId\\)/, "teacher Edge Function class management must be limited to assigned classes");
+console.log("TJUCPE v2.5.1 QR rendering, teacher-owned class boundaries, and administrator oversight tests passed.");

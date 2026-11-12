@@ -1746,29 +1746,77 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       await loadClassRoster(classId);
     }
   }
+  let activeQrClassId=null;
   async function loadQrLibrary(){
-    if(window.QRCode?.toCanvas)return window.QRCode;
+    if(typeof window.QRCode==="function"&&window.QRCode.CorrectLevel)return window.QRCode;
     if(!qrLibraryPromise){
       qrLibraryPromise=(async()=>{
-        const urls=["https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js","https://unpkg.com/qrcode@1.5.4/build/qrcode.min.js"];
-        let lastError;
+        const urls=[
+          "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
+          "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"
+        ];
+        let lastError=null;
         for(const src of urls){
-          try{await new Promise((resolve,reject)=>{const script=document.createElement("script");script.src=src;script.async=true;script.onload=resolve;script.onerror=()=>{script.remove();reject(new Error("二维码组件加载失败"));};document.head.appendChild(script);});if(window.QRCode?.toCanvas)return window.QRCode;}
-          catch(err){lastError=err;}
+          try{
+            await new Promise((resolve,reject)=>{
+              const script=document.createElement("script");
+              const timer=window.setTimeout(()=>{
+                script.remove();
+                reject(new Error("二维码组件加载超时："+src));
+              },10000);
+              script.src=src;script.async=true;script.crossOrigin="anonymous";script.referrerPolicy="no-referrer";
+              script.onload=()=>{
+                window.clearTimeout(timer);
+                if(typeof window.QRCode==="function"&&window.QRCode.CorrectLevel)resolve();
+                else reject(new Error("二维码组件已下载，但未提供预期的 QRCode 接口："+src));
+              };
+              script.onerror=()=>{
+                window.clearTimeout(timer);script.remove();
+                reject(new Error("二维码组件加载失败："+src));
+              };
+              document.head.appendChild(script);
+            });
+            if(typeof window.QRCode==="function"&&window.QRCode.CorrectLevel)return window.QRCode;
+          }catch(error){lastError=error;}
         }
-        throw lastError||new Error("二维码组件不可用");
-      })().catch(err=>{qrLibraryPromise=null;throw err;});
+        throw lastError||new Error("两个备用地址都无法加载二维码组件。");
+      })().catch(error=>{qrLibraryPromise=null;throw error;});
     }
     return qrLibraryPromise;
   }
   async function showClassQr(classId){
-    const row=classesCache.find(item=>item.id===classId);if(!row?.join_code){toast("未找到班级加入码。",true);return;}
-    const dialog=$("classQrDialog"),canvas=$("classQrCanvas"),title=$("classQrTitle"),link=$("classQrLink"),code=$("classQrCode");
+    const row=classesCache.find(item=>item.id===classId)||adminClassCache.find(item=>item.id===classId);
+    if(!row?.join_code){toast("未找到班级加入码，请先刷新班级目录。",true);return;}
+    activeQrClassId=classId;
+    const dialog=$("classQrDialog"),render=$("classQrRender"),title=$("classQrTitle"),link=$("classQrLink"),code=$("classQrCode");
     title.textContent=row.name+" · 班级加入二维码";code.textContent=row.join_code;
     const joinUrl=new URL(APP_REDIRECT_URL);joinUrl.searchParams.set("join",row.join_code);link.value=joinUrl.toString();
-    dialog.showModal();
-    try{const qr=await loadQrLibrary();await qr.toCanvas(canvas,joinUrl.toString(),{width:260,margin:2,errorCorrectionLevel:"M"});}
-    catch(err){const ctx=canvas.getContext("2d");canvas.width=520;canvas.height=160;ctx.clearRect(0,0,520,160);ctx.fillStyle="#203447";ctx.font="20px sans-serif";ctx.fillText("二维码暂不可用，请复制班级加入链接",12,48);ctx.font="16px monospace";ctx.fillText(row.join_code,12,88);toast("二维码组件加载失败，班级加入码仍可复制使用。",true);}
+    render.replaceChildren();
+    const loading=document.createElement("p");loading.className="muted tiny";loading.textContent="正在生成二维码…";render.appendChild(loading);
+    if(!dialog.open)dialog.showModal();
+    try{
+      const QRCodeLib=await loadQrLibrary();
+      render.replaceChildren();
+      new QRCodeLib(render,{
+        text:joinUrl.toString(),width:280,height:280,
+        colorDark:"#102a43",colorLight:"#ffffff",
+        correctLevel:QRCodeLib.CorrectLevel.M
+      });
+      const graphic=render.querySelector("canvas,img");
+      if(!graphic)throw new Error("二维码绘制完成，但没有生成可显示的图像元素。");
+      if(graphic.tagName==="IMG")graphic.alt=row.name+" 班级加入二维码";
+      render.dataset.generated="true";
+      const note=$("classQrStatus");
+      if(note)note.textContent=row.is_active===false?"该班级目前已归档，二维码保留但学生暂时不能加入。":"二维码已生成。学生扫码登录后即可自动填入班级加入码。";
+    }catch(error){
+      render.replaceChildren();
+      const message=document.createElement("p");message.className="qr-error";
+      message.textContent="二维码暂时无法生成："+(error?.message||String(error));
+      render.appendChild(message);
+      const note=$("classQrStatus");
+      if(note)note.textContent="可以先复制下方班级加入链接；点击“重新生成二维码”可再次尝试。";
+      toast("二维码生成失败；班级加入链接仍可复制。"+(error?.message||""),true);
+    }
   }
   async function joinClass(){
     const code=$("joinClassCode").value.trim().toUpperCase();if(!code){toast("请输入教师提供的班级加入码。",true);return;}
@@ -2225,6 +2273,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         '<td><span class="status-pill '+(cls.is_active?"graded":"draft")+'">'+(cls.is_active?"启用":"已归档")+'</span><small>'+
         (cls.last_sync_at?"最近核验："+new Date(cls.last_sync_at).toLocaleString("zh-CN"):"尚未核验")+'</small></td>'+
         '<td><div class="admin-class-actions">'+
+        '<button class="action-link" data-admin-class-qr="'+cls.id+'">二维码</button>'+
         '<button class="action-link" data-admin-class-edit="'+cls.id+'">修改</button>'+
         '<button class="action-link" data-admin-class-open="'+cls.id+'">工作台</button>'+
         '<button class="action-link" data-admin-class-toggle="'+cls.id+'">'+(cls.is_active?"归档":"重新启用")+'</button>'+
@@ -2716,6 +2765,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("classList").addEventListener("click",e=>{const qr=e.target.closest("[data-class-qr]");if(qr)showClassQr(qr.dataset.classQr);});
     $("copyClassQrLink")?.addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("classQrLink").value);toast("班级加入链接已复制。");}catch{ $("classQrLink").select();document.execCommand("copy");toast("班级加入链接已复制。");}});
     $("closeClassQr")?.addEventListener("click",()=>$("classQrDialog").close());
+    $("retryClassQr")?.addEventListener("click",()=>{if(activeQrClassId)showClassQr(activeQrClassId);});
     $("createClass").addEventListener("click",e=>{e.preventDefault();createClassGuarded("原生点击事件");});
     $("createClassForm").addEventListener("submit",e=>{e.preventDefault();createClassGuarded("表单提交事件");});
     $("clearClassForm").addEventListener("click",clearClassForm);
@@ -2749,6 +2799,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("adminClassSyncRun")?.addEventListener("click",()=>runAdminClassSync());
     $("adminClassSyncSelect")?.addEventListener("change",e=>{adminClassSyncSelectValue=e.target.value||"";});
     $("adminClassBody")?.addEventListener("click",e=>{
+      const qr=e.target.closest("[data-admin-class-qr]");if(qr){showClassQr(qr.dataset.adminClassQr);return;}
       const edit=e.target.closest("[data-admin-class-edit]");if(edit){editAdminClass(edit.dataset.adminClassEdit);return;}
       const open=e.target.closest("[data-admin-class-open]");if(open){openAdminClassWorkspace(open.dataset.adminClassOpen);return;}
       const toggle=e.target.closest("[data-admin-class-toggle]");if(toggle){toggleAdminClass(toggle.dataset.adminClassToggle);return;}
