@@ -89,7 +89,8 @@
   let chart = null, latestAnalysis = null, gradingRecord = null, lastRecords = [], activeClassId = null, activeAssignmentId = null, classesCache = [], selectedFitIndices = [], dedicatedResult = null, dedicatedTables = {}, plotlyGraph = null;
   let gradingPdfBlob = null, gradingStrokes = {}, gradingTextAnnotations = {}, gradingAnnotationSourcePath = null, gradingAnnotationSourceFileName = null, pdfAnnotationMode = "draw";
   let gradingStudentSheets = [], gradingReferenceSets = [], catalogRowsCache = [], pendingClassDelete = null;
-  const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务",system:"系统管理"};
+  let adminClassCache = [], adminClassTeachers = [], adminClassEditingId = null, pendingAdminClassDelete = null;
+  const pageMap = {overview:"工作台",experiments:"实验与数据分析",analysis:"实验数据分析",reports:"我的实验报告",review:"报告批阅",users:"用户与权限",classes:"班级与任务","admin-classes":"班级与数据管理",system:"系统管理"};
   function friendlyError(input){
     const raw=typeof input==="string"?input:(input?.message||String(input??""));
     const code=String(input?.code||input?.status||"");
@@ -171,13 +172,14 @@
   async function invokePlatformFunction(name, options={}){
     const result=await db.functions.invoke(name,options);
     if(!result.error)return result;
-    let payload=null;
+    let payload=null,rawBody="";
     try{
       const context=result.error.context;
-      if(context&&typeof context.clone==="function")payload=await context.clone().json();
-      else if(context&&typeof context.json==="function")payload=await context.json();
+      if(context&&typeof context.clone==="function")rawBody=await context.clone().text();
+      else if(context&&typeof context.text==="function")rawBody=await context.text();
+      if(rawBody){try{payload=JSON.parse(rawBody);}catch(_){payload={error:rawBody};}}
     }catch(_){}
-    const detail=payload?.error||payload?.message||payload?.msg||result.error.message;
+    const detail=payload?.error||payload?.message||payload?.msg||rawBody||result.error.message||String(result.error);
     const normalized=new Error(friendlyError(detail));
     normalized.code=payload?.code||result.error.code||"";
     normalized.status=result.error.context?.status||result.error.status||"";
@@ -185,6 +187,42 @@
     normalized.rawMessage=String(detail||"");
     normalized.originalError=result.error;
     return {data:result.data||payload,error:normalized};
+  }
+  async function invokeClassroomAdminDirect(body){
+    if(!db)throw new Error("Supabase 客户端尚未初始化。");
+    const {data:{session},error:sessionError}=await db.auth.getSession();
+    if(sessionError)throw new Error("读取登录会话失败："+sessionError.message);
+    if(!session?.access_token)throw new Error("登录凭证不存在或已过期，请退出后重新登录。");
+    let response;
+    try{
+      response=await supabaseFetch(SUPABASE_URL+"/functions/v1/classroom-admin",{
+        method:"POST",
+        headers:{
+          apikey:SUPABASE_PUBLISHABLE_KEY,
+          Authorization:"Bearer "+session.access_token,
+          "Content-Type":"application/json",
+          Accept:"application/json"
+        },
+        body:JSON.stringify(body)
+      });
+    }catch(error){
+      const wrapped=new Error("请求没有到达 classroom-admin 接口："+(error?.message||String(error)));
+      wrapped.rawMessage=wrapped.message;wrapped.originalError=error;throw wrapped;
+    }
+    const rawBody=await response.text().catch(error=>"响应读取失败："+(error?.message||String(error)));
+    let payload=null;
+    if(rawBody){try{payload=JSON.parse(rawBody);}catch(_){payload=null;}}
+    if(!response.ok||!payload||payload.error||payload.ok===false){
+      const detail=payload?.error||payload?.message||payload?.msg||rawBody||("HTTP "+response.status+"（响应正文为空）");
+      const error=new Error(String(detail));
+      error.rawMessage=String(detail);
+      error.status=response.status;
+      error.code=payload?.code||"";
+      error.details=payload?.details||"";
+      error.responseBody=rawBody;
+      throw error;
+    }
+    return payload;
   }
   const toast = (message, error=false) => {
     const el=$("toast"); el.textContent=friendlyError(message); el.classList.toggle("error",error); el.classList.add("show");
@@ -261,7 +299,7 @@
     $("overviewSubtitle").textContent=isStaff?"管理教学班、在线 Excel 模板、数据分析与报告批阅。":"下载实验模板、填写 Excel 数据，并同步提交实验报告。";
   }
   function go(page){
-    const allowed=["overview","experiments","analysis","reports","review","users","classes","system"];
+    const allowed=["overview","experiments","analysis","reports","review","users","classes","admin-classes","system"];
     if(!allowed.includes(page)) page="overview";
     if((page==="experiments"||page==="analysis")&&![ "teacher","admin" ].includes(profile?.role)) page="overview";
     if(page==="reports"&&["teacher","admin"].includes(profile?.role)) page="overview";
@@ -274,6 +312,10 @@
       toast("当前登录身份为"+roleName(profile?.role)+"。系统管理仅对管理员账号开放，请退出后使用管理员账号登录。",true);
       page="overview";
     }
+    if(page==="admin-classes"&&profile?.role!=="admin"){
+      toast("班级与数据管理为管理员专属端口，请使用管理员账号登录。",true);
+      page="overview";
+    }
     document.querySelectorAll(".page").forEach(el=>el.classList.add("hidden"));
     const target=$(page+"Page"); if(target) target.classList.remove("hidden");
     document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.classList.toggle("active",el.dataset.page===page||(page==="analysis"&&el.dataset.page==="experiments")));
@@ -282,6 +324,7 @@
     if(page==="review") loadReviews();
     if(page==="users") loadUsers();
     if(page==="classes") loadClasses();
+    if(page==="admin-classes") loadAdminClasses();
     if(page==="system") loadSystemAdmin();
     if(page==="overview") loadOverview();
     window.scrollTo({top:0,behavior:"smooth"});
@@ -2090,10 +2133,10 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         if(result.error)throw result.error;
         createdClass=result.data;
       }else{
-        const {data,error}=await invokePlatformFunction("classroom-admin",{
-          body:{action:"create_class",...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})}
+        const data=await invokeClassroomAdminDirect({
+          action:"create_class",...payload,...(profile.role==="admin"?{teacher_id:teacherId}:{})
         });
-        if(error||!data?.ok||!data?.class?.id)throw error||new Error(data?.error||"服务端未返回新班级编号。");
+        if(!data?.ok||!data?.class?.id)throw new Error(data?.error||"服务端未返回新班级编号。");
         createdClass=data.class;
       }
       setStatus(wasEditing?"班级信息已保存，正在刷新班级列表…":"班级创建成功，正在刷新班级列表…");
@@ -2112,17 +2155,29 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         toast("班级已经创建；列表刷新失败，请点击班级页重新加载。"+friendlyError(refreshError),true);
       }
     }catch(err){
-      const raw=err?.rawMessage||err?.message||String(err||"未知异常");
-      const code=err?.code?("（代码 "+err.code+"）"):"";
+      const raw=String(err?.rawMessage||err?.message||String(err||"未知异常"));
+      const code=err?.code?(" · 数据库/接口代码："+err.code):"";
+      const http=err?.status?(" · HTTP "+err.status):"";
+      const details=err?.details?(" · 详细信息："+String(err.details)):"";
       const friendly=friendlyError(raw);
-      const diagnostic=friendly===raw?"":"；接口原始信息："+raw;
-      const message="班级"+(wasEditing?"修改":"创建")+"失败："+friendly+code+diagnostic;
+      const summary=friendly.startsWith("操作未完成")?raw:friendly;
+      const message="班级"+(wasEditing?"修改":"创建")+"失败："+summary+http+code+details+"。原始响应："+raw;
       setStatus(message,true);
       toast(message,true);
     }finally{
       classCreateRunning=false;
       button.disabled=false;
       button.textContent=originalText;
+    }
+  }
+  async function createClassGuarded(source="button"){
+    try{await createClass(source);}
+    catch(error){
+      const detail=String(error?.stack||error?.message||error||"未知前端异常");
+      const status=$("createClassStatus");
+      const message="班级按钮入口异常："+detail;
+      if(status){status.textContent=message;status.classList.add("error");status.classList.remove("success");}
+      toast(message,true);
     }
   }
   let assignmentPublishRunning=false;
@@ -2472,8 +2527,8 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
     $("classList").addEventListener("click",e=>{const qr=e.target.closest("[data-class-qr]");if(qr)showClassQr(qr.dataset.classQr);});
     $("copyClassQrLink")?.addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("classQrLink").value);toast("班级加入链接已复制。");}catch{ $("classQrLink").select();document.execCommand("copy");toast("班级加入链接已复制。");}});
     $("closeClassQr")?.addEventListener("click",()=>$("classQrDialog").close());
-    $("createClass").addEventListener("click",e=>{e.preventDefault();createClass();});
-    $("createClassForm").addEventListener("submit",e=>{e.preventDefault();createClass();});
+    $("createClass").addEventListener("click",e=>{e.preventDefault();createClassGuarded("原生点击事件");});
+    $("createClassForm").addEventListener("submit",e=>{e.preventDefault();createClassGuarded("表单提交事件");});
     $("clearClassForm").addEventListener("click",clearClassForm);
     $("publishAssignment").addEventListener("click",publishAssignment);
     $("joinClass").addEventListener("click",joinClass);
