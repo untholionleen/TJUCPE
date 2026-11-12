@@ -187,7 +187,7 @@ button:disabled{opacity:.58;cursor:wait}.template-download-bar button{min-height
 .class-qr-dialog::backdrop{background:rgba(12,28,42,.48)}
 .class-qr-body{display:grid;justify-items:center;gap:12px;padding:24px}
 .class-qr-render{display:grid;place-items:center;width:280px;height:280px;max-width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden}
-.class-qr-render canvas,.class-qr-render img{display:block!important;width:100%!important;height:100%!important;max-width:100%;object-fit:contain;image-rendering:pixelated}
+.class-qr-render canvas,.class-qr-render img{width:100%!important;height:100%!important;max-width:100%;object-fit:contain;image-rendering:pixelated}
 .class-qr-render table{border-collapse:collapse!important}
 .class-qr-render td{padding:0!important}
 .qr-error{margin:12px;text-align:center;color:#a22b2b;font-size:12px;line-height:1.7}

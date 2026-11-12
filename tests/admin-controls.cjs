@@ -79,7 +79,7 @@ assert.match(html, /id="retryClassQr"/, "QR dialog must offer a retry control");
 assert.match(html, /仅管理自己负责的班级/, "teacher classroom page must explain the class ownership boundary");
 assert.ok(html.includes("app.js?v=20261112-tjucpe-v2.5.1"), "QR/permission repair must use a cache-busted app bundle");
 assert.ok(html.includes("TJUCPE · v2.5.1"), "visible version must match the QR/permission repair");
-const qrMigration = fs.readFileSync("supabase/migrations/20261112041700_tjucpe_restrict_personal_analysis_reads_to_owner_admin.sql", "utf8");
+const qrMigration = fs.readFileSync("supabase/migrations/20261112041738_tjucpe_restrict_personal_analysis_reads_to_owner_admin.sql", "utf8");
 assert.ok(qrMigration.includes("drop policy if exists records_select_owner_or_staff"), "migration must remove the global staff-wide personal record read policy");
 assert.ok(qrMigration.includes("owner_id = (select auth.uid())"), "personal analysis records must be visible to their owner");
 assert.ok(qrMigration.includes("or private.is_admin()"), "administrator must retain global oversight of personal analysis records");
