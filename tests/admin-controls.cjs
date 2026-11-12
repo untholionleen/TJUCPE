@@ -34,8 +34,8 @@ assert.match(app, /window\.addEventListener\("unhandledrejection"/, "unhandled a
 assert.match(app, /\$\("createClassForm"\)\.addEventListener\("submit"/, "class creation must retain keyboard form submission");
 assert.match(app, /classCreateRunning/, "class create double-submit guard must be present");
 assert.match(html, /id="createClassStatus"/, "class create progress/error feedback must be visible");
-assert.match(html, /app\.js\?v=20261112-tjucpe-v2\.5\.0/, "browser cache must refresh to the repaired app version");
-assert.match(html, /TJUCPE · v2\.5\.0/, "visible app version must match the loaded asset version");
+assert.match(html, /app\.js\?v=20261112-tjucpe-v2\.5\.1/, "browser cache must refresh to the repaired app version");
+assert.match(html, /TJUCPE · v2\.5\.1/, "visible app version must match the loaded asset version");
 assert.match(app, /管理员账号登录/, "teacher attempts to open administrator panels must receive an explanation");
 assert.match(app, /任务发布失败：/, "assignment publishing errors must be surfaced instead of becoming silent rejections");
 assert.match(edge, /role_metadata_sync_warnings/, "admin list endpoint must expose role metadata sync warnings");
