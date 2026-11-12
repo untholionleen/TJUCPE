@@ -19,6 +19,7 @@ assert.match(edge, /if \(action === "create_class"\)[\s\S]*\["teacher", "admin"\
 assert.match(edge, /const teacherId = isAdmin && requestedTeacherId \? requestedTeacherId : actorId/, "teachers cannot assign ownership to another account");
 assert.match(edge, /class\.created/, "class creation must be audited");
 assert.match(edge, /account_status === "disabled"/, "disabled accounts must not access privileged actions");
-assert.match(edge, /targetProfile\.role === "admin"/, "last admin protections must remain in place");
+assert.match(edge, /targetProfile\\.role===\\"admin\\"[\\s\\S]*不能停用最后一个有效管理员/, "last admin account cannot be disabled");
+assert.match(edge, /targetProfile\\.role===\\"admin\\"[\\s\\S]*不能降级最后一个有效管理员/, "last admin role cannot be demoted");
 assert.match(edge, /Only student accounts can be deleted in this operation/, "teacher deletion must not use the student deletion path");
 console.log("TJUCPE administrator control and server-authorized classroom creation tests passed.");
