@@ -539,18 +539,23 @@ export default {
         const reportIds = reports.map((row: Record<string, any>) => String(row.id));
         const assignmentIds = assignments.map((row: Record<string, any>) => String(row.id));
 
-        const [revisionResult, recordResult] = await Promise.all([
+        const [revisionResult, recordResult, templateResult] = await Promise.all([
           reportIds.length
             ? supabaseAdmin.from("report_revisions").select("*").in("report_id", reportIds).order("changed_at")
             : Promise.resolve({ data: [], error: null }),
           assignmentIds.length
             ? supabaseAdmin.from("experiment_records").select("*").in("assignment_id", assignmentIds).order("created_at").limit(10000)
+            : Promise.resolve({ data: [], error: null }),
+          assignmentIds.length
+            ? supabaseAdmin.from("assignment_templates").select("*").in("assignment_id", assignmentIds)
             : Promise.resolve({ data: [], error: null })
         ]);
         if (revisionResult.error) return json({ error: revisionResult.error.message }, 500);
         if (recordResult.error) return json({ error: recordResult.error.message }, 500);
+        if (templateResult.error) return json({ error: templateResult.error.message }, 500);
         const revisions = revisionResult.data ?? [];
         const records = recordResult.data ?? [];
+        const templates = templateResult.data ?? [];
 
         const studentIds = [...new Set([
           ...members.map((row: Record<string, any>) => String(row.student_id)),
@@ -565,7 +570,8 @@ export default {
 
         const paths = [...new Set([
           ...reports.flatMap((row: Record<string, any>) => [row.storage_path, row.data_file_path, row.annotation_source_path]),
-          ...revisions.flatMap((row: Record<string, any>) => [row.previous_storage_path, row.previous_data_file_path])
+          ...revisions.flatMap((row: Record<string, any>) => [row.previous_storage_path, row.previous_data_file_path]),
+          ...references.map((row: Record<string, any>) => row.storage_path)
         ].filter((path: unknown): path is string => typeof path === "string" && path.length > 0))];
 
         const signedUrlMap = new Map<string, string>();
@@ -610,6 +616,9 @@ export default {
           addFile(revision.previous_storage_path, "历史报告版本/" + studentFolder + "/" + revision.report_id + "_v" + revision.version + "_" + safe(revision.previous_file_name), "report_revision", revision.report_id);
           addFile(revision.previous_data_file_path, "历史数据版本/" + studentFolder + "/" + revision.report_id + "_v" + revision.version + "_" + safe(revision.previous_data_file_name), "data_revision", revision.report_id);
         }
+        for (const reference of references as Record<string, any>[]) {
+          addFile(reference.storage_path, "教师参考数据/" + safe(reference.title || reference.source_file_name || reference.id), "reference_set", "");
+        }
 
         const backupName = "TJUCPE_" + safe(classResult.data.name) + "_班级完整备份_" + new Date().toISOString().replace(/[:.]/g, "-") + ".zip";
         const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
@@ -649,6 +658,7 @@ export default {
           reports,
           revisions,
           experiment_records: records,
+          assignment_templates: templates,
           reference_sets: references,
           files,
           counts: {
