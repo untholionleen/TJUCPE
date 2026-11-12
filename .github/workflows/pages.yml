@@ -29,6 +29,8 @@ jobs:
         run: node --check experiment-engine.js
       - name: Check lazy-loaded teacher workbook editor syntax
         run: node --check teacher-workbook.js
+      - name: Check self-hosted QR code library syntax
+        run: node --check qrcodejs.min.js
       - name: Test all experiment calculation workflows
         run: node tests/experiment-engine-smoke.cjs
       - name: Test regression engine
