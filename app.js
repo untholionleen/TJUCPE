@@ -2221,7 +2221,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         '<td>'+escapeHtml(cls.course_code||"—")+'</td>'+
         '<td>'+escapeHtml(cls.teacher_name||"未设置")+'<small>'+escapeHtml(roleName(cls.teacher_role))+'</small></td>'+
         '<td>'+(counts.member_count??0)+'</td><td>'+(counts.assignment_count??0)+'</td>'+
-        '<td>'+(counts.report_count??0)+'</td><td>'+(counts.reference_set_count??0)+'</td>'+
+        '<td>'+(counts.template_count??0)+'</td><td>'+(counts.report_count??0)+'</td><td>'+(counts.reference_set_count??0)+'</td>'+
         '<td><span class="status-pill '+(cls.is_active?"graded":"draft")+'">'+(cls.is_active?"启用":"已归档")+'</span><small>'+
         (cls.last_sync_at?"最近核验："+new Date(cls.last_sync_at).toLocaleString("zh-CN"):"尚未核验")+'</small></td>'+
         '<td><div class="admin-class-actions">'+
@@ -2231,14 +2231,14 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
         '<button class="action-link" data-admin-class-sync="'+cls.id+'">同步核验</button>'+
         '<button class="action-link danger" data-admin-class-delete="'+cls.id+'">备份并删除</button>'+
         '</div></td></tr>';
-    }).join("")||'<tr><td colspan="9" class="muted center">目前没有教学班。可以在上方创建第一个班级。</td></tr>';
+    }).join("")||'<tr><td colspan="10" class="muted center">目前没有教学班。可以在上方创建第一个班级。</td></tr>';
     const options=adminClassCache.map(function(c){return '<option value="'+c.id+'">'+escapeHtml(c.name)+(c.is_active?"":"（已归档）")+'</option>';}).join("");
     $("adminClassSyncSelect").innerHTML='<option value="">全部班级</option>'+(options||"");
     if(adminClassSyncSelectValue&&adminClassCache.some(function(c){return c.id===adminClassSyncSelectValue;}))$("adminClassSyncSelect").value=adminClassSyncSelectValue;
   }
   async function loadAdminClasses(){
     const host=$("adminClassBody");
-    if(host)host.innerHTML='<tr><td colspan="9" class="muted center">正在读取全平台班级与关联数据……</td></tr>';
+    if(host)host.innerHTML='<tr><td colspan="10" class="muted center">正在读取全平台班级与关联数据……</td></tr>';
     try{
       const data=await invokeClassroomAdminDirect({action:"admin_list_classes"});
       adminClassCache=data.classes||[];
@@ -2253,7 +2253,7 @@ tjucpe_plot_png = base64.b64encode(buf.getvalue()).decode("ascii")
       renderAdminClasses();
       $("adminClassRefreshStatus").textContent="已从 Supabase 主数据库读取 "+adminClassCache.length+" 个班级；计数为实时查询结果。";
     }catch(error){
-      if(host)host.innerHTML='<tr><td colspan="9" class="center">'+escapeHtml(error?.message||String(error))+'</td></tr>';
+      if(host)host.innerHTML='<tr><td colspan="10" class="center">'+escapeHtml(error?.message||String(error))+'</td></tr>';
       $("adminClassRefreshStatus").textContent="班级目录读取失败："+(error?.message||String(error));
       toast("管理员班级目录读取失败："+(error?.message||String(error)),true);
     }
